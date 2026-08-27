@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 #[cfg(not(unix))]
 compile_error!("Hardknock V0.1 currently supports Linux and macOS only.");
 

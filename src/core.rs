@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{fmt, path::PathBuf, str::FromStr};
 
 use chrono::{DateTime, Utc};

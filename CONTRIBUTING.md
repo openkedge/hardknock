@@ -23,6 +23,10 @@ Add new migrations instead of editing an already released schema. Keep stdout ma
 
 Before proposing a learning feature, specify the control, expected observation, scope, and evidence that would contradict the hypothesis. Do not add a vector store or distributed service to solve a problem deterministic local code can address.
 
-## License status
+## License
 
-The project license is still **TBD**. This contribution guide does not select a license or add a license grant. Resolve licensing with the maintainers before distributing a release.
+Hardknock is licensed under the [Apache License, Version 2.0](LICENSE). Contributions are covered by its contribution terms in Section 5.
+
+Use `SPDX-License-Identifier: Apache-2.0` in the appropriate comment syntax for new original source files. Preserve the existing licenses and attribution notices of third-party material.
+
+[NOTICE](NOTICE) currently identifies the project and its license; it is not a complete dependency attribution inventory. Before distributing releases, review included third-party components and preserve their required license texts and notices. Update NOTICE with applicable attribution notices as needed; do not use it to add license terms.

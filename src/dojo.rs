@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 use std::{env, ffi::OsStr, fs, path::Path, process::Command};
 
 use chrono::Utc;

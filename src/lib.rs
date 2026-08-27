@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Execution substrate. Experiences, evaluators, and lesson inference come later.
 #![cfg(unix)]
 

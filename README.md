@@ -560,4 +560,8 @@ Open an issue or pull request with the problem, starting conditions, proposed be
 
 ## License
 
-**TBD.** An open-source license has not yet been selected. No `LICENSE` file is present in this repository.
+Licensed under the [Apache License, Version 2.0](LICENSE).
+
+`SPDX-License-Identifier: Apache-2.0`
+
+See [NOTICE](NOTICE) for project notices. Third-party components retain their respective licenses.
