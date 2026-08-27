@@ -11,7 +11,7 @@ Reflection ≠ causal proof
 
 ## Typed records
 
-IDs are resource prefixes followed by canonical UUIDs. Different ID types cannot be interchanged through parsing or JSON. The active prefixes are `r-`, `exec-`, `eval-`, `exp-`, `hypothesis-`, `lesson-`, `experiment-`, and `trial-`. Reflex and Recovery IDs reserve future concepts without implementing them.
+IDs are resource prefixes followed by canonical UUIDs. Different ID types cannot be interchanged through parsing or JSON. The active prefixes are `r-`, `exec-`, `eval-`, `exp-`, `hypothesis-`, `lesson-`, `experiment-`, `trial-`, and `application-`. Reflex and Recovery IDs reserve future concepts without implementing them.
 
 | Record | Fields and meaning |
 | --- | --- |
@@ -24,7 +24,20 @@ IDs are resource prefixes followed by canonical UUIDs. Different ID types cannot
 | `Lesson` | ID/version, source and hypothesis IDs, status, claim/scope/actions, rationale, confidence, evidence, discovery identities, creation/update times |
 | `Experiment` | Source Experience/Lesson/Hypothesis, starting state, replay plan, trial results, status, conclusion, optional runtime failure |
 
-Actions are observed process invocations, not instrumented commands inside an opaque agent. Fixture logs such as `ACTION shell npm install` describe the simulation; the actual recorded action is `./agent-script.sh baseline`. Prediction, surprise, automatic recovery observations, and general perturbation engines are deferred. The only implemented perturbation is explicit command replacement.
+Actions are observed process invocations, not instrumented commands inside an opaque agent. Fixture logs such as `ACTION shell npm install` describe a simulation. The recorded process may invoke `./agent-script.sh run`; its explicit replay script is the observed strategy (`baseline` or `alternative`). Prediction, surprise, automatic recovery observations, and general perturbation engines are deferred. The only implemented perturbation is explicit command replacement.
+
+## Application and lineage
+
+Experience includes `lesson_applications`, `relations`, `repeated_mistakes`, `observed_actions`, and `application_report_errors`. All default empty when reading historical JSON. Lesson adds optional `retired_at`, `retired_reason`, and `validation`; these belong to new revisions, not edits to old observations.
+
+| Record | Meaning |
+| --- | --- |
+| `LessonApplication` | Lesson ID/version, Experience ID, relevance/matches, delivered flag, influence, verification, resulting action, reason, proof artifacts |
+| `ExperienceRelation` | `retry_of`, `counterfactual_of`, or observed `transfer_from`, directed from new to prior Experience |
+| `RepeatedMistakeObservation` | Relevant supported/validated Lesson, observed avoid action, score and artifact |
+| `LessonValidationDecision` | Policy version, result, distinct successful context count and reason |
+
+Retrieval alone is not application. Fixture traces can establish observed influence; opaque agent reports are self-reported and cannot validate. Context files and valid usage reports have hashed snapshots outside the disposable Reality. Application, lineage, mistake, and validation rows are immutable, linked by foreign keys and saved atomically with the Experience and any Lesson evidence revision.
 
 ## Evaluation is distinct from execution
 
@@ -50,15 +63,15 @@ The agent diff precedes checks; the final Experience diff includes check effects
 
 `ExperienceStore` exposes insert/get/list with an outcome query and typed summaries. It has no update/delete operation. SQL triggers protect Experience/Evaluation/artifact history from ordinary updates/deletes. Discarding a Reality does not delete its Experience.
 
-`LessonStore` supports insert/get/list and optimistic metadata revisions. The next version is required, and creation time, identity, and historical evidence cannot change. New evidence and confidence/status changes go through `Lesson::apply_experiment` and the experiment finalization transaction. A different tested claim, scope, or pair of commands requires a new hypothesis, avoiding accidental reuse of old evidence. Rationale revisions and all prior versions remain available through the store API.
+`LessonStore` supports insert/get/list and optimistic metadata revisions. The next version is required, and creation time, identity, and historical evidence cannot change. Evidence changes go through experiment finalization or the atomic Experience/application transaction. Explicit retirement creates another revision. Applications reference the exact Lesson version used; `why` also shows its current version. A different tested claim, scope, or pair of commands requires a new hypothesis, avoiding accidental reuse of old evidence. Rationale revisions and all prior versions remain available through the store API.
 
 ## Scope and actions
 
-`ContextSelector` can constrain repository path, required markers, tags, OS, and architecture. Current proposals use the source repository, its observed markers, OS, and architecture. They never produce a global “never use npm” rule.
+`ContextSelector` can constrain repository path, required markers, tags, OS, and architecture. Manual proposals use the source repository, observed markers, OS, and architecture. Version-2 fixture A uses a shared selector requiring the pnpm fixture-family tag, workspace/fixture markers, OS, and architecture. Existing Lessons retain their original scope. Neither path creates a global “never use npm” rule.
 
 `ActionPattern` supports shell commands, file operations, and custom actions. Only shell patterns are executable by the experiment engine. Matching is exact equality after trimming **outer whitespace only**: `npm install` does not match `npm  install`, `npm install --force`, or a substring of a larger script. There is no regex, prefix, quoting, or semantic matcher.
 
-`EvidenceRef` is either an origin Experience or a Trial linked to its Experiment. Relationships are `origin`, `supports`, `contradicts`, or `inconclusive`. The last value explicitly retains neutral comparisons without presenting them as support. Lesson → Hypothesis → source Experience and Lesson → Experiment → Trial → Evaluation/artifacts are represented by typed fields and SQLite foreign keys.
+`EvidenceRef` is either an Experience or a Trial linked to its Experiment. Relationships are `origin`, `supports`, `contradicts`, or `inconclusive`. The last value explicitly retains neutral comparisons without presenting them as support. Lesson → Hypothesis → source Experience and Lesson → Experiment → Trial → Evaluation/artifacts are represented by typed fields and SQLite foreign keys.
 
 ## Lifecycle and confidence
 
@@ -66,10 +79,17 @@ The agent diff precedes checks; the final Experience diff includes check effects
 | --- | --- | --- |
 | New hypothesis | Candidate | 0.42 |
 | Baseline fails, alternative passes | Candidate → CounterfactuallySupported | 0.78 |
-| Baseline passes, alternative fails | Candidate or supported → Contradicted | 0.20 |
+| Baseline passes, alternative fails | Candidate, supported, or Validated → Contradicted | 0.20 |
+| First observed successful application in a distinct tree | Supported → Validated | 0.90 |
+| Second distinct successful application context | Validated | 0.94 |
+| Explicit retirement | Retired; time/reason persisted | Unchanged |
 | Both pass / both fail | Status unchanged; neutral evidence retained | Unchanged |
 | Interrupted/runtime failure | No Lesson revision or support claim | Unchanged |
 
-A timed-out trial gives an inconclusive comparison, not positive evidence. Duplicate experiment evidence is rejected. Further supporting pairs stay at 0.78 and do not promote to `Validated`. A later supporting pair does not erase a contradiction. `Validated` and `Retired` are representable domain states, but no CLI assigns them and V0.1 does not perform those transitions.
+A timed-out trial gives an inconclusive comparison. Duplicate experiment evidence is rejected. Supporting pairs alone cannot validate a Lesson; repeated support preserves confidence already earned. A later supporting pair never erases a contradiction. Failed applications alone add inconclusive evidence, not a causal contradiction. Retired Lessons are excluded from default listing and retrieval.
+
+Validation requires controlled support plus a relevant, observed, successful application in a different Git tree and no controlled contradiction. Tree/fingerprint keys deduplicate applications. Renamed tasks, identical clones, same-state retries, and opaque self-reports cannot inflate confidence. Policy decisions and applying-agent identity remain inspectable. A different tree is only a heuristic for context independence; see [retrieval and validation](retrieval.md).
+
+**Validated means Hardknock observed supporting evidence in both a controlled counterfactual and at least one distinct application context. It does not imply universal correctness.**
 
 **V0.1 confidence values are heuristic indicators of accumulated evidence, not calibrated probabilities.** Counterfactual support is not universal causal proof.

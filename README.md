@@ -16,13 +16,13 @@ Claude Code, Codex, Hermes, OpenClaw, Kiro, and other agents decide what to do. 
 
 **Meet Lottie the Axolotl.** 🌸 She has broken this build 47 times in the Dojo so your production agent doesn't have to. Axolotls regenerate after injury; Lottie represents the same ambition for agents: recover, test alternatives, and retain what helped.
 
-> **Pre-alpha · Milestones 0–6 implemented.** Local runs now produce evaluated, immutable Experiences. Manual or deterministic hypotheses can be tested in fresh baseline/alternative Realities, with scoped Lesson updates and inspectable evidence. Retrieval, retry, and `Validated` promotion remain planned.
+> **Pre-alpha · First transfer loop implemented.** Local failures produce immutable Experiences and scoped Lessons tested in fresh baseline/alternative Realities. Deterministic retrieval can advise a bounded retry or a distinct task. Observed successful transfer can promote a Lesson to `Validated`; contradictory evidence and retirement remain inspectable.
 
 [Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Experience](#experience-is-evidence) · [V0.1 scope](#v01-scope) · [Contributing](#contributing)
 
 ## Run the current prototype
 
-**Implemented:** a Rust CLI, detached Git Realities, generic and scripted execution, required command checks, immutable Experiences, scoped Lessons, controlled experiments, hashed artifacts, SQLite provenance, JSON output, deadlines, and cleanup on Ctrl-C. Linux and macOS are the current targets. Build with stable Rust, Git, and a C compiler:
+**Implemented:** a Rust CLI, detached Git Realities, generic and scripted execution, required checks, immutable Experiences, scoped Lessons, controlled experiments, deterministic retrieval, application provenance, bounded retries, transfer validation, hashed artifacts, SQLite, JSON output, deadlines, and cleanup on Ctrl-C. Linux and macOS are the current targets. Build with stable Rust, Git, and a C compiler:
 
 ```bash
 cargo build --locked
@@ -41,7 +41,7 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
-**Planned:** Lesson retrieval, task retry, repeated-evidence validation, cross-task transfer, and named vendor adapters. See the [implemented CLI reference](docs/cli.md), [architecture](docs/architecture.md), and [next milestones](docs/roadmap.md).
+**Planned:** active resilience experiments, stronger environment controls, broader transfer measurements, and named vendor adapters. See the [CLI reference](docs/cli.md), [retrieval policy](docs/retrieval.md), and [next phase](docs/roadmap.md).
 
 ## The problem
 
@@ -73,45 +73,55 @@ Hardknock's purpose is to let agents **generate, validate, accumulate, revise, a
 
 ## Run the learning demo
 
-The [local pnpm workspace fixture](fixtures/pnpm-workspace-conflict) simulates conflicting package-manager state. It uses no network, model API, npm, or pnpm installation. Initialize it as a separate Git repository using the [demo instructions](docs/experiments.md#run-the-offline-demo), then run:
+The local fixtures simulate conflicting package-manager state without network access, model calls, or npm/pnpm installations. Initialize fixtures A and B as separate Git repositories using the [demo instructions](docs/experiments.md#run-the-offline-demo), with one shared data home:
 
 ```bash
-hardknock run --agent test-agent --check './test.sh' 'upgrade dependencies'
+hardknock --repo /path/to/A run --agent test-agent --check './test.sh' \
+  --retry-with-experience --max-retries 1 'upgrade demo dependencies'
+
+hardknock --repo /path/to/B run --no-experience --agent test-agent \
+  --check './test.sh' 'upgrade service and worker'
+
+hardknock --repo /path/to/B run --agent test-agent \
+  --check './test.sh' 'upgrade service and worker'
 ```
 
 The tested sequence is:
 
 ```text
-Original process: success
-Original evaluation: failure · package_manager_conflict
-Candidate Lesson: confidence 0.42
+Fixture A · demo package
+  First attempt       simulated npm     FAIL
+  Counterfactual      simulated npm     FAIL
+                      simulated pnpm    PASS
+  Lesson              supported         confidence 0.78
+  Opt-in retry        Lesson applied    PASS
 
-baseline     ./agent-script.sh baseline       failure
-alternative  ./agent-script.sh alternative    success
-
-Conclusion: supports hypothesis
-Lesson: CounterfactuallySupported · confidence 0.78
-Original task was not retried; its evaluation remains failure.
+Fixture B · distinct service/worker packages and task
+  Without experience  simulated npm     FAIL · repeated mistake 1
+  With experience     simulated pnpm    PASS · repeated mistake 0
+  Lesson              VALIDATED         confidence 0.90
 ```
 
-This is a compact summary of the real fixture behavior; actual output includes full UUIDs, provenance, and artifact paths. The command exits **1** because experimental support does not turn the original task into a success. Three immutable Experiences remain after the disposable worktrees are removed.
+This is a summary of tested fixture behavior. A produces four immutable Experiences including the retry; B adds a control and an advised run. The original failure and Experiment never change. A's retry exits **0**, B's control **1**, and B's advised run **0**. No source checkout needs resetting: every attempt starts in a fresh Reality. Without the retry flag, A still exits 1 after recording support.
 
 ```bash
 hardknock experience list
 hardknock experience show exp-<uuid>
 hardknock lesson list
 hardknock lesson show lesson-<uuid>
+hardknock --repo /path/to/B lesson search --action 'npm install'
 hardknock experiment list
 hardknock experiment show experiment-<uuid>
+hardknock why --experience exp-<transfer-uuid>
 ```
 
 For other workflows, use `run --script`, `lesson propose`, and `experiment run --lesson`. Replacement matches the entire recorded script; it does not intercept commands inside an opaque agent. See [CLI usage](docs/cli.md) and [experimental limits](docs/experiments.md#equivalence-and-limits).
 
-**Counterfactual support is not universal causal proof.** V0.1 confidence values are heuristic indicators of accumulated evidence, not calibrated probabilities. Repeating the pair does not automatically validate a Lesson.
+**Validated** means Hardknock observed supporting evidence in both a controlled counterfactual and at least one distinct application context. It does not imply universal correctness. Distinctness requires a different repository tree; an identical clone or renamed task cannot boost confidence. Confidence is a heuristic, not a calibrated probability. See the [phase report](docs/implementation-transfer.md) for the checks, contradiction case, and Codex CLI smoke test.
 
 ## How it works
 
-The first four steps work for explicit local scripts. Retrieval, retry, and broader lifecycle management below remain the next phase.
+These steps work for the local fixtures and explicit scripts. Generic agents can opt into the [context-file contract](docs/agent-integration.md); their internal action claims remain self-reported.
 
 1. **Capture an execution.** Record the goal, starting state, actions, observations, and evaluation, including failures.
 2. **Propose a hypothesis.** Reflection extracts a Candidate Lesson with a specific claim and scope.
@@ -314,7 +324,7 @@ The intent is a cap on trial executions, with additional limits on tokens, tool 
 
 ## Works with your agent
 
-The integration model is **Claude + Hardknock, Codex + Hardknock, Hermes + Hardknock, OpenClaw + Hardknock**. Named agent adapters are planned. The implemented generic adapter can launch a configured noninteractive CLI through `--agent-command`; it does not imply vendor-specific integration or tested compatibility.
+The integration model is **Claude + Hardknock, Codex + Hardknock, Hermes + Hardknock, OpenClaw + Hardknock**. Named adapters remain planned. The generic adapter can launch a noninteractive CLI through `--agent-command` and deliver experience with `--with-experience`. A local Codex CLI smoke test passed; this is not a compatibility guarantee for every vendor, version, or configuration. See [agent integration](docs/agent-integration.md).
 
 ```text
                         USER
@@ -346,7 +356,7 @@ The integration model is **Claude + Hardknock, Codex + Hardknock, Hermes + Hardk
 | Integration stage | Contract |
 | --- | --- |
 | **Runner compatible** | Hardknock launches an existing CLI in an isolated environment. No agent modifications are required for this level; the adapter handles invocation and capture. |
-| **Experience aware** | The agent queries an API/MCP-style interface for relevant lessons, skills, recovery patterns, and supporting evidence. |
+| **Experience aware** | Implemented through `.hardknock/context.md` and `context.json`; API/MCP access and other artifact types remain planned. |
 | **Experimental** | The agent explicitly requests forks, multiple trials, counterfactual experiments, or chaos experiments. |
 | **Reflex integrated** | Before consequential actions, relevant reflexes can return `continue`, `advise`, `warn`, `replan`, or `stage as experiment`; `block` requires independent policy authorization. |
 | **Native** | Deeper integration with agent hooks, tools, skills, session state, and execution lifecycle. |
@@ -417,13 +427,13 @@ hardknock
 └── why
 ```
 
-The signature inspectability command is a future interface:
+The implemented inspectability command explains recorded Lesson influence:
 
 ```bash
 hardknock why
 ```
 
-When a reflex affects an agent decision, it should explain the relevant context, evidence, uncertainty, and policy authorization through a traceable chain:
+Current explanations follow application → Lesson → Experiment → source Experience. A future reflex should extend that chain with its trigger and independent policy authorization:
 
 ```text
 Decision → Reflex → Lesson → Experiment → Experience
@@ -439,7 +449,7 @@ Decision → Reflex → Lesson → Experiment → Experience
 | Experience Engine | Store typed evidence, propose lessons, track support and contradiction, and retrieve applicable artifacts |
 | Policy and review gates | Keep trial permissions and artifact acceptance explicit; authorize any blocking behavior independently of confidence |
 
-These are conceptual boundaries, not a commitment to separate services. The current substrate is a single modular Rust crate with SQLite metadata, local artifact files, a generic command adapter, and a Git-worktree `RealityProvider`. The initial Experiment Engine, immutable Experience store, and Lesson evidence policies are implemented; retrieval and retry remain planned. See the [architecture decisions and current guarantees](docs/architecture.md).
+These are conceptual boundaries, not a commitment to separate services. The implementation is one modular Rust crate with SQLite, local artifacts, a generic adapter, and a Git-worktree `RealityProvider`. It includes experiments, immutable evidence, scoped retrieval, retries, and Lesson validation. See [architecture and guarantees](docs/architecture.md).
 
 ## V0.1 scope
 
@@ -460,9 +470,11 @@ These are conceptual boundaries, not a commitment to separate services. The curr
 - Manual and deterministic Candidate Hypotheses and scoped, versioned Lessons.
 - Explicit baseline/alternative scripts in fresh Realities with equivalence checks.
 - Centralized support/contradiction classification and heuristic confidence.
-- Candidate → CounterfactuallySupported or Contradicted transitions.
+- Candidate → CounterfactuallySupported → Validated transitions, contradiction and explicit retirement.
+- Deterministic scoped retrieval, context injection, observable application and retry lineage.
+- Bounded opt-in retry and a distinct transfer fixture with an experience-disabled control.
 
-**Next:** applicable Lesson retrieval, explicit retry, independent replication criteria for `Validated`, and a held-out cross-task transfer fixture. The current demo stops at evidence and never retries the original task.
+**Next:** active resilience building: validated skills, deliberate local perturbations, failure boundaries, operating envelopes, advisory reflexes, and bounded recovery. These are not implemented in this phase.
 
 ### Out of scope initially
 
@@ -489,7 +501,7 @@ Measurements should include:
 
 The key test is **experience transfer**: does an agent avoid an analogous failure on a new task because of a lesson learned elsewhere? Retrying the same task successfully is useful, but does not establish transfer.
 
-No benchmark results are available yet.
+The deterministic transfer comparison measures success **0/1 → 1/1** and repeated mistakes **1/1 → 0/1** for fixture B. This is one designed local failure class, not a general agent benchmark. A benchmark CLI and broader evaluations remain deferred.
 
 ## Technical principles
 
@@ -517,9 +529,9 @@ The broader release goals below include work beyond the implemented local loop. 
 
 ## Project status
 
-Hardknock is a **pre-alpha empirical learning prototype**. Milestones 0–6 and the first guarded Lesson transitions are implemented and covered by local unit/integration tests. The CLI builds from source; there is no published release package or benchmark result. CI is configured for Linux and macOS.
+Hardknock is a **pre-alpha empirical learning prototype**. The first retrieval, retry, application, and transfer-validation loop is implemented and tested. It builds from source; no release package is published. CI is configured for Linux and macOS; local verification was on macOS.
 
-The offline fixture demonstrates Experience → Hypothesis → Experiment → Evidence and counterfactual support. It does not establish general agent performance, automatic retry, validated causal claims, or cross-task transfer. APIs, command syntax, and schemas may change as those next steps are tested.
+The fixtures demonstrate limited transfer from one task to a related, distinct repository. They do not establish general agent performance or universal causal claims. APIs, command syntax, and schemas remain subject to change.
 
 ## Contributing
 

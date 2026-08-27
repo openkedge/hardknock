@@ -1,8 +1,8 @@
 # Architecture
 
-## Implemented: Milestones 0–6
+## Implemented: first empirical transfer loop
 
-One modular Rust crate now runs the local empirical loop. Reflection proposes a hypothesis; only recorded trials can supply counterfactual evidence. Neither retrieval, task retry, nor `Validated` promotion is implemented.
+One modular Rust crate runs the local empirical loop. Reflection proposes a hypothesis; recorded trials supply counterfactual evidence. Scoped retrieval can advise a future run, and observed successful application in a distinct repository tree can validate a supported Lesson.
 
 ```text
                    Agent
@@ -31,6 +31,14 @@ One modular Rust crate now runs the local empirical loop. Reflection proposes a 
                    Evidence
                      │
        Counterfactually Supported Lesson
+                     │
+             Scoped Retrieval
+                     │
+          Context → Agent → Application
+                     │
+             New Experience
+                     │
+       Distinct observed success → Validated
 ```
 
 | Module | Responsibility |
@@ -45,6 +53,11 @@ One modular Rust crate now runs the local empirical loop. Reflection proposes a 
 | `reflection` | `ReflectionProvider`, deterministic fixture rule, manual hypotheses |
 | `lesson` | Scope and action matching, evidence relationships, guarded lifecycle, confidence policy |
 | `experiment` | Explicit replay plan, fresh baseline/alternative runs, comparison policy |
+| `retrieval` | Stable QueryContext, hard scope gates, deterministic scoring and thresholds |
+| `application` | Advice files, optional progress observer, fixture traces, opaque usage reports, repeated mistakes |
+| `learning_loop` | Opt-in retry budget, fresh original state, immutable retry lineage |
+| `validation` | Distinct successful application policy, deduplication, recorded decisions |
+| `explanation` | Historical application snapshot, current Lesson, source and experiment chain |
 | `store` | SQLite migrations, typed store traits, immutable records, revisions, provenance keys |
 | `cli` | Parsing, adapter selection, human/JSON presentation; no conclusion or confidence rules |
 
@@ -62,15 +75,19 @@ Opaque `--agent-command` runs inherit the caller's environment and cannot be rep
 
 1. Validate input and acquire an advisory Reality lease before worktree creation.
 2. Reconstruct and verify the starting snapshot; collect context before any task effects.
-3. Run the agent with stdin closed, outputs redirected to files, and a deadline.
-4. Stop its process group, save its diff, and persist an immutable `ExecutionRecord`.
+3. Optionally retrieve scoped Lessons, snapshot context files, and notify the CLI before starting the agent. Run with stdin closed, file outputs, and a deadline.
+4. Stop its process group, save its diff, persist an immutable `ExecutionRecord`, and observe application before checks can change the report.
 5. Run required checks sequentially in the same Reality. Ordinary check failure does not skip later checks; cancellation or timeout does.
-6. Save the final diff including evaluator effects, hash artifacts, and insert the Evaluation and Experience atomically.
+6. Save the final diff including evaluator effects, hash artifacts, and atomically insert Evaluation, Experience, application/lineage/mistake rows, and any evidence-based Lesson revision and validation decision.
 7. Discard the Reality unless kept or required to preserve evidence after a capture/storage error.
 
 Process success and task success are independent. A failed process can still satisfy all required checks; an exit-zero process can fail evaluation. No checks means an inconclusive task observation; the CLI retains its old process-based exit behavior for compatibility.
 
 Experiments persist their plan before running trials. Each trial records its own immutable Experience and artifact links. Finishing a successful comparison commits the terminal Experiment, evidence relationships, and next Lesson revision in one immediate SQLite transaction. It loads the latest Lesson revision so concurrent experiments do not overwrite each other's evidence. Failed/interrupted investigations retain completed trials without promoting a Lesson.
+
+Application transactions likewise acquire an immediate write transaction before loading the latest Lesson and evidence summary. Concurrent applications retain both observations while deduplicating the same tree/fingerprint for confidence. Each application references the exact immutable Lesson version that was delivered, even if another run revises or retires it before completion. Retired Lessons are not promoted by late application writes.
+
+The adapter API remains compatible: context preparation wraps command execution rather than replacing `build_command(task)`. An optional advice observer reports progress. Generic reports are self-reported, while trusted fixture traces provide observed influence. See [retrieval](retrieval.md) and [agent integration](agent-integration.md).
 
 ## Data and migration boundaries
 
@@ -79,14 +96,15 @@ Experiments persist their plan before running trials. Each trial records its own
 | `001_substrate.sql` | Existing Realities and append-only Executions; unchanged |
 | `002_experiences.sql` | Evaluations, immutable Experiences, typed artifact references |
 | `003_learning.sql` | Hypotheses, Lessons, immutable revisions, Experiments, Trials, evidence and artifact links |
+| `004_transfer.sql` | Immutable applications/artifact links, Experience relations, repeated mistakes, validation decisions |
 
 Foreign keys represent Lesson → source Experience/Hypothesis, Experiment → Lesson/Hypothesis/source, Trial → Experiment/Reality/Execution/Evaluation/Experience, and Trial → artifacts. Store validation checks the structured records agree with these links. Triggers reject updates/deletes of immutable history. Terminal experiments cannot be rewritten. Lessons use checked versions; updates preserve creation time and existing evidence. Changing the tested claim, scope, or commands requires a new hypothesis; a rationale can be revised through the store API.
 
-Migrations are additive, transactional, and applied once. Existing execution JSON is not rewritten. Old artifact references default to kind `other`, and old commands to inherited environment. Unknown newer database schemas are rejected. There is no automatic backfill of old Executions into Experiences.
+Migrations are additive, transactional, and applied once. Existing Execution/Experience/Lesson JSON is not rewritten. New Experience collections default empty and new Lesson lifecycle fields default absent. Old artifact references default to kind `other`, and old commands to inherited environment. Unknown newer schemas are rejected. There is no automatic backfill or scope broadening. Migration 004 has no destructive down migration; restore a backup to run an older binary.
 
 ## Retention, cancellation, and crashes
 
-A shared cancellation token stays set throughout the command. SIGINT/SIGTERM stops the active process group; pending checks/trials are skipped. Ordinary background descendants are also stopped when the parent exits. The runner uses SIGKILL, not graceful shutdown hooks. Processes that establish new sessions/process groups may escape.
+A shared cancellation token stays set throughout the command. SIGINT/SIGTERM stops the active process group; pending checks/trials/retries are skipped. Ordinary background descendants are also stopped when the parent exits. The runner uses SIGKILL, not graceful shutdown hooks. Processes that establish new sessions/process groups may escape.
 
 Normal success, check failure, timeout, and cancellation retain evidence and discard trial worktrees. Capture/storage failures preserve the affected worktree and report its path so uncaptured changes are not destroyed. Earlier trial evidence remains queryable. Pre-execution verification failures clean up without starting a child.
 

@@ -1,6 +1,6 @@
 # CLI reference
 
-Milestones 0–6 are implemented for Linux/macOS. Build from source with stable Rust, Git, and a C compiler:
+The first empirical transfer loop is implemented for Linux/macOS. Build from source with stable Rust, Git, and a C compiler:
 
 ```bash
 cargo build --locked
@@ -39,11 +39,26 @@ Initialize the fixture as described in [experiments.md](experiments.md#run-the-o
 | `--agent test-agent` | Deterministic fixture adapter and automatic experimental comparison |
 | `--check SCRIPT` | Required shell check; repeat to run several in order |
 | `--timeout-secs N` | Per agent/check process deadline; default 300, range 1–86400 |
-| `--keep` | Keep the original run's Reality; experiment trials are still discarded |
+| `--keep` | Retain task-attempt Realities; experiment trials are still discarded |
+| `--with-experience` | Opt generic/script adapters into context-file advice |
+| `--no-experience` | Disable advice, fixture reflection and retries; audit matches measure repeated mistakes |
+| `--retry-with-experience` | Opt into fresh-state retries with applicable supported Lessons |
+| `--max-retries N` | Budget 0–10, default 1; only active with the retry flag |
+| `--action SCRIPT` | Proposed action for relevance; repeatable |
+| `--min-relevance N` | Retrieval minimum, default 0.50 |
+| `--recommend-threshold N` | Delivery threshold, default 0.70 |
+| `--strong-threshold N` | Strong relevance threshold, default 0.85 |
 
 All required checks must pass. An agent exiting zero does not establish task success. A failed agent with passing checks can have a successful task evaluation. No checks means `inconclusive`; the CLI preserves its historical process-based exit code in that case. Normal failed checks do not skip later checks; timeouts or cancellation do.
 
-Output identifies the process result, evaluation, source Experience, and artifacts. The fixture also reports its Candidate, trials, conclusion, and updated Lesson. Successful counterfactual support does **not** change the original failed task result or retry the task; that demo intentionally exits 1.
+Output identifies process result, evaluation, Experience, applications, repeated mistakes, and artifacts. Delivered advice appears on stderr before execution. The fixture reports any new hypothesis/trials, updated Lesson and retry results. Counterfactual support does not change the original task result: without `--retry-with-experience`, that failed run exits 1. With retries, the final attempt determines the exit code; original evidence stays unchanged. `--keep` retains each task attempt, not experiment trials.
+
+```bash
+hardknock run --agent test-agent --check './test.sh' \
+  --retry-with-experience --max-retries 1 'upgrade dependencies'
+```
+
+Timeout, interruption, inconclusive evaluation, or missing applicable advice do not trigger automatic retries. Failed evaluated tasks retry within the explicit budget. Experiment trials are additional executions, not counted as retries. `--no-experience` conflicts with advice/retry flags. See [retrieval](retrieval.md).
 
 ## Evidence and Lesson inspection
 
@@ -75,6 +90,29 @@ hardknock experiment run --lesson lesson-<uuid>
 Propose does not execute anything. It creates a scoped Candidate at confidence 0.42. Run reconstructs the source Experience's starting commit and uses its original checks/deadlines. `--avoid` must match the **entire** recorded script after trimming outer whitespace; `--prefer` replaces that script. No interception of commands inside an opaque live agent is attempted. Unsupported replay conditions fail clearly before trials begin.
 
 The CLI does not accept arbitrary Lesson statuses or confidence values. An inconclusive comparison exits 3; support or contradiction exits 0 because the investigation completed. The Lesson's status conveys which conclusion was reached.
+
+## Search, retest, retirement, and explanation
+
+```bash
+hardknock lesson search --repo /path/to/B --action 'npm install'
+hardknock lesson search --include-candidates --action './agent-script.sh baseline'
+hardknock lesson test lesson-<uuid> --repo /path/to/related-fixture
+hardknock lesson test lesson-<uuid> --repo /path/to/repo \
+  --check './test.sh' --task 'revalidate after a dependency change'
+hardknock lesson retire lesson-<uuid> --reason 'superseded after dependency change'
+hardknock lesson list --include-retired
+hardknock why
+hardknock why --experience exp-<uuid>
+hardknock status
+```
+
+Search accepts the same relevance thresholds as run and explains matches/exclusions. Task text (`--task`) is recorded but not scored. Candidates are debugging results only and are never injected.
+
+`lesson test` makes a new paired Experiment in the target snapshot using the explicit avoid/prefer scripts. Scope must match. Supplied checks take precedence; fixture repositories default to `./test.sh`, while others require `--check`. A supporting retest alone is not an observed application and cannot validate. A controlled contradiction lowers confidence and excludes the Lesson from default retrieval. Retesting retired Lessons is refused.
+
+Retirement accepts an optional reason and records time/reason in a new revision, preserving evidence. Repeating retirement returns the existing revision without replacing its reason. Retired Lessons need `--include-retired` for listing and are never injected.
+
+`why` selects the latest applied influence, falling back to the latest Experience if none exists. It distinguishes `Observed` from `SelfReported`, shows context, action, Lesson revision at use, current status/confidence, origin and experiments. `--experience` selects a specific run, including ignored/control cases. `status` reports counts, not a benchmark. All support `--json`.
 
 ## Reality management
 
@@ -109,7 +147,7 @@ Global flags can precede or follow subcommands. `--help` and `--version` remain 
 {"event":"error","message":"Record exp-… not found","exit_code":2}
 ```
 
-The existing single-result JSON contract is preserved, rather than introducing a streaming stdout protocol. `run_completed` retains `execution`/`reality` and adds `experience`, nullable `lesson`, and nullable `experiment`. Other events include `experience(s)`, `lesson(s)`, `experiment(s)`, `experiment_completed`, `execution(s)`, `reality`, `realities`, `reality_diff`, and `cleanup_completed`. Parentheses here denote singular/plural event names, not literal syntax. Diagnostics include `isolation_warning`, `error`, and optional structured tracing.
+The existing single-result JSON contract is preserved, rather than introducing a streaming stdout protocol. `run_completed` retains `execution`/`reality`, `experience`, nullable `lesson` and `experiment`, and adds `retries`, `retry_stop_reason`, and `interrupted`. Each retry carries its own execution, Reality, and Experience. Other events include `experience(s)`, `lesson(s)`, `experiment(s)`, `experiment_completed`, `execution(s)`, `reality`, `realities`, `reality_diff`, and `cleanup_completed`. Parentheses here denote singular/plural event names, not literal syntax. New result events are `lesson_search`, `why`, and `status`. Diagnostics include `isolation_warning`, `relevant_experience` (before execution), `error`, and optional structured tracing.
 
 On partial experiment runtime failure, inspect `experiment list/show` and `experience list`: evidence may have been persisted even though stdout contains no success response. The error identifies the Experiment and any retained Reality. Schemas remain pre-alpha and may evolve through migrations.
 
@@ -125,6 +163,8 @@ On partial experiment runtime failure, inspect `experiment list/show` and `exper
 │       ├── check-1/{stdout.log,stderr.log}
 │       ├── agent.diff.patch
 │       ├── diff.patch
+│       ├── context.md / context.json  # when experience enabled
+│       ├── agent-usage.json            # valid opaque-agent report
 │       ├── execution.json
 │       └── metadata.json
 ├── realities/
@@ -152,4 +192,4 @@ Cancellation terminates the active process group, records available evidence, an
 
 ## Deferred commands
 
-Retrieval, retry/`try`, `why`, reflexes, recovery, chaos, skill synthesis, arbitrary action interception, named vendor adapters, and `Validated` promotion are not implemented. See [the next-phase plan](roadmap.md#exact-next-phase-plan).
+`try`, benchmark CLI, reflexes, recovery, chaos, skill synthesis, arbitrary action interception, and named vendor adapters remain deferred. The generic adapter has a tested context-file contract; see [agent integration](agent-integration.md). See [the next-phase plan](roadmap.md#exact-next-phase-plan).
