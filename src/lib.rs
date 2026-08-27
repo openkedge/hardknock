@@ -13,6 +13,8 @@ pub mod error;
 pub mod evaluation;
 pub mod experience;
 pub mod experiment;
+pub mod explanation;
+pub mod learning_loop;
 pub mod lesson;
 pub mod process;
 pub mod reflection;

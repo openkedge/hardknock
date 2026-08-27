@@ -12,6 +12,7 @@ use serde::Serialize;
 use crate::{
     Error, Result,
     agent::{AgentAdapter, GenericShellAdapter},
+    application::RunLearningOptions,
     cancellation::Cancellation,
     core::{
         AgentIdentity, ArtifactRef, CommandSpec, EnvironmentMode, ExecutionId, ExecutionRecord,
@@ -19,17 +20,20 @@ use crate::{
     },
     dojo::{GitRealityProvider, RealityProvider, capture_state, resolve_home},
     evaluation::EvaluationSpec,
-    experience::{Experience, ReplaySpec},
+    experience::{Experience, ExperienceContext, ReplaySpec},
     experiment::{Experiment, ExperimentConclusion, ExperimentEngine, ExperimentStatus},
-    lesson::{ConfidencePolicy, HeuristicConfidence, Lesson},
-    reflection::{
-        CandidateHypothesis, DeterministicReflection, ManualReflection, ReflectionProvider,
+    explanation::Explanation,
+    learning_loop::{LearningRunOptions, execute_learning_run},
+    lesson::{ActionPattern, ConfidencePolicy, HeuristicConfidence, Lesson},
+    reflection::{CandidateHypothesis, ManualReflection, ReflectionProvider},
+    retrieval::{
+        DeterministicRetriever, LessonRetriever, QueryContext, RetrievalOptions, RetrievalReport,
     },
     store::{
         ExperienceQuery, ExperienceStore, ExperienceSummary, LessonQuery, LessonStore,
         LessonSummary, Store, artifact,
     },
-    workflow::{RunRequest, run_once},
+    workflow::{RunRequest, RunResult},
 };
 
 pub const ISOLATION_WARNING: &str = "Dojo backend: git-worktree\nIsolation: repository filesystem only (not a security sandbox)\nNetwork: shared\nCredentials: shared\nHost filesystem outside worktree: accessible\nGit objects, refs, and repository configuration: shared\nOnly run trusted commands. Default cleanup removes trial changes after capturing a diff.";
@@ -77,6 +81,13 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Explain the latest recorded behavioral influence or a selected Experience.
+    Why {
+        #[arg(long)]
+        experience: Option<ExperienceId>,
+    },
+    /// Count recorded evidence and Lesson states.
+    Status,
     /// Run a noninteractive command in a detached worktree; capture output and diff.
     Run(RunArgs),
     /// Inspect and manage disposable Git working states.
@@ -137,7 +148,47 @@ pub struct RunArgs {
         help = "Keep the trial worktree for inspection; otherwise discard it after artifact capture"
     )]
     pub keep: bool,
+    #[arg(long, conflicts_with_all=["with_experience","retry_with_experience"], help="Do not inject advice or learn/retry; still audit repeated mistakes")]
+    pub no_experience: bool,
+    #[arg(
+        long,
+        help = "Provide context files to a compatible generic/script adapter"
+    )]
+    pub with_experience: bool,
+    #[arg(long, help = "Opt in to bounded retries using supported Lessons")]
+    pub retry_with_experience: bool,
+    #[arg(long,default_value_t=1,value_parser=clap::value_parser!(u32).range(0..=10))]
+    pub max_retries: u32,
+    #[arg(
+        long = "action",
+        help = "Proposed action for retrieval; repeat for multiple actions"
+    )]
+    pub actions: Vec<String>,
+    #[command(flatten)]
+    pub retrieval: RetrievalArgs,
     pub task: String,
+}
+
+#[derive(Debug, Args)]
+pub struct RetrievalArgs {
+    #[arg(long, default_value_t = 0.50)]
+    pub min_relevance: f64,
+    #[arg(long, default_value_t = 0.70)]
+    pub recommend_threshold: f64,
+    #[arg(long, default_value_t = 0.85)]
+    pub strong_threshold: f64,
+}
+impl RetrievalArgs {
+    fn options(&self) -> Result<RetrievalOptions> {
+        let options = RetrievalOptions {
+            minimum: self.min_relevance.try_into()?,
+            recommend: self.recommend_threshold.try_into()?,
+            strong: self.strong_threshold.try_into()?,
+            include_candidates: false,
+        };
+        options.validate()?;
+        Ok(options)
+    }
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -183,7 +234,32 @@ impl RunArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum LessonCommand {
-    List,
+    List {
+        #[arg(long)]
+        include_retired: bool,
+    },
+    Search {
+        #[arg(long = "action")]
+        actions: Vec<String>,
+        #[arg(long, default_value = "")]
+        task: String,
+        #[arg(long)]
+        include_candidates: bool,
+        #[command(flatten)]
+        retrieval: RetrievalArgs,
+    },
+    Test {
+        id: LessonId,
+        #[arg(long = "check")]
+        checks: Vec<String>,
+        #[arg(long, default_value = "Lesson revalidation")]
+        task: String,
+    },
+    Retire {
+        id: LessonId,
+        #[arg(long)]
+        reason: Option<String>,
+    },
     Show {
         id: LessonId,
     },
@@ -249,12 +325,25 @@ pub enum ExperienceCommand {
 #[derive(Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    LessonSearch {
+        query: Box<QueryContext>,
+        report: RetrievalReport,
+    },
+    Why {
+        explanation: Box<Explanation>,
+    },
+    Status {
+        counts: serde_json::Value,
+    },
     RunCompleted {
         execution: Box<ExecutionRecord>,
         reality: Box<Reality>,
         experience: Box<Experience>,
         lesson: Option<Box<Lesson>>,
         experiment: Option<Box<Experiment>>,
+        retries: Vec<RunResult>,
+        retry_stop_reason: String,
+        interrupted: bool,
     },
     Lesson {
         lesson: Box<Lesson>,
@@ -307,13 +396,19 @@ impl Response {
             Self::RunCompleted {
                 execution,
                 experience,
+                retries,
+                interrupted,
                 ..
             } => {
-                if matches!(self, Self::RunCompleted { experiment: Some(e), .. } if e.status == ExperimentStatus::Interrupted)
+                if *interrupted
+                    || matches!(self, Self::RunCompleted { experiment: Some(e), .. } if e.status == ExperimentStatus::Interrupted)
                 {
                     5
                 } else {
-                    experience.exit_code(execution.status)
+                    retries
+                        .last()
+                        .map(|r| r.experience.exit_code(r.execution.status))
+                        .unwrap_or_else(|| experience.exit_code(execution.status))
                 }
             }
             Self::ExperimentCompleted { experiment, .. } => {
@@ -344,6 +439,9 @@ impl Response {
                 experience,
                 lesson,
                 experiment,
+                retries,
+                retry_stop_reason,
+                ..
             } => {
                 writeln!(
                     stdout,
@@ -365,16 +463,19 @@ impl Response {
                     writeln!(stdout, "  {:?} · {}", check.status, check.command)?;
                 }
                 writeln!(stdout, "Experience: {}", experience.id)?;
+                print_applications(&mut stdout, experience)?;
                 for signature in &experience.failure_signatures {
                     writeln!(stdout, "  signature: {}", signature.signature)?;
                 }
                 if let Some(lesson) = lesson {
-                    writeln!(
-                        stdout,
-                        "Candidate created: {} · initial confidence {:.2}",
-                        lesson.id,
-                        f64::from(HeuristicConfidence.initial())
-                    )?;
+                    if experiment.is_some() {
+                        writeln!(
+                            stdout,
+                            "Candidate created: {} · initial confidence {:.2}",
+                            lesson.id,
+                            f64::from(HeuristicConfidence.initial())
+                        )?;
+                    }
                     if let Some(experiment) = experiment {
                         print_experiment(&mut stdout, experiment)?;
                     }
@@ -384,9 +485,28 @@ impl Response {
                         lesson.status,
                         f64::from(lesson.confidence)
                     )?;
+                    if retries.is_empty() {
+                        writeln!(
+                            stdout,
+                            "Original task was not retried; its evaluation remains {:?}.",
+                            experience.outcome
+                        )?;
+                    }
+                }
+                for (index, retry) in retries.iter().enumerate() {
                     writeln!(
                         stdout,
-                        "Original task was not retried; its evaluation remains {:?}.",
+                        "Retry {}: {:?} · {}",
+                        index + 1,
+                        retry.experience.outcome,
+                        retry.experience.id
+                    )?;
+                    print_applications(&mut stdout, &retry.experience)?;
+                }
+                if !retries.is_empty() {
+                    writeln!(
+                        stdout,
+                        "{retry_stop_reason}. Original Experience remains {:?}.",
                         experience.outcome
                     )?;
                 }
@@ -404,6 +524,99 @@ impl Response {
                     execution.action.stderr.path.display(),
                     execution.diff.path.display()
                 )?;
+            }
+            Self::LessonSearch { report, .. } => {
+                for retrieved in &report.matches {
+                    writeln!(
+                        stdout,
+                        "{} · relevance {:.2} · {:?} · confidence {:.2}",
+                        retrieved.lesson.id,
+                        f64::from(retrieved.relevance),
+                        retrieved.lesson.status,
+                        f64::from(retrieved.lesson.confidence)
+                    )?;
+                    for matched in &retrieved.matched_context {
+                        writeln!(
+                            stdout,
+                            "  {}: {} (+{:.2})",
+                            matched.signal, matched.value, matched.weight
+                        )?;
+                    }
+                    writeln!(stdout, "  Prefer: {:?}", retrieved.lesson.prefer)?;
+                }
+                if report.matches.is_empty() {
+                    writeln!(stdout, "No applicable Lessons.")?;
+                }
+                for excluded in &report.excluded {
+                    writeln!(
+                        stdout,
+                        "Excluded {}: {}",
+                        excluded.lesson_id, excluded.reason
+                    )?;
+                }
+            }
+            Self::Why { explanation } => {
+                writeln!(
+                    stdout,
+                    "Experience: {} · {:?}",
+                    explanation.experience_id, explanation.outcome
+                )?;
+                for entry in &explanation.applications {
+                    let a = &entry.application;
+                    writeln!(
+                        stdout,
+                        "{} · {:?} · {:?} · relevance {:.2}",
+                        a.lesson_id,
+                        a.influence,
+                        a.verification,
+                        f64::from(a.relevance)
+                    )?;
+                    writeln!(
+                        stdout,
+                        "  {}\n  At application: revision {} · confidence {:.2}\n  Current: {:?} · confidence {:.2}\n  Source: {} · {:?}",
+                        a.reason,
+                        a.lesson_version,
+                        f64::from(entry.lesson_at_application.confidence),
+                        entry.current_lesson.status,
+                        f64::from(entry.current_lesson.confidence),
+                        entry.source.id,
+                        entry.source.outcome
+                    )?;
+                    for m in &a.context_matches {
+                        writeln!(stdout, "  Match: {} = {}", m.signal, m.value)?;
+                    }
+                    writeln!(
+                        stdout,
+                        "  Agent: {} ({})\n  Action: {:?} → {:?}",
+                        explanation.agent.kind,
+                        explanation.agent.executable,
+                        entry.lesson_at_application.avoid,
+                        a.resulting_action
+                    )?;
+                    for e in &entry.experiments {
+                        writeln!(stdout, "  Evidence: {} · {:?}", e.id, e.conclusion)?;
+                    }
+                    for evidence in &entry.current_lesson.evidence {
+                        if let crate::lesson::EvidenceRef::Experience {
+                            experience_id,
+                            relationship,
+                        } = evidence
+                        {
+                            writeln!(
+                                stdout,
+                                "  Experience evidence: {} · {:?}",
+                                experience_id, relationship
+                            )?;
+                        }
+                    }
+                }
+                if explanation.applications.is_empty() {
+                    writeln!(stdout, "No recorded Lesson influence for this Experience.")?;
+                }
+            }
+            Self::Status { counts } => {
+                serde_json::to_writer_pretty(&mut stdout, counts)?;
+                writeln!(stdout)?;
             }
             Self::Lessons { lessons } => {
                 for l in lessons {
@@ -512,6 +725,71 @@ impl Response {
     }
 }
 
+fn print_advice(advice: &crate::application::PreparedAdvice, json: bool) -> Result<()> {
+    let delivered: Vec<_> = advice
+        .report
+        .matches
+        .iter()
+        .filter(|r| advice.delivered.contains(&r.lesson.id))
+        .collect();
+    let mut out = io::stderr().lock();
+    if json {
+        let lessons: Vec<_> = delivered
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "lesson_id":r.lesson.id,"relevance":r.relevance,
+                    "confidence":r.lesson.confidence,"prefer":r.lesson.prefer,
+                    "context_matches":r.matched_context,
+                })
+            })
+            .collect();
+        serde_json::to_writer(
+            &mut out,
+            &serde_json::json!({
+                "event":"relevant_experience", "delivered":lessons,
+                "message":"Advice prepared before agent execution",
+            }),
+        )?;
+        writeln!(out)?;
+    } else if !delivered.is_empty() {
+        writeln!(out, "Relevant experience (before execution)")?;
+        for r in delivered {
+            writeln!(
+                out,
+                "  {} · relevance {:.2} · confidence {:.2}\n  Prefer: {:?}",
+                r.lesson.id,
+                f64::from(r.relevance),
+                f64::from(r.lesson.confidence),
+                r.lesson.prefer
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn print_applications(out: &mut impl Write, experience: &Experience) -> Result<()> {
+    for a in &experience.lesson_applications {
+        writeln!(
+            out,
+            "Relevant experience: {} · {:?} · relevance {:.2} · delivered {}",
+            a.lesson_id,
+            a.influence,
+            f64::from(a.relevance),
+            a.delivered
+        )?;
+        writeln!(out, "  {}", a.reason)?;
+    }
+    if !experience.repeated_mistakes.is_empty() {
+        writeln!(
+            out,
+            "Repeated mistakes: {}",
+            experience.repeated_mistakes.len()
+        )?;
+    }
+    Ok(())
+}
+
 fn print_experiment(out: &mut impl Write, e: &Experiment) -> Result<()> {
     writeln!(
         out,
@@ -564,6 +842,9 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     let state = if matches!(
         cli.command,
         Commands::Run(_)
+            | Commands::Lesson {
+                command: LessonCommand::Search { .. } | LessonCommand::Test { .. }
+            }
             | Commands::Reality {
                 command: RealityCommand::Create
             }
@@ -580,6 +861,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     };
     if let Commands::Run(args) = &cli.command {
         args.adapter()?;
+        args.retrieval.options()?;
         EvaluationSpec {
             checks: args.checks.clone(),
         }
@@ -589,8 +871,17 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                 .as_ref()
                 .ok_or_else(|| Error::InvalidInput("Missing starting state".into()))?
                 .repo_path;
-            let marker: serde_json::Value = serde_json::from_slice(&fs::read(root.join("hardknock-fixture.json")).map_err(|_| Error::Intervention("test-agent requires the initialized pnpm-workspace-conflict fixture at the repository root; see docs/experiments.md".into()))?)?;
-            if marker["kind"] != "pnpm-workspace-conflict" || marker["version"] != 1 {
+            let marker = crate::experience::fixture_metadata(root).map_err(|e| Error::Intervention(format!("test-agent requires a valid initialized Hardknock fixture; see docs/experiments.md: {e}")))?;
+            if !matches!(
+                marker["kind"].as_str(),
+                Some(
+                    "pnpm-workspace-conflict"
+                        | "pnpm-workspace-transfer"
+                        | "pnpm-workspace-contradiction"
+                        | "npm-ordinary"
+                )
+            ) || !matches!(marker["version"].as_u64(), Some(1 | 2))
+            {
                 return Err(Error::InvalidInput("Unsupported test-agent fixture".into()));
             }
         }
@@ -598,12 +889,42 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     let store = Store::open(&home)?;
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
+        Commands::Why { experience } => Ok(Response::Why {
+            explanation: Box::new(store.explain(experience.as_ref())?),
+        }),
+        Commands::Status => Ok(Response::Status {
+            counts: store.status_counts()?,
+        }),
         Commands::Run(args) => {
             warning(cli.json)?;
             let state =
                 state.ok_or_else(|| Error::InvalidInput("Missing starting state".into()))?;
-            let (spec, agent, replay) = args.adapter()?;
-            let result = run_once(
+            let (mut spec, agent, replay) = args.adapter()?;
+            let fixture = if args.agent.is_some() {
+                let marker = crate::experience::fixture_metadata(&state.repo_path)?;
+                marker["version"] == 2
+            } else {
+                false
+            };
+            if fixture && !args.no_experience {
+                spec = CommandSpec::shell("./agent-script.sh run", EnvironmentMode::Controlled);
+            }
+            let actions = if args.actions.is_empty() {
+                if args.agent.is_some() {
+                    vec![ActionPattern::shell("./agent-script.sh baseline")]
+                } else {
+                    args.script
+                        .iter()
+                        .map(|s| ActionPattern::shell(s))
+                        .collect()
+                }
+            } else {
+                args.actions
+                    .iter()
+                    .map(|s| ActionPattern::shell(s))
+                    .collect()
+            };
+            let cycle = execute_learning_run(
                 &store,
                 RunRequest {
                     state,
@@ -619,35 +940,118 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                     perturbations: vec![],
                     expected_fingerprint: None,
                 },
+                LearningRunOptions {
+                    learning: RunLearningOptions {
+                        enabled: !args.no_experience
+                            && (args.agent.is_some()
+                                || args.with_experience
+                                || args.retry_with_experience),
+                        audit: args.agent.is_some() || args.no_experience,
+                        fixture,
+                        proposed_actions: actions,
+                        retrieval: args.retrieval.options()?,
+                        relations: vec![],
+                        on_advice: if cli.quiet {
+                            None
+                        } else {
+                            let json = cli.json;
+                            Some(std::sync::Arc::new(move |advice| {
+                                print_advice(advice, json)
+                            }))
+                        },
+                    },
+                    auto_reflect: args.agent.is_some() && !args.no_experience,
+                    retry: args.retry_with_experience,
+                    max_retries: args.max_retries,
+                },
                 cancel,
             )
             .await?;
-            let mut lesson = None;
-            let mut experiment = None;
-            if args.agent.is_some() && !cancel.is_cancelled() {
-                for h in DeterministicReflection.reflect(&result.experience)? {
-                    store.insert_hypothesis(&h)?;
-                    let candidate = Lesson::candidate(&h, &HeuristicConfidence);
-                    LessonStore::insert(&store, &candidate)?;
-                    let e = ExperimentEngine { store: &store }
-                        .execute(&candidate.id, cancel)
-                        .await?;
-                    lesson = Some(Box::new(store.lesson(&candidate.id)?));
-                    experiment = Some(Box::new(e));
-                }
-            }
             Ok(Response::RunCompleted {
-                execution: Box::new(result.execution),
-                reality: Box::new(result.reality),
-                experience: Box::new(result.experience),
-                lesson,
-                experiment,
+                execution: Box::new(cycle.initial.execution),
+                reality: Box::new(cycle.initial.reality),
+                experience: Box::new(cycle.initial.experience),
+                lesson: cycle.lessons.into_iter().next().map(Box::new),
+                experiment: cycle.experiments.into_iter().next().map(Box::new),
+                retries: cycle.retries,
+                retry_stop_reason: cycle.retry_stop_reason,
+                interrupted: cycle.interrupted,
             })
         }
         Commands::Lesson { command } => match command {
-            LessonCommand::List => Ok(Response::Lessons {
-                lessons: LessonStore::list(&store, LessonQuery::default())?,
+            LessonCommand::List { include_retired } => Ok(Response::Lessons {
+                lessons: LessonStore::list(
+                    &store,
+                    LessonQuery {
+                        status: None,
+                        include_retired: *include_retired,
+                    },
+                )?,
             }),
+            LessonCommand::Search {
+                actions,
+                task,
+                include_candidates,
+                retrieval,
+            } => {
+                let state = state
+                    .as_ref()
+                    .ok_or_else(|| Error::InvalidInput("Missing search state".into()))?;
+                let context = ExperienceContext::capture(
+                    state,
+                    &state.repo_path,
+                    EnvironmentMode::Controlled,
+                )?;
+                let query = QueryContext::new(
+                    &context,
+                    task,
+                    actions.iter().map(|a| ActionPattern::shell(a)).collect(),
+                );
+                let mut options = retrieval.options()?;
+                options.include_candidates = *include_candidates;
+                let report = DeterministicRetriever {
+                    store: &store,
+                    options,
+                }
+                .retrieve(&query)?;
+                Ok(Response::LessonSearch {
+                    query: Box::new(query),
+                    report,
+                })
+            }
+            LessonCommand::Retire { id, reason } => {
+                let lesson = store.retire_lesson(id, reason.clone())?;
+                Ok(Response::Lesson {
+                    hypothesis: Box::new(store.hypothesis(&lesson.hypothesis_id)?),
+                    lesson: Box::new(lesson),
+                })
+            }
+            LessonCommand::Test { id, checks, task } => {
+                warning(cli.json)?;
+                let state =
+                    state.ok_or_else(|| Error::InvalidInput("Missing retest state".into()))?;
+                let evaluation = if checks.is_empty() {
+                    if crate::experience::fixture_metadata(&state.repo_path).is_err() {
+                        return Err(Error::InvalidInput(
+                            "Non-fixture lesson tests require at least one --check".into(),
+                        ));
+                    }
+                    EvaluationSpec {
+                        checks: vec!["./test.sh".into()],
+                    }
+                } else {
+                    EvaluationSpec {
+                        checks: checks.clone(),
+                    }
+                };
+                let experiment = ExperimentEngine { store: &store }
+                    .execute_at(id, Some((state, evaluation, task.clone())), cancel)
+                    .await?;
+                Ok(Response::ExperimentCompleted {
+                    experiment: Box::new(experiment),
+                    lesson: Box::new(store.lesson(id)?),
+                })
+            }
             LessonCommand::Show { id } => {
                 let lesson = store.lesson(id)?;
                 Ok(Response::Lesson {
