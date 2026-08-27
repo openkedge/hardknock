@@ -750,6 +750,10 @@ fn cancellation_during_retry_keeps_lineage_and_stops_further_attempts() {
     let retry = &result["retries"][0]["experience"];
     assert_eq!(retry["outcome"], "interrupted");
     assert_eq!(
+        result["retry_stop_reason"],
+        "Interrupted; no further attempts"
+    );
+    assert_eq!(
         retry["relations"][0],
         json!({"kind":"retry_of", "experience_id":result["experience"]["id"]})
     );

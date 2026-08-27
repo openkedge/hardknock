@@ -232,6 +232,75 @@ fn v1_database_migrates_without_rewriting_old_execution_json() {
 }
 
 #[test]
+fn v3_migration_preserves_raw_experience_json_and_defaults_new_provenance() {
+    let original = Fixture::new();
+    let run = original.cli(
+        &["run", "--script", "true", "--check", "true", "legacy task"],
+        0,
+    );
+    let legacy = Fixture::new();
+    fs::create_dir(&legacy.home).unwrap();
+    let db = rusqlite::Connection::open(legacy.home.join("hardknock.db")).unwrap();
+    db.execute_batch("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); INSERT INTO schema_migrations(version) VALUES(1),(2),(3);").unwrap();
+    for migration in [
+        include_str!("../migrations/001_substrate.sql"),
+        include_str!("../migrations/002_experiences.sql"),
+        include_str!("../migrations/003_learning.sql"),
+    ] {
+        db.execute_batch(migration).unwrap();
+    }
+    db.execute(
+        "ATTACH DATABASE ?1 AS source",
+        [original.home.join("hardknock.db").to_str().unwrap()],
+    )
+    .unwrap();
+    for table in ["realities", "executions", "evaluations"] {
+        db.execute(
+            &format!("INSERT INTO {table} SELECT * FROM source.{table}"),
+            [],
+        )
+        .unwrap();
+    }
+    db.execute("INSERT INTO experiences SELECT id,created_at,reality_id,execution_id,evaluation_id,outcome,json_remove(data,'$.lesson_applications','$.relations','$.repeated_mistakes','$.observed_actions','$.application_report_errors') FROM source.experiences", []).unwrap();
+    db.execute(
+        "INSERT INTO experience_artifacts SELECT * FROM source.experience_artifacts",
+        [],
+    )
+    .unwrap();
+    db.execute("DETACH DATABASE source", []).unwrap();
+    let raw: String = db
+        .query_row("SELECT data FROM experiences", [], |r| r.get(0))
+        .unwrap();
+    let store = Store::open(&legacy.home).unwrap();
+    let experience = store
+        .experience(&run["experience"]["id"].as_str().unwrap().parse().unwrap())
+        .unwrap();
+    assert!(experience.lesson_applications.is_empty());
+    assert!(experience.relations.is_empty());
+    assert!(experience.repeated_mistakes.is_empty());
+    assert!(experience.observed_actions.is_empty());
+    assert!(experience.application_report_errors.is_empty());
+    assert_eq!(
+        db.query_row("SELECT data FROM experiences", [], |r| r
+            .get::<_, String>(0))
+            .unwrap(),
+        raw
+    );
+    assert_eq!(
+        db.query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        4
+    );
+    assert!(
+        !db.prepare("PRAGMA foreign_key_check")
+            .unwrap()
+            .exists([])
+            .unwrap()
+    );
+}
+
+#[test]
 fn cancelled_evaluation_records_completed_check_and_skips_remaining_checks() {
     use nix::{
         sys::signal::{Signal, kill},

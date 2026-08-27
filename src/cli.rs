@@ -485,7 +485,9 @@ impl Response {
                         lesson.status,
                         f64::from(lesson.confidence)
                     )?;
-                    if retries.is_empty() {
+                    if retries.is_empty()
+                        && experience.outcome == crate::experience::Outcome::Failure
+                    {
                         writeln!(
                             stdout,
                             "Original task was not retried; its evaluation remains {:?}.",

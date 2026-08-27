@@ -117,6 +117,9 @@ pub async fn execute_learning_run(
             }
         }
     }
+    if cancel.is_cancelled() {
+        reason = "Interrupted; no further attempts".into();
+    }
     lesson_ids.sort_by_key(|id| id.to_string());
     lesson_ids.dedup();
     let lessons = lesson_ids
