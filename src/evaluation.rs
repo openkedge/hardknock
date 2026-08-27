@@ -69,6 +69,36 @@ pub struct Evaluation {
     pub summary: String,
 }
 
+impl Evaluation {
+    pub fn validate(&self) -> Result<()> {
+        self.spec.validate()?;
+        let expected_success = self.status == EvaluationStatus::Completed
+            && !self.checks.is_empty()
+            && self.checks.iter().all(|c| c.status == CheckStatus::Passed);
+        if self.success != expected_success
+            || self.checks.len() != self.spec.checks.len()
+            || (self.status == EvaluationStatus::Completed && self.checks.is_empty())
+            || (self.status == EvaluationStatus::NotConfigured && !self.checks.is_empty())
+            || self.checks.iter().zip(&self.spec.checks).any(|(c, s)| {
+                c.command != *s
+                    || (c.status == CheckStatus::NotRun) != c.action.is_none()
+                    || (c.status == CheckStatus::Passed
+                        && !c
+                            .action
+                            .as_ref()
+                            .is_some_and(|a| a.exit_code == Some(0) && a.signal.is_none()))
+                    || (self.status == EvaluationStatus::Completed
+                        && !matches!(c.status, CheckStatus::Passed | CheckStatus::Failed))
+            })
+        {
+            return Err(Error::InvalidInput(
+                "Evaluation checks and overall result are inconsistent".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 pub trait Evaluator {
     fn evaluate(
         &self,

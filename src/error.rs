@@ -8,6 +8,8 @@ pub enum Error {
     Intervention(String),
     #[error("{0}")]
     NotFound(String),
+    #[error("Experiment {id} failed (partial evidence retained): {source}")]
+    ExperimentFailed { id: String, source: Box<Error> },
     #[error("Git operation failed: {0}")]
     Git(String),
     #[error("Could not start '{program}': {source}. Check the executable or --agent-command.")]
@@ -39,6 +41,7 @@ impl Error {
         match self {
             Self::Intervention(_) => 5,
             Self::RealityPreserved { source, .. } => source.exit_code(),
+            Self::ExperimentFailed { source, .. } => source.exit_code(),
             _ => 2,
         }
     }

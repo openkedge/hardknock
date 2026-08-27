@@ -11,7 +11,10 @@ pub mod dojo;
 pub mod error;
 pub mod evaluation;
 pub mod experience;
+pub mod experiment;
+pub mod lesson;
 pub mod process;
+pub mod reflection;
 pub mod store;
 pub mod workflow;
 

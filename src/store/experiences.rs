@@ -32,6 +32,7 @@ pub trait ExperienceStore {
 
 impl ExperienceStore for Store {
     fn insert(&self, exp: &Experience) -> Result<()> {
+        exp.evaluation.validate()?;
         let execution = self.execution(&exp.execution_id)?;
         if execution.reality_id != exp.reality_id
             || execution.starting_state != exp.starting_state
