@@ -15,6 +15,7 @@ pub mod experiment;
 pub mod lesson;
 pub mod process;
 pub mod reflection;
+pub mod retrieval;
 pub mod store;
 pub mod workflow;
 
