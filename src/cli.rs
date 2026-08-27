@@ -2,10 +2,8 @@
 
 use std::{
     env, fs,
-    future::Future,
     io::{self, Write},
     path::PathBuf,
-    time::Duration,
 };
 
 use clap::{Args, Parser, Subcommand};
@@ -14,12 +12,15 @@ use serde::Serialize;
 use crate::{
     Error, Result,
     agent::{AgentAdapter, GenericShellAdapter},
+    cancellation::Cancellation,
     core::{
-        ArtifactRef, ExecutionId, ExecutionRecord, ProcessStatus, Reality, RealityId, RealityStatus,
+        ArtifactRef, ExecutionId, ExecutionRecord, ExperienceId, Reality, RealityId, RealityStatus,
     },
     dojo::{GitRealityProvider, RealityProvider, capture_state, resolve_home},
-    process::ProcessRunner,
-    store::{Store, artifact},
+    evaluation::EvaluationSpec,
+    experience::Experience,
+    store::{ExperienceQuery, ExperienceStore, ExperienceSummary, Store, artifact},
+    workflow::{RunRequest, run_once},
 };
 
 pub const ISOLATION_WARNING: &str = "Dojo backend: git-worktree\nIsolation: repository filesystem only (not a security sandbox)\nNetwork: shared\nCredentials: shared\nHost filesystem outside worktree: accessible\nGit objects, refs, and repository configuration: shared\nOnly run trusted commands. Default cleanup removes trial changes after capturing a diff.";
@@ -74,6 +75,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: RealityCommand,
     },
+    /// Inspect immutable evaluated observations.
+    Experience {
+        #[command(subcommand)]
+        command: ExperienceCommand,
+    },
     /// Inspect raw process records (not evaluated Experiences).
     Execution {
         #[command(subcommand)]
@@ -90,6 +96,11 @@ pub struct RunArgs {
     pub agent_command: String,
     #[arg(long, default_value_t = 300, value_parser = clap::value_parser!(u64).range(1..=86400))]
     pub timeout_secs: u64,
+    #[arg(
+        long = "check",
+        help = "Required check, executed by /bin/sh -c; repeat for multiple checks"
+    )]
+    pub checks: Vec<String>,
     #[arg(
         long,
         help = "Keep the trial worktree for inspection; otherwise discard it after artifact capture"
@@ -127,12 +138,25 @@ pub enum ExecutionCommand {
     Show { id: ExecutionId },
 }
 
+#[derive(Debug, Subcommand)]
+pub enum ExperienceCommand {
+    List,
+    Show { id: ExperienceId },
+}
+
 #[derive(Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
     RunCompleted {
         execution: Box<ExecutionRecord>,
         reality: Box<Reality>,
+        experience: Box<Experience>,
+    },
+    Experience {
+        experience: Box<Experience>,
+    },
+    Experiences {
+        experiences: Vec<ExperienceSummary>,
     },
     Reality {
         reality: Reality,
@@ -159,7 +183,11 @@ pub enum Response {
 impl Response {
     pub fn exit_code(&self) -> u8 {
         match self {
-            Self::RunCompleted { execution, .. } => execution.exit_code(),
+            Self::RunCompleted {
+                execution,
+                experience,
+                ..
+            } => experience.exit_code(execution.status),
             _ => 0,
         }
     }
@@ -175,7 +203,11 @@ impl Response {
             return Ok(());
         }
         match self {
-            Self::RunCompleted { execution, reality } => {
+            Self::RunCompleted {
+                execution,
+                reality,
+                experience,
+            } => {
                 writeln!(
                     stdout,
                     "{}Dojo · {}",
@@ -187,7 +219,15 @@ impl Response {
                     "Process {:?} · exit {:?} · {} ms",
                     execution.status, execution.action.exit_code, execution.action.duration_ms
                 )?;
-                writeln!(stdout, "Task success has not been evaluated (Milestone 3).")?;
+                writeln!(
+                    stdout,
+                    "Evaluation: {:?} · {}",
+                    experience.outcome, experience.evaluation.summary
+                )?;
+                for check in &experience.evaluation.checks {
+                    writeln!(stdout, "  {:?} · {}", check.status, check.command)?;
+                }
+                writeln!(stdout, "Experience: {}", experience.id)?;
                 writeln!(stdout, "Execution: {}", execution.id)?;
                 writeln!(
                     stdout,
@@ -202,6 +242,18 @@ impl Response {
                     execution.action.stderr.path.display(),
                     execution.diff.path.display()
                 )?;
+            }
+            Self::Experience { experience } => {
+                serde_json::to_writer_pretty(&mut stdout, experience)?;
+                writeln!(stdout)?;
+            }
+            Self::Experiences { experiences } => {
+                for e in experiences {
+                    writeln!(stdout, "{}\t{:?}\t{}", e.id, e.outcome, e.goal)?;
+                }
+                if experiences.is_empty() {
+                    writeln!(stdout, "No experiences recorded.")?;
+                }
             }
             Self::Reality { reality } => writeln!(
                 stdout,
@@ -261,7 +313,7 @@ pub fn warning(json: bool) -> Result<()> {
     Ok(())
 }
 
-pub async fn execute<F: Future<Output = ()>>(cli: &Cli, cancel: F) -> Result<Response> {
+pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     let raw_home = cli
         .home
         .clone()
@@ -300,77 +352,39 @@ pub async fn execute<F: Future<Output = ()>>(cli: &Cli, cancel: F) -> Result<Res
                 state.ok_or_else(|| Error::InvalidInput("Missing starting state".into()))?;
             let adapter = GenericShellAdapter::new(&args.agent_command)?;
             let spec = adapter.build_command(&args.task)?;
-            let (mut reality, _lease) = provider.create_for_run(&state, args.keep)?;
-            let result = async {
-                reality.status = RealityStatus::Running;
-                store.update_reality(&reality)?;
-                let id = ExecutionId::new();
-                let artifacts = store.home.join("artifacts").join(id.to_string());
-                let (status, action) = ProcessRunner
-                    .run(
-                        &spec,
-                        &reality.root,
-                        &artifacts,
-                        Duration::from_secs(args.timeout_secs),
-                        cancel,
-                    )
-                    .await?;
-                let patch = provider.diff(&reality)?;
-                let diff_path = artifacts.join("diff.patch");
-                fs::write(&diff_path, patch)?;
-                let execution = ExecutionRecord {
-                    id,
-                    reality_id: reality.id.clone(),
-                    starting_state: state,
-                    task: args.task.clone(),
+            let result = run_once(
+                &store,
+                RunRequest {
+                    state,
+                    goal: args.task.clone(),
                     agent: adapter.identity(),
-                    status,
-                    action,
-                    diff: artifact(&diff_path)?,
-                };
-                fs::write(
-                    artifacts.join("metadata.json"),
-                    serde_json::to_vec_pretty(&execution)?,
-                )?;
-                store.insert_execution(&execution)?;
-                reality.status = if status == ProcessStatus::Succeeded {
-                    RealityStatus::Completed
-                } else {
-                    RealityStatus::Failed
-                };
-                store.update_reality(&reality)?;
-                Ok(execution)
-            }
-            .await;
-            // A failed capture must not destroy the only remaining copy of trial changes.
-            let preserve = args.keep
-                || (result.is_err() && !matches!(&result, Err(Error::ProcessStart { .. })));
-            let cleanup = if preserve {
-                if result.is_err() {
-                    reality.status = RealityStatus::Failed;
-                    reality.ephemeral = false;
-                }
-                store.update_reality(&reality)
-            } else {
-                provider.discard(&mut reality)
-            };
-            match (result, cleanup) {
-                (Ok(execution), Ok(())) => Ok(Response::RunCompleted {
-                    execution: Box::new(execution),
-                    reality: Box::new(reality),
-                }),
-                (Err(primary), Err(cleanup)) => Err(Error::Cleanup {
-                    primary: Box::new(primary),
-                    cleanup: Box::new(cleanup),
-                }),
-                (Err(error), Ok(())) if preserve => Err(Error::RealityPreserved {
-                    id: reality.id.to_string(),
-                    path: reality.root.display().to_string(),
-                    source: Box::new(error),
-                }),
-                (Err(error), _) | (_, Err(error)) => Err(error),
-            }
+                    command: spec,
+                    evaluation: EvaluationSpec {
+                        checks: args.checks.clone(),
+                    },
+                    timeout_secs: args.timeout_secs,
+                    keep: args.keep,
+                    replay: None,
+                    perturbations: vec![],
+                    expected_fingerprint: None,
+                },
+                cancel,
+            )
+            .await?;
+            Ok(Response::RunCompleted {
+                execution: Box::new(result.execution),
+                reality: Box::new(result.reality),
+                experience: Box::new(result.experience),
+            })
         }
+        Commands::Experience { command } => match command {
+            ExperienceCommand::List => Ok(Response::Experiences {
+                experiences: ExperienceStore::list(&store, ExperienceQuery::default())?,
+            }),
+            ExperienceCommand::Show { id } => Ok(Response::Experience {
+                experience: Box::new(store.experience(id)?),
+            }),
+        },
         Commands::Reality { command } => match command {
             RealityCommand::Create => {
                 warning(cli.json)?;

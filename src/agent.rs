@@ -48,6 +48,7 @@ impl AgentAdapter for GenericShellAdapter {
             return Err(Error::InvalidInput("Task cannot contain a NUL byte".into()));
         }
         Ok(CommandSpec {
+            environment: Default::default(),
             program: self.program.clone(),
             args: self
                 .args

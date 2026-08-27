@@ -11,6 +11,7 @@ use std::{
 use clap::Parser;
 use hardknock::{
     Error,
+    cancellation::Cancellation,
     cli::{Cli, execute},
 };
 use tokio::signal::unix::{SignalKind, signal};
@@ -74,10 +75,15 @@ async fn main() -> ExitCode {
         // Register before creating a worktree so SIGINT cannot skip cleanup setup.
         let mut interrupt = signal(SignalKind::interrupt())?;
         let mut terminate = signal(SignalKind::terminate())?;
-        let cancel = async {
+        let cancel = Cancellation::default();
+        let listener_cancel = cancel.clone();
+        let listener = tokio::spawn(async move {
             tokio::select! { _ = interrupt.recv() => {}, _ = terminate.recv() => {} }
-        };
-        let response = execute(&cli, cancel).await?;
+            listener_cancel.cancel();
+        });
+        let result = execute(&cli, &cancel).await;
+        listener.abort();
+        let response = result?;
         response.print(&cli)?;
         Ok::<_, Error>(response.exit_code())
     }

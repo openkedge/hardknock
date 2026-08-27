@@ -19,7 +19,8 @@ use tokio::process::Command;
 
 use crate::{
     Error, Result,
-    core::{ActionRecord, CommandSpec, ProcessStatus},
+    core::{ActionRecord, ArtifactKind, CommandSpec, EnvironmentMode, ProcessStatus},
+    experience::controlled_environment,
     store::artifact,
 };
 
@@ -70,7 +71,11 @@ impl ProcessRunner {
             .open(&stderr_path)?;
         let started_at = Utc::now();
         let start = Instant::now();
-        let mut child = Command::new(&spec.program)
+        let mut command = Command::new(&spec.program);
+        if spec.environment == EnvironmentMode::Controlled {
+            command.env_clear().envs(controlled_environment(cwd));
+        }
+        let mut child = command
             .args(&spec.args)
             .current_dir(cwd)
             .stdin(Stdio::null())
@@ -117,8 +122,8 @@ impl ProcessRunner {
             duration_ms: start.elapsed().as_millis().min(u64::MAX as u128) as u64,
             exit_code: exit.code(),
             signal: exit.signal(),
-            stdout: artifact(&stdout_path)?,
-            stderr: artifact(&stderr_path)?,
+            stdout: artifact(&stdout_path)?.with_kind(ArtifactKind::Stdout),
+            stderr: artifact(&stderr_path)?.with_kind(ArtifactKind::Stderr),
         };
         Ok((status, action))
     }

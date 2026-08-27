@@ -99,6 +99,14 @@ impl<'a> GitRealityProvider<'a> {
         self.create_with_options(state, None, !keep)
     }
 
+    pub fn verify_start(&self, reality: &Reality) -> Result<()> {
+        let head = text(git(&reality.root).args(["rev-parse", "HEAD^{commit}"]))?;
+        if head != reality.starting_state.git_commit || !self.diff(reality)?.is_empty() {
+            return Err(Error::Intervention("Counterfactual experiment cannot guarantee equivalent starting state: worktree does not match the recorded commit/tree.".into()));
+        }
+        Ok(())
+    }
+
     fn create_with_options(
         &self,
         state: &StateRef,

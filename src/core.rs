@@ -63,6 +63,9 @@ identifier!(ExecutionId, "exec-");
 identifier!(ExperienceId, "exp-");
 identifier!(LessonId, "lesson-");
 identifier!(ExperimentId, "experiment-");
+identifier!(HypothesisId, "hypothesis-");
+identifier!(TrialId, "trial-");
+identifier!(EvaluationId, "eval-");
 identifier!(ReflexId, "reflex-");
 identifier!(RecoveryId, "recovery-");
 
@@ -99,6 +102,26 @@ pub struct Reality {
 pub struct CommandSpec {
     pub program: String,
     pub args: Vec<String>,
+    #[serde(default)]
+    pub environment: EnvironmentMode,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvironmentMode {
+    #[default]
+    Inherited,
+    Controlled,
+}
+
+impl CommandSpec {
+    pub fn shell(script: &str, environment: EnvironmentMode) -> Self {
+        Self {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), script.into()],
+            environment,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -114,6 +137,27 @@ pub struct ArtifactRef {
     pub path: PathBuf,
     pub blake3: String,
     pub bytes: u64,
+    #[serde(default)]
+    pub kind: ArtifactKind,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtifactKind {
+    Stdout,
+    Stderr,
+    Diff,
+    EvaluationOutput,
+    Metadata,
+    #[default]
+    Other,
+}
+
+impl ArtifactRef {
+    pub fn with_kind(mut self, kind: ArtifactKind) -> Self {
+        self.kind = kind;
+        self
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

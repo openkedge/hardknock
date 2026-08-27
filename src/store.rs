@@ -17,6 +17,9 @@ use crate::{
     core::{ArtifactRef, ExecutionId, ExecutionRecord, Reality, RealityId},
 };
 
+mod experiences;
+pub use experiences::{ExperienceQuery, ExperienceStore, ExperienceSummary};
+
 pub struct Store {
     pub home: PathBuf,
     connection: Connection,
@@ -72,7 +75,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 1 {
+        if version > 2 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -80,6 +83,10 @@ impl Store {
         if version < 1 {
             tx.execute_batch(include_str!("../migrations/001_substrate.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (1)", [])?;
+        }
+        if version < 2 {
+            tx.execute_batch(include_str!("../migrations/002_experiences.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (2)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");
@@ -191,6 +198,7 @@ pub fn artifact(path: &Path) -> Result<ArtifactRef> {
         bytes += read as u64;
     }
     Ok(ArtifactRef {
+        kind: Default::default(),
         path: path.into(),
         blake3: hasher.finalize().to_hex().to_string(),
         bytes,
