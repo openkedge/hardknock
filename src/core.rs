@@ -66,6 +66,7 @@ identifier!(ExperimentId, "experiment-");
 identifier!(HypothesisId, "hypothesis-");
 identifier!(TrialId, "trial-");
 identifier!(EvaluationId, "eval-");
+identifier!(ApplicationId, "application-");
 identifier!(ReflexId, "reflex-");
 identifier!(RecoveryId, "recovery-");
 
@@ -124,7 +125,7 @@ impl CommandSpec {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentIdentity {
     pub kind: String,
     pub executable: String,

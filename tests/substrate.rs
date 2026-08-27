@@ -141,7 +141,7 @@ fn migrations_are_idempotent_and_reality_history_survives_reopen() {
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
     assert_eq!(
         fs::metadata(&f.home).unwrap().permissions().mode() & 0o777,

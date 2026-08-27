@@ -4,6 +4,7 @@
 #![cfg(unix)]
 
 pub mod agent;
+pub mod application;
 pub mod cancellation;
 pub mod cli;
 pub mod core;
@@ -17,6 +18,7 @@ pub mod process;
 pub mod reflection;
 pub mod retrieval;
 pub mod store;
+pub mod validation;
 pub mod workflow;
 
 pub use error::{Error, Result};

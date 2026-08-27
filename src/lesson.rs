@@ -137,6 +137,7 @@ pub enum EvidenceRef {
 pub trait ConfidencePolicy {
     fn initial(&self) -> ConfidenceScore;
     fn update(&self, lesson: &Lesson, conclusion: ExperimentConclusion) -> ConfidenceScore;
+    fn transfer(&self, lesson: &Lesson, distinct_successes: usize) -> ConfidenceScore;
 }
 /// Transparent evidence indicators, not statistically calibrated probabilities.
 pub struct HeuristicConfidence;
@@ -150,9 +151,22 @@ impl ConfidencePolicy for HeuristicConfidence {
             ExperimentConclusion::SupportsHypothesis
                 if lesson.status != LessonStatus::Contradicted =>
             {
-                ConfidenceScore(0.78)
+                ConfidenceScore(lesson.confidence.0.max(0.78))
             }
             _ => lesson.confidence,
+        }
+    }
+    fn transfer(&self, lesson: &Lesson, distinct_successes: usize) -> ConfidenceScore {
+        if matches!(
+            lesson.status,
+            LessonStatus::Contradicted | LessonStatus::Retired
+        ) {
+            return lesson.confidence;
+        }
+        match distinct_successes {
+            0 => lesson.confidence,
+            1 => ConfidenceScore(0.90),
+            _ => ConfidenceScore(0.94),
         }
     }
 }
@@ -174,6 +188,12 @@ pub struct Lesson {
     pub discovered_by: Vec<AgentIdentity>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(default)]
+    pub retired_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub retired_reason: Option<String>,
+    #[serde(default)]
+    pub validation: Option<crate::validation::LessonValidationDecision>,
 }
 
 impl Lesson {
@@ -198,6 +218,9 @@ impl Lesson {
             discovered_by: vec![h.generated_by.clone()],
             created_at: now,
             updated_at: now,
+            retired_at: None,
+            retired_reason: None,
+            validation: None,
         }
     }
 
@@ -214,8 +237,7 @@ impl Lesson {
                 "Experiment provenance does not match this Lesson".into(),
             ));
         }
-        if experiment.status != ExperimentStatus::Completed
-            || matches!(self.status, LessonStatus::Retired | LessonStatus::Validated)
+        if experiment.status != ExperimentStatus::Completed || self.status == LessonStatus::Retired
         {
             return Err(Error::Intervention(
                 "Only completed experiments may update active V0.1 Lessons".into(),
@@ -268,7 +290,16 @@ impl Lesson {
             ExperimentConclusion::SupportsHypothesis if self.status == LessonStatus::Candidate => {
                 self.status = LessonStatus::CounterfactuallySupported
             }
-            ExperimentConclusion::ContradictsHypothesis => self.status = LessonStatus::Contradicted,
+            ExperimentConclusion::ContradictsHypothesis => {
+                self.status = LessonStatus::Contradicted;
+                if let Some(validation) = &mut self.validation {
+                    validation.validated = false;
+                    validation.reason = format!(
+                        "Controlled experiment {} contradicts the Lesson",
+                        experiment.id
+                    );
+                }
+            }
             _ => {}
         }
         self.evidence
@@ -279,6 +310,73 @@ impl Lesson {
             }));
         self.version = next_version;
         self.updated_at = Utc::now();
+        Ok(())
+    }
+
+    pub fn retire(&mut self, reason: Option<String>) -> Result<()> {
+        if self.status == LessonStatus::Retired {
+            return Ok(());
+        }
+        let version = self
+            .version
+            .checked_add(1)
+            .ok_or_else(|| Error::InvalidInput("Lesson version overflow".into()))?;
+        self.status = LessonStatus::Retired;
+        self.retired_at = Some(Utc::now());
+        self.retired_reason = reason;
+        self.updated_at = Utc::now();
+        self.version = version;
+        Ok(())
+    }
+
+    pub fn apply_application(
+        &mut self,
+        experience: &crate::experience::Experience,
+        summary: &crate::validation::LessonEvidenceSummary,
+        policy: &dyn crate::validation::LessonValidationPolicy,
+    ) -> Result<()> {
+        use crate::{
+            application::{ApplicationVerification, LessonInfluence},
+            experience::Outcome,
+        };
+        if self.status == LessonStatus::Retired {
+            return Ok(());
+        }
+        let applied = experience.lesson_applications.iter().any(|a| {
+            a.lesson_id == self.id
+                && a.influence == LessonInfluence::Applied
+                && a.verification == ApplicationVerification::Observed
+        });
+        if !applied {
+            return Ok(());
+        }
+        let reference = EvidenceRef::Experience {
+            experience_id: experience.id.clone(),
+            relationship: if experience.outcome == Outcome::Success {
+                EvidenceRelationship::Supports
+            } else {
+                EvidenceRelationship::Inconclusive
+            },
+        };
+        if self.evidence.contains(&reference) {
+            return Err(Error::InvalidInput(
+                "Application evidence already recorded".into(),
+            ));
+        }
+        let version = self
+            .version
+            .checked_add(1)
+            .ok_or_else(|| Error::InvalidInput("Lesson version overflow".into()))?;
+        let decision = policy.evaluate(self, summary);
+        if decision.validated {
+            self.confidence =
+                HeuristicConfidence.transfer(self, decision.distinct_successful_contexts);
+            self.status = LessonStatus::Validated;
+        }
+        self.validation = Some(decision);
+        self.evidence.push(reference);
+        self.updated_at = Utc::now();
+        self.version = version;
         Ok(())
     }
 }

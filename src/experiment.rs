@@ -7,15 +7,16 @@ use crate::{
         LessonId, RealityId, StateRef, TrialId,
     },
     evaluation::{Evaluation, EvaluationSpec},
-    experience::{Experience, Outcome},
+    experience::{Experience, ExperienceContext, Outcome},
     lesson::{Lesson, LessonStatus},
 };
 use crate::{
+    application::{ExperienceRelation, RunLearningOptions},
     cancellation::Cancellation,
     core::{AgentIdentity, CommandSpec},
     experience::{EnvironmentContext, Perturbation, ReplaySpec},
     store::Store,
-    workflow::{RunRequest, run_once},
+    workflow::{RunRequest, run_with_learning},
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -71,6 +72,15 @@ pub struct CounterfactualPlan {
     pub environment_fingerprint: String,
     pub timeout_secs: u64,
     pub trials: Vec<TrialSpec>,
+    #[serde(default)]
+    pub retest: Option<RetestContext>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetestContext {
+    pub goal: String,
+    pub context: ExperienceContext,
+    pub evaluation: EvaluationSpec,
 }
 
 impl CounterfactualPlan {
@@ -83,10 +93,7 @@ impl CounterfactualPlan {
         if source.id != lesson.source_experience || !lesson.context_match.matches(&source.context) {
             return Err(invalid("Lesson source/context mismatch"));
         }
-        if matches!(
-            lesson.status,
-            LessonStatus::Retired | LessonStatus::Validated
-        ) {
+        if matches!(lesson.status, LessonStatus::Retired) {
             return Err(invalid("Lesson is not active for V0.1 experiments"));
         }
         let replay = source.replay.as_ref().ok_or_else(|| {
@@ -140,7 +147,34 @@ impl CounterfactualPlan {
                     evaluation: source.evaluation.spec.clone(),
                 },
             ],
+            retest: None,
         })
+    }
+
+    pub fn for_retest(
+        source: &Experience,
+        lesson: &Lesson,
+        state: StateRef,
+        retest: RetestContext,
+    ) -> Result<Self> {
+        let mut plan = Self::from_lesson(source, lesson)?;
+        retest.evaluation.validate()?;
+        if retest.evaluation.checks.is_empty()
+            || !lesson.context_match.matches(&retest.context)
+            || state.repo_path != retest.context.repository.path
+            || state.git_commit != retest.context.repository.commit
+        {
+            return Err(Error::Intervention(
+                "Retest requires matching Lesson scope, snapshot and required checks".into(),
+            ));
+        }
+        plan.starting_state = state;
+        plan.environment_fingerprint = retest.context.environment.fingerprint.clone();
+        for trial in &mut plan.trials {
+            trial.evaluation = retest.evaluation.clone();
+        }
+        plan.retest = Some(retest);
+        Ok(plan)
     }
 }
 
@@ -205,9 +239,32 @@ pub struct ExperimentEngine<'a> {
 
 impl ExperimentEngine<'_> {
     pub async fn execute(&self, lesson_id: &LessonId, cancel: &Cancellation) -> Result<Experiment> {
+        self.execute_at(lesson_id, None, cancel).await
+    }
+    pub async fn execute_at(
+        &self,
+        lesson_id: &LessonId,
+        target: Option<(StateRef, EvaluationSpec, String)>,
+        cancel: &Cancellation,
+    ) -> Result<Experiment> {
         let lesson = self.store.lesson(lesson_id)?;
         let source = self.store.experience(&lesson.source_experience)?;
-        let plan = CounterfactualPlan::from_lesson(&source, &lesson)?;
+        let plan = if let Some((state, evaluation, goal)) = target {
+            let context =
+                ExperienceContext::capture(&state, &state.repo_path, EnvironmentMode::Controlled)?;
+            CounterfactualPlan::for_retest(
+                &source,
+                &lesson,
+                state,
+                RetestContext {
+                    goal,
+                    context,
+                    evaluation,
+                },
+            )?
+        } else {
+            CounterfactualPlan::from_lesson(&source, &lesson)?
+        };
         let current = EnvironmentContext::capture(
             &source.context.environment.cwd,
             EnvironmentMode::Controlled,
@@ -234,11 +291,16 @@ impl ExperimentEngine<'_> {
                 if cancel.is_cancelled() {
                     break;
                 }
-                let run = run_once(
+                let run = run_with_learning(
                     self.store,
                     RunRequest {
                         state: experiment.starting_state.clone(),
-                        goal: source.goal.clone(),
+                        goal: experiment
+                            .plan
+                            .retest
+                            .as_ref()
+                            .map(|r| r.goal.clone())
+                            .unwrap_or_else(|| source.goal.clone()),
                         agent: AgentIdentity {
                             kind: "scripted-trial".into(),
                             executable: "/bin/sh".into(),
@@ -266,6 +328,10 @@ impl ExperimentEngine<'_> {
                             })
                             .collect(),
                         expected_fingerprint: Some(experiment.plan.environment_fingerprint.clone()),
+                    },
+                    &RunLearningOptions {
+                        relations: vec![ExperienceRelation::CounterfactualOf(source.id.clone())],
+                        ..Default::default()
                     },
                     cancel,
                 )

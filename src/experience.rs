@@ -41,7 +41,7 @@ pub fn controlled_environment(root: &Path) -> BTreeMap<String, String> {
     ])
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnvironmentContext {
     pub os: String,
     pub arch: String,
@@ -88,7 +88,7 @@ impl EnvironmentContext {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RepositoryContext {
     pub path: PathBuf,
     pub name: String,
@@ -96,7 +96,7 @@ pub struct RepositoryContext {
     pub branch: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExperienceContext {
     pub repository: RepositoryContext,
     pub environment: EnvironmentContext,
@@ -111,6 +111,29 @@ impl ExperienceContext {
             .filter(|name| root.join(name).is_file())
             .map(|s| (*s).into())
             .collect();
+        let mut tags: Vec<String> = markers.iter().map(|m| format!("marker:{m}")).collect();
+        if let Ok(fixture) = fixture_metadata(root)
+            && let Some(kind) = fixture["kind"].as_str()
+            && matches!(
+                kind,
+                "pnpm-workspace-conflict"
+                    | "pnpm-workspace-transfer"
+                    | "pnpm-workspace-contradiction"
+                    | "npm-ordinary"
+            )
+        {
+            tags.push(format!("fixture-kind:{kind}"));
+            if fixture["version"] == 2
+                && matches!(
+                    kind,
+                    "pnpm-workspace-conflict"
+                        | "pnpm-workspace-transfer"
+                        | "pnpm-workspace-contradiction"
+                )
+            {
+                tags.push("fixture-family:pnpm-workspace-v2".into());
+            }
+        }
         Ok(Self {
             repository: RepositoryContext {
                 path: state.repo_path.clone(),
@@ -124,10 +147,29 @@ impl ExperienceContext {
                 branch: None,
             },
             environment: EnvironmentContext::capture(root, mode)?,
-            tags: markers.iter().map(|m| format!("marker:{m}")).collect(),
+            tags,
             markers,
         })
     }
+}
+
+/// Fixture metadata is small, local, and never read through a repository symlink.
+pub fn fixture_metadata(root: &Path) -> Result<serde_json::Value> {
+    let path = root.join("hardknock-fixture.json");
+    let metadata = std::fs::symlink_metadata(&path)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() > 65536 {
+        return Err(crate::Error::InvalidInput(
+            "Fixture marker must be a regular file of at most 64 KiB".into(),
+        ));
+    }
+    let mut bytes = Vec::new();
+    File::open(path)?.take(65537).read_to_end(&mut bytes)?;
+    if bytes.len() > 65536 {
+        return Err(crate::Error::InvalidInput(
+            "Fixture marker exceeded 64 KiB".into(),
+        ));
+    }
+    Ok(serde_json::from_slice(&bytes)?)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,6 +247,16 @@ pub struct Experience {
     pub evidence: EvidenceBundle,
     pub tags: Vec<String>,
     pub replay: Option<ReplaySpec>,
+    #[serde(default)]
+    pub lesson_applications: Vec<crate::application::LessonApplication>,
+    #[serde(default)]
+    pub relations: Vec<crate::application::ExperienceRelation>,
+    #[serde(default)]
+    pub repeated_mistakes: Vec<crate::application::RepeatedMistakeObservation>,
+    #[serde(default)]
+    pub observed_actions: Vec<crate::application::ObservedAction>,
+    #[serde(default)]
+    pub application_report_errors: Vec<String>,
 }
 
 impl Experience {

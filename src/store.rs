@@ -20,6 +20,7 @@ use crate::{
 mod experiences;
 pub use experiences::{ExperienceQuery, ExperienceStore, ExperienceSummary};
 mod learning;
+mod transfer;
 pub use learning::{LessonQuery, LessonStore, LessonSummary};
 
 pub struct Store {
@@ -77,7 +78,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 3 {
+        if version > 4 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -93,6 +94,10 @@ impl Store {
         if version < 3 {
             tx.execute_batch(include_str!("../migrations/003_learning.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (3)", [])?;
+        }
+        if version < 4 {
+            tx.execute_batch(include_str!("../migrations/004_transfer.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (4)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

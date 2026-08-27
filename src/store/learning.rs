@@ -19,6 +19,7 @@ use serde::Serialize;
 #[derive(Default)]
 pub struct LessonQuery {
     pub status: Option<LessonStatus>,
+    pub include_retired: bool,
 }
 #[derive(Debug, Serialize)]
 pub struct LessonSummary {
@@ -95,7 +96,7 @@ fn load_lesson(connection: &Connection, id: &LessonId) -> Result<Option<Lesson>>
         .transpose()
 }
 
-fn update_lesson(tx: &Transaction<'_>, lesson: &Lesson) -> Result<()> {
+pub(super) fn update_lesson(tx: &Transaction<'_>, lesson: &Lesson) -> Result<()> {
     let previous = load_lesson(tx, &lesson.id)?
         .ok_or_else(|| Error::NotFound(format!("Lesson {} not found", lesson.id)))?;
     if previous.version.checked_add(1) != Some(lesson.version) {
@@ -115,11 +116,6 @@ fn update_lesson(tx: &Transaction<'_>, lesson: &Lesson) -> Result<()> {
             "Lesson identity, creation time and historical evidence cannot be changed".into(),
         ));
     }
-    if lesson.status == LessonStatus::Validated {
-        return Err(Error::Intervention(
-            "Validated promotion is not implemented in V0.1".into(),
-        ));
-    }
     tx.execute(
         "UPDATE lessons SET version=?2,data=?3 WHERE id=?1 AND version=?4",
         params![
@@ -137,6 +133,9 @@ impl LessonStore for Store {
         let h = self.hypothesis(&lesson.hypothesis_id)?;
         if lesson.version != 1
             || lesson.status != LessonStatus::Candidate
+            || lesson.retired_at.is_some()
+            || lesson.retired_reason.is_some()
+            || lesson.validation.is_some()
             || h.source_experience != lesson.source_experience
             || lesson.claim != h.claim
             || lesson.context_match != h.context_match
@@ -172,8 +171,12 @@ impl LessonStore for Store {
         if lesson.status != previous.status
             || lesson.confidence != previous.confidence
             || lesson.evidence != previous.evidence
+            || lesson.retired_at != previous.retired_at
+            || lesson.retired_reason != previous.retired_reason
+            || serde_json::to_value(&lesson.validation)?
+                != serde_json::to_value(&previous.validation)?
         {
-            return Err(Error::InvalidInput("Lesson status, confidence and evidence may only change through a completed experiment".into()));
+            return Err(Error::InvalidInput("Lesson status, confidence and evidence may only change through evidence or lifecycle operations".into()));
         }
         if lesson.claim != previous.claim
             || lesson.context_match != previous.context_match
@@ -197,6 +200,7 @@ impl LessonStore for Store {
         Ok(lessons
             .into_iter()
             .filter(|l| query.status.is_none_or(|s| s == l.status))
+            .filter(|l| query.include_retired || l.status != LessonStatus::Retired)
             .map(|l| LessonSummary {
                 id: l.id,
                 version: l.version,
@@ -245,7 +249,16 @@ impl Store {
     pub fn insert_experiment(&self, experiment: &Experiment) -> Result<()> {
         let lesson = self.lesson(&experiment.lesson_id)?;
         let source = self.experience(&lesson.source_experience)?;
-        let expected = CounterfactualPlan::from_lesson(&source, &lesson)?;
+        let expected = if let Some(retest) = &experiment.plan.retest {
+            CounterfactualPlan::for_retest(
+                &source,
+                &lesson,
+                experiment.starting_state.clone(),
+                retest.clone(),
+            )?
+        } else {
+            CounterfactualPlan::from_lesson(&source, &lesson)?
+        };
         let mut plan = experiment.plan.clone();
         for (trial, expected) in plan.trials.iter_mut().zip(&expected.trials) {
             trial.id = expected.id.clone();
@@ -254,7 +267,7 @@ impl Store {
             || lesson.hypothesis_id != experiment.hypothesis_id
             || experiment.status != ExperimentStatus::Running
             || !experiment.trials.is_empty()
-            || experiment.starting_state != source.starting_state
+            || experiment.starting_state != expected.starting_state
             || plan != expected
             || experiment.conclusion != ExperimentConclusion::Inconclusive
         {

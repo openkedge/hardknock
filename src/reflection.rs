@@ -66,6 +66,11 @@ pub struct DeterministicReflection;
 impl ReflectionProvider for DeterministicReflection {
     fn reflect(&self, experience: &Experience) -> Result<Vec<CandidateHypothesis>> {
         if experience.agent.kind != "test-agent"
+            || !experience
+                .context
+                .tags
+                .iter()
+                .any(|t| t == "fixture-kind:pnpm-workspace-conflict")
             || experience.outcome != Outcome::Failure
             || !experience
                 .context
@@ -87,6 +92,20 @@ impl ReflectionProvider for DeterministicReflection {
         for h in &mut hypotheses {
             h.rationale = "Rule fixture-pnpm-v1 observed package_manager_conflict; compare the two explicit fixture modes from the same snapshot".into();
             h.generated_by.kind = "deterministic-reflection".into();
+            if experience
+                .context
+                .tags
+                .iter()
+                .any(|t| t == "fixture-family:pnpm-workspace-v2")
+            {
+                h.context_match.repository = None;
+                h.context_match.required_markers = vec![
+                    "pnpm-workspace.yaml".into(),
+                    "hardknock-fixture.json".into(),
+                ];
+                h.context_match.tags = vec!["fixture-family:pnpm-workspace-v2".into()];
+                h.claim="Within the local pnpm workspace fixture family, the simulated npm strategy may create conflicting state".into();
+            }
         }
         Ok(hypotheses)
     }

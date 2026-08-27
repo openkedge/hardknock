@@ -36,6 +36,8 @@ impl ExperienceStore for Store {
         let execution = self.execution(&exp.execution_id)?;
         if execution.reality_id != exp.reality_id
             || execution.starting_state != exp.starting_state
+            || execution.agent != exp.agent
+            || execution.task != exp.goal
             || exp.outcome != Outcome::from_evaluation(&exp.evaluation)
         {
             return Err(Error::InvalidInput(
@@ -58,6 +60,7 @@ impl ExperienceStore for Store {
         for artifact in &exp.evidence.artifacts {
             tx.execute("INSERT INTO experience_artifacts(experience_id,path,blake3,bytes,kind) VALUES(?1,?2,?3,?4,?5)", params![exp.id.to_string(), artifact.path.to_string_lossy(), artifact.blake3, i64::try_from(artifact.bytes).map_err(|_| Error::InvalidInput("Artifact exceeds SQLite size range".into()))?, serde_json::to_string(&artifact.kind)?])?;
         }
+        self.insert_learning(&tx, exp)?;
         tx.commit()?;
         Ok(())
     }

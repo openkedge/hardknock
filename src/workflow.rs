@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::application::{RunLearningOptions, observe_application, prepare_advice};
 use crate::{
     Error, Result,
     cancellation::Cancellation,
@@ -19,6 +20,7 @@ use crate::{
 use chrono::Utc;
 use std::{fs, time::Duration};
 
+#[derive(Clone)]
 pub struct RunRequest {
     pub state: StateRef,
     pub goal: String,
@@ -32,6 +34,7 @@ pub struct RunRequest {
     pub expected_fingerprint: Option<String>,
 }
 
+#[derive(serde::Serialize)]
 pub struct RunResult {
     pub execution: ExecutionRecord,
     pub experience: Experience,
@@ -42,6 +45,15 @@ pub struct RunResult {
 pub async fn run_once(
     store: &Store,
     request: RunRequest,
+    cancel: &Cancellation,
+) -> Result<RunResult> {
+    run_with_learning(store, request, &RunLearningOptions::default(), cancel).await
+}
+
+pub async fn run_with_learning(
+    store: &Store,
+    request: RunRequest,
+    learning: &RunLearningOptions,
     cancel: &Cancellation,
 ) -> Result<RunResult> {
     request.evaluation.validate()?;
@@ -65,6 +77,7 @@ pub async fn run_once(
         let id = ExperienceId::new();
         let artifacts = store.home.join("artifacts").join(id.to_string());
         fs::create_dir(&artifacts)?;
+        let advice=prepare_advice(store,&context,&request.goal,&reality.root,&artifacts,learning)?;
         started = true;
         let (status, action) = ProcessRunner.run(&request.command, &reality.root, &artifacts.join("agent"), Duration::from_secs(request.timeout_secs), cancel.cancelled()).await?;
         let agent_diff = artifacts.join("agent.diff.patch");
@@ -73,6 +86,7 @@ pub async fn run_once(
         let metadata = artifacts.join("execution.json");
         fs::write(&metadata, serde_json::to_vec_pretty(&execution)?)?;
         store.insert_execution(&execution)?;
+        let observation=observe_application(advice,&execution,&id,&reality.root,&artifacts,learning)?;
         let evaluator = CommandEvaluator { spec: request.evaluation, timeout: Duration::from_secs(request.timeout_secs), environment: request.command.environment };
         let evaluation = evaluator.evaluate(&reality, &execution, &artifacts, cancel).await?;
         // Evaluators may modify files; retain their final diff separately from agent effects.
@@ -82,12 +96,20 @@ pub async fn run_once(
         actions.extend(evaluation.checks.iter().filter_map(|c| c.action.clone()));
         let mut evidence: Vec<_> = actions.iter().flat_map(|a| [a.stdout.clone(), a.stderr.clone()]).collect();
         evidence.extend([execution.diff.clone(), artifact(&diff_path)?.with_kind(ArtifactKind::Diff), artifact(&metadata)?.with_kind(ArtifactKind::Metadata)]);
+        evidence.extend(observation.artifacts);
+        let mut replay=request.replay;
+        if learning.fixture
+            && let Some(action)=observation.actions.first().and_then(|a|a.action.shell_script()) {
+                replay=Some(ReplaySpec { script:action.into(),timeout_secs:request.timeout_secs });
+            }
         let experience = Experience {
             id, created_at: Utc::now(), goal: request.goal, tags: context.tags.clone(), context,
             starting_state: request.state, reality_id: reality.id.clone(), execution_id: execution.id.clone(), agent: request.agent,
             actions, perturbations: request.perturbations, outcome: Outcome::from_evaluation(&evaluation),
             failure_signatures: failure_signatures(&evaluation, &execution.action)?, evaluation,
-            evidence: EvidenceBundle { artifacts: evidence }, replay: request.replay,
+            evidence: EvidenceBundle { artifacts: evidence }, replay,
+            lesson_applications:observation.applications, relations:observation.relations, repeated_mistakes:observation.mistakes,
+            observed_actions:observation.actions, application_report_errors:observation.errors,
         };
         fs::write(artifacts.join("metadata.json"), serde_json::to_vec_pretty(&experience)?)?;
         ExperienceStore::insert(store, &experience)?;

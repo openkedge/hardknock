@@ -227,7 +227,7 @@ fn v1_database_migrates_without_rewriting_old_execution_json() {
         db.query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
             .get::<_, i64>(0))
             .unwrap(),
-        3
+        4
     );
 }
 
