@@ -1,0 +1,31 @@
+[package]
+name = "hardknock"
+version = "0.1.0-dev.1"
+edition = "2024"
+description = "Agent experience infrastructure for safe experimentation, empirical learning, and resilience"
+repository = "https://github.com/openkedge/hardknock"
+publish = false
+
+[dependencies]
+blake3 = "1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+fs2 = "0.4"
+nix = { version = "0.30", features = ["signal", "process"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+shell-words = "1"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "signal", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { version = "1", features = ["v4"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
