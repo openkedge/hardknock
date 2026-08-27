@@ -21,7 +21,7 @@ use crate::{
     evaluation::EvaluationSpec,
     experience::{Experience, ReplaySpec},
     experiment::{Experiment, ExperimentConclusion, ExperimentEngine, ExperimentStatus},
-    lesson::{HeuristicConfidence, Lesson},
+    lesson::{ConfidencePolicy, HeuristicConfidence, Lesson},
     reflection::{
         CandidateHypothesis, DeterministicReflection, ManualReflection, ReflectionProvider,
     },
@@ -371,8 +371,9 @@ impl Response {
                 if let Some(lesson) = lesson {
                     writeln!(
                         stdout,
-                        "Candidate created: {} · initial confidence 0.42",
-                        lesson.id
+                        "Candidate created: {} · initial confidence {:.2}",
+                        lesson.id,
+                        f64::from(HeuristicConfidence.initial())
                     )?;
                     if let Some(experiment) = experiment {
                         print_experiment(&mut stdout, experiment)?;

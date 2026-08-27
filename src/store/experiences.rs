@@ -42,7 +42,10 @@ impl ExperienceStore for Store {
                 "Experience does not match its execution/evaluation".into(),
             ));
         }
-        let tx = self.connection.unchecked_transaction()?;
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
         tx.execute(
             "INSERT INTO evaluations(id,execution_id,data) VALUES(?1,?2,?3)",
             params![

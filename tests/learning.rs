@@ -30,6 +30,136 @@ fn propose(f: &Fixture, source: &serde_json::Value, avoid: &str, prefer: &str) -
 }
 
 #[test]
+fn controlled_environment_omits_inherited_secrets_and_matches_markers() {
+    let f = Fixture::pnpm();
+    let output = f
+        .command()
+        .env("HARDKNOCK_TEST_SECRET", "do-not-record-this-value")
+        .args([
+            "--json",
+            "run",
+            "--script",
+            "test -z \"${HARDKNOCK_TEST_SECRET:-}\"; printf '%s' \"$HOME\"",
+            "--check",
+            "test \"$PATH\" = /usr/bin:/bin",
+            "inspect environment",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("do-not-record-this-value"));
+    let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let context = &response["experience"]["context"];
+    assert!(
+        context["markers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "pnpm-workspace.yaml")
+    );
+    assert_eq!(context["environment"]["facts"]["HOME"], "$REALITY");
+    assert_eq!(context["environment"]["mode"], "controlled");
+    let child_home = fs::read_to_string(
+        response["execution"]["action"]["stdout"]["path"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(child_home, response["reality"]["root"]);
+    f.assert_source_unchanged();
+}
+
+#[test]
+fn timed_out_baseline_is_inconclusive_even_when_alternative_passes() {
+    let f = Fixture::new();
+    let source = f.cli(
+        &[
+            "run",
+            "--script",
+            "sleep 3",
+            "--timeout-secs",
+            "1",
+            "--check",
+            "test -f ok",
+            "task",
+        ],
+        1,
+    );
+    let id = propose(&f, &source, "sleep 3", "touch ok");
+    let result = f.cli(&["experiment", "run", "--lesson", &id], 3);
+    assert_eq!(result["experiment"]["trials"][0]["outcome"], "timed_out");
+    assert_eq!(result["experiment"]["trials"][1]["outcome"], "success");
+    assert_eq!(result["experiment"]["conclusion"], "inconclusive");
+    assert_eq!(result["lesson"]["confidence"], 0.42);
+    f.assert_source_unchanged();
+}
+
+#[test]
+fn concurrent_experiments_preserve_both_evidence_revisions() {
+    use std::process::Stdio;
+    let f = Fixture::new();
+    let source = f.cli(
+        &["run", "--script", "true", "--check", "test -f ok", "task"],
+        1,
+    );
+    let id = propose(&f, &source, "true", "touch ok");
+    let first = f
+        .command()
+        .args(["--json", "experiment", "run", "--lesson", &id])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let second = f
+        .command()
+        .args(["--json", "experiment", "run", "--lesson", &id])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    for child in [first, second] {
+        let output = child.wait_with_output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let store = Store::open(&f.home).unwrap();
+    let lesson = store.lesson(&id.parse().unwrap()).unwrap();
+    assert_eq!(lesson.version, 3);
+    assert_eq!(lesson.evidence.len(), 5);
+    assert_eq!(store.lesson_versions(&lesson.id).unwrap().len(), 3);
+    assert_eq!(store.experiments().unwrap().len(), 2);
+    f.assert_source_unchanged();
+}
+
+#[test]
+fn shell_action_patterns_do_not_guess_at_semantic_equivalence() {
+    use hardknock::lesson::ActionPattern;
+    let pattern = ActionPattern::shell(" npm install ");
+    assert!(pattern.matches_shell("\nnpm install\t"));
+    for script in [
+        "npm  install",
+        "npm install --force",
+        "echo npm install",
+        "npm install; true",
+    ] {
+        assert!(!pattern.matches_shell(script));
+    }
+    let custom = ActionPattern::Custom {
+        kind: "future".into(),
+        value: "npm install".into(),
+    };
+    assert!(!custom.matches_shell("npm install"));
+    let json = serde_json::to_string(&custom).unwrap();
+    assert_eq!(
+        serde_json::from_str::<ActionPattern>(&json).unwrap(),
+        custom
+    );
+}
+
+#[test]
 fn v1_database_migrates_without_rewriting_old_execution_json() {
     use hardknock::core::{ArtifactKind, EnvironmentMode};
     let original = Fixture::new();

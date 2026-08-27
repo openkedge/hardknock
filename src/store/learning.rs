@@ -157,7 +157,8 @@ impl LessonStore for Store {
                     .into(),
             ));
         }
-        let tx = self.connection.unchecked_transaction()?;
+        let tx =
+            Transaction::new_unchecked(&self.connection, rusqlite::TransactionBehavior::Immediate)?;
         tx.execute("INSERT INTO lessons(id,source_experience,hypothesis_id,version,created_at,data) VALUES(?1,?2,?3,?4,?5,?6)", params![lesson.id.to_string(),lesson.source_experience.to_string(),lesson.hypothesis_id.to_string(),lesson.version,lesson.created_at.to_rfc3339(),serde_json::to_string(lesson)?])?;
         save_evidence(&tx, lesson)?;
         tx.commit()?;
@@ -299,7 +300,8 @@ impl Store {
                 "Trial does not match persisted Experience or equivalent starting state".into(),
             ));
         }
-        let tx = self.connection.unchecked_transaction()?;
+        let tx =
+            Transaction::new_unchecked(&self.connection, rusqlite::TransactionBehavior::Immediate)?;
         let status: String = tx.query_row(
             "SELECT status FROM experiments WHERE id=?1",
             [experiment.id.to_string()],
