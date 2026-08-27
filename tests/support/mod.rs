@@ -46,25 +46,29 @@ pub fn git(repo: &Path, args: &[&str]) -> Output {
 
 impl Fixture {
     pub fn pnpm() -> Self {
+        Self::from_fixture("pnpm-workspace-conflict")
+    }
+
+    pub fn from_fixture(name: &str) -> Self {
         let fixture = Self::new();
-        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/pnpm-workspace-conflict");
-        fs::create_dir_all(fixture.repo.join("packages/demo")).unwrap();
-        for name in [
-            "package.json",
-            "pnpm-workspace.yaml",
-            "pnpm-lock.yaml",
-            "hardknock-fixture.json",
-            "agent-script.sh",
-            "test.sh",
-            "packages/demo/package.json",
-        ] {
-            fs::copy(source.join(name), fixture.repo.join(name)).unwrap();
+        fn copy_tree(source: &Path, target: &Path) {
+            for entry in fs::read_dir(source).unwrap() {
+                let entry = entry.unwrap();
+                let destination = target.join(entry.file_name());
+                if entry.file_type().unwrap().is_dir() {
+                    fs::create_dir_all(&destination).unwrap();
+                    copy_tree(&entry.path(), &destination);
+                } else {
+                    fs::copy(entry.path(), destination).unwrap();
+                }
+            }
         }
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join(name);
+        copy_tree(&source, &fixture.repo);
         git(&fixture.repo, &["add", "."]);
-        git(
-            &fixture.repo,
-            &["commit", "-m", "deterministic pnpm fixture"],
-        );
+        git(&fixture.repo, &["commit", "-m", "deterministic fixture"]);
         fixture
     }
 

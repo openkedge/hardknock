@@ -1,0 +1,5 @@
+{
+  "name": "hardknock-pnpm-workspace-transfer",
+  "private": true,
+  "description": "Local deterministic fixture; no package manager is invoked"
+}

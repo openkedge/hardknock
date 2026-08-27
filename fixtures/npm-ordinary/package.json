@@ -1,0 +1,5 @@
+{
+  "name": "hardknock-npm-ordinary",
+  "private": true,
+  "description": "Local deterministic fixture; no package manager is invoked"
+}

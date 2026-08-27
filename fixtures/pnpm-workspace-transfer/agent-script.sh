@@ -18,21 +18,15 @@ if [ "${1:-run}" = run ]; then
     fi
     exec "$0" "$strategy"
 fi
-# A leftover lockfile means the runner did not reconstruct a clean starting state.
-if [ -e package-lock.json ]; then
-    echo 'ERROR dirty fixture starting state' >&2
-    exit 9
-fi
+test ! -e package-lock.json
 case "${1:-}" in
     baseline)
         echo 'ACTION shell npm install'
         printf '{"simulated":true}\n' > package-lock.json
-        echo 'RESULT simulated dependency conflict'
         ;;
     alternative)
         echo 'ACTION shell pnpm install'
-        test -f pnpm-lock.yaml
-        echo 'RESULT simulated workspace state preserved'
         ;;
-    *) echo 'usage: agent-script.sh baseline|alternative' >&2; exit 2 ;;
+    *) exit 2 ;;
 esac
+printf 'updated service and worker\n' > dependencies-updated.txt
