@@ -1,0 +1,6 @@
+{
+  "name": "hardknock-pnpm-workspace-conflict",
+  "private": true,
+  "packageManager": "pnpm@simulated",
+  "scripts": { "test": "./test.sh" }
+}

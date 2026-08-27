@@ -45,6 +45,29 @@ pub fn git(repo: &Path, args: &[&str]) -> Output {
 }
 
 impl Fixture {
+    pub fn pnpm() -> Self {
+        let fixture = Self::new();
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/pnpm-workspace-conflict");
+        fs::create_dir_all(fixture.repo.join("packages/demo")).unwrap();
+        for name in [
+            "package.json",
+            "pnpm-workspace.yaml",
+            "pnpm-lock.yaml",
+            "hardknock-fixture.json",
+            "agent-script.sh",
+            "test.sh",
+            "packages/demo/package.json",
+        ] {
+            fs::copy(source.join(name), fixture.repo.join(name)).unwrap();
+        }
+        git(&fixture.repo, &["add", "."]);
+        git(
+            &fixture.repo,
+            &["commit", "-m", "deterministic pnpm fixture"],
+        );
+        fixture
+    }
+
     pub fn new() -> Self {
         let temp = tempfile::tempdir().unwrap();
         let repo = temp.path().join("fixture repo");
