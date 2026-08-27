@@ -1,89 +1,103 @@
 # Architecture
 
-## Implemented: Milestones 0–2
+## Implemented: Milestones 0–6
 
-Hardknock currently provides a local execution substrate. It does not yet evaluate task success, create Experiences, infer Lessons, or run counterfactual experiments.
+One modular Rust crate now runs the local empirical loop. Reflection proposes a hypothesis; only recorded trials can supply counterfactual evidence. Neither retrieval, task retry, nor `Validated` promotion is implemented.
 
 ```text
-CLI / flags
-    ↓
-Clean Git snapshot → StateRef (repository + commit + tree hash)
-    ↓
-GitRealityProvider → detached worktree + persistent Reality
-    ↓
-GenericShellAdapter → CommandSpec (program + argv)
-    ↓
-ProcessRunner → process group + deadline + stdout/stderr artifacts
-    ↓
-Filesystem diff + ExecutionRecord + BLAKE3 artifact references
-    ↓
-SQLite persistence → discard worktree, or keep for inspection
+                   Agent
+                     │
+               Agent Adapter
+                     │
+                  Reality
+                     │
+                 Execution
+                     │
+                 Evaluation
+                     │
+                 Experience (immutable)
+                     │
+                  Reflection
+                     │
+             Candidate Hypothesis
+                     │
+              Candidate Lesson
+                     │
+        Counterfactual Experiment
+              /              \
+         baseline         alternative
+           FAIL               PASS
+              \              /
+                   Evidence
+                     │
+       Counterfactually Supported Lesson
 ```
-
-### Module boundaries
 
 | Module | Responsibility |
 | --- | --- |
-| `core` | Typed identifiers, snapshot references, Realities, command specifications, process observations, artifact references |
-| `dojo` | `RealityProvider` and Git implementation: create, fork, diff, discard |
-| `agent` | `AgentAdapter`; generic command templates without a vendor API dependency |
-| `process` | Noninteractive subprocess execution, timeout, cancellation, file capture |
-| `store` | SQLite migrations, Reality metadata, append-only execution records, advisory locks, artifact hashes |
-| `cli` | Command parsing, lifecycle coordination, human/JSON output, stable exit codes |
+| `core` | Typed IDs, state references, Realities, process observations, artifact types |
+| `dojo` | `RealityProvider`; detached Git worktrees, starting-state verification, diff, disposal |
+| `agent` | `AgentAdapter`; literal argv template parsing for opaque CLIs |
+| `process`, `cancellation` | Unix process groups, deadlines, file capture, sticky cancellation |
+| `evaluation` | Async `Evaluator`, `CommandEvaluator`, required check results |
+| `experience` | Immutable evidence, bounded failure signatures, context and environment fingerprints |
+| `workflow` | Shared run → evaluate → persist → cleanup lifecycle for original runs and trials |
+| `reflection` | `ReflectionProvider`, deterministic fixture rule, manual hypotheses |
+| `lesson` | Scope and action matching, evidence relationships, guarded lifecycle, confidence policy |
+| `experiment` | Explicit replay plan, fresh baseline/alternative runs, comparison policy |
+| `store` | SQLite migrations, typed store traits, immutable records, revisions, provenance keys |
+| `cli` | Parsing, adapter selection, human/JSON presentation; no conclusion or confidence rules |
 
-A single Rust crate keeps the first implementation easy to navigate. These modules can become workspace crates when independent consumers or compilation boundaries justify it. SQLite is bundled through `rusqlite`; there is no database service. `tokio` handles process waits and signals, not a distributed runtime.
+SQLite is bundled through `rusqlite`. Tokio handles subprocess waits and cancellation. No service, model API, or additional runtime is needed for the fixture.
 
-## Snapshot semantics
+## State and environment equivalence
 
-`StateRef` identifies a canonical repository path, full commit object ID, and full tree object ID. Capturing a starting state rejects unborn, bare, dirty, and submodule repositories. Git-ignored files are not copied; they are not part of the recorded snapshot. Git SHA-1 and SHA-256 object ID lengths are accepted.
+`StateRef` contains a canonical repository path, full commit ID, and full tree ID. Initial capture rejects unborn, bare, dirty, and submodule repositories. Forking recreates the recorded commit, even after the parent changes or is discarded. Ignored files are not copied or included in diffs.
 
-Every Reality is a detached Git worktree. Forking recreates the **recorded starting commit**, even if the parent has changed or was discarded. It does not clone the parent's current modifications. The source branch and index are not intentionally changed by Hardknock's lifecycle operations.
+Every run verifies the new worktree's HEAD and compares its files against the recorded snapshot before executing commands. Diff collection uses a temporary Git index, includes tracked and nonignored new files, and does not rewrite the agent's index. Hooks and filesystem-monitor hooks are disabled for Hardknock's own Git commands. Repository filters and other shared Git configuration can still affect checkout; a resulting content mismatch is rejected.
 
-Diff capture uses a temporary index, so it includes tracked changes and nonignored new files without changing the agent's index. It compares against the original commit, including changes the agent committed in its detached worktree. Git's binary patch format is retained as bytes; ignored files are omitted. Git hooks and filesystem-monitor hooks are disabled for Hardknock's own Git commands; repository filters and other Git configuration can still affect execution.
+Opaque `--agent-command` runs inherit the caller's environment and cannot be replayed automatically. `--script`, the test adapter, and trials clear the inherited environment and set a small fixed environment. The recorded fingerprint covers that policy, OS, architecture, and the BLAKE3 digest of `/bin/sh`; per-Reality HOME/PWD paths are normalized. Both trial worktrees are verified before execution, and their fingerprints must match the source Experience. See [experimental limits](experiments.md#equivalence-and-limits).
 
-This reproduces repository content, not the full environment. Dependencies, tool versions, clocks, randomness, Git configuration, network responses, and host state are not frozen. Future evaluators and experiments must record and constrain these inputs before treating trials as comparable.
+## Evaluation and persistence lifecycle
 
-## Execution and retention
+1. Validate input and acquire an advisory Reality lease before worktree creation.
+2. Reconstruct and verify the starting snapshot; collect context before any task effects.
+3. Run the agent with stdin closed, outputs redirected to files, and a deadline.
+4. Stop its process group, save its diff, and persist an immutable `ExecutionRecord`.
+5. Run required checks sequentially in the same Reality. Ordinary check failure does not skip later checks; cancellation or timeout does.
+6. Save the final diff including evaluator effects, hash artifacts, and insert the Evaluation and Experience atomically.
+7. Discard the Reality unless kept or required to preserve evidence after a capture/storage error.
 
-1. Validate the repository and command template before creating trial state.
-2. Acquire a Reality lease and persist creation intent before adding the worktree.
-3. Start a new Unix process group with stdin closed and stdout/stderr redirected to files.
-4. Wait for exit, timeout, SIGINT, or SIGTERM. Terminate the group before artifact collection.
-5. Capture the diff, hash artifacts, write `metadata.json`, and insert the execution record.
-6. Discard the worktree unless `--keep` was requested. Normal nonzero exits, timeouts, and interrupts also produce records and clean up.
+Process success and task success are independent. A failed process can still satisfy all required checks; an exit-zero process can fail evaluation. No checks means an inconclusive task observation; the CLI retains its old process-based exit behavior for compatibility.
 
-If evidence capture or persistence fails, retain the worktree and report its ID/path instead of destroying uncaptured changes. A missing executable cleans up its worktree and reports a runtime error. Partial artifact directories may remain after runtime failures.
+Experiments persist their plan before running trials. Each trial records its own immutable Experience and artifact links. Finishing a successful comparison commits the terminal Experiment, evidence relationships, and next Lesson revision in one immediate SQLite transaction. It loads the latest Lesson revision so concurrent experiments do not overwrite each other's evidence. Failed/interrupted investigations retain completed trials without promoting a Lesson.
 
-The runner uses SIGKILL for prompt group termination; graceful shutdown hooks are not implemented. Ordinary background descendants are terminated even when the main command exits successfully. Processes that create new sessions/process groups can escape this mechanism. Hard termination of Hardknock itself, host failure, or an escaped process cannot be made transactional by this backend.
+## Data and migration boundaries
 
-`reality cleanup` removes only unlocked automatic-run Realities. It leaves manual/kept Realities alone and skips active leases. It never runs a blanket `git worktree prune` or deletes arbitrary directories. Stop any abandoned commands before orphan cleanup; a released lease is not proof that every descendant has stopped. Filesystem and SQLite updates are not one atomic transaction, so cleanup is explicit and retryable.
+| Migration | Contents |
+| --- | --- |
+| `001_substrate.sql` | Existing Realities and append-only Executions; unchanged |
+| `002_experiences.sql` | Evaluations, immutable Experiences, typed artifact references |
+| `003_learning.sql` | Hypotheses, Lessons, immutable revisions, Experiments, Trials, evidence and artifact links |
+
+Foreign keys represent Lesson → source Experience/Hypothesis, Experiment → Lesson/Hypothesis/source, Trial → Experiment/Reality/Execution/Evaluation/Experience, and Trial → artifacts. Store validation checks the structured records agree with these links. Triggers reject updates/deletes of immutable history. Terminal experiments cannot be rewritten. Lessons use checked versions; updates preserve creation time and existing evidence. Changing the tested claim, scope, or commands requires a new hypothesis; a rationale can be revised through the store API.
+
+Migrations are additive, transactional, and applied once. Existing execution JSON is not rewritten. Old artifact references default to kind `other`, and old commands to inherited environment. Unknown newer database schemas are rejected. There is no automatic backfill of old Executions into Experiences.
+
+## Retention, cancellation, and crashes
+
+A shared cancellation token stays set throughout the command. SIGINT/SIGTERM stops the active process group; pending checks/trials are skipped. Ordinary background descendants are also stopped when the parent exits. The runner uses SIGKILL, not graceful shutdown hooks. Processes that establish new sessions/process groups may escape.
+
+Normal success, check failure, timeout, and cancellation retain evidence and discard trial worktrees. Capture/storage failures preserve the affected worktree and report its path so uncaptured changes are not destroyed. Earlier trial evidence remains queryable. Pre-execution verification failures clean up without starting a child.
+
+`reality cleanup` only removes unlocked automatic-run worktrees. It leaves manual/kept/capture-failure Realities alone, and rechecks paths after taking a lease. It never prunes arbitrary Git worktrees. Stop abandoned processes before cleanup: a released lease is not proof that all descendants stopped.
+
+SIGKILL or power loss can leave a running Experiment and an orphan worktree. `experiment list/show` exposes the plan and persisted partial trials; `reality list/cleanup` provides inspection and cleanup. Automatic resumption/reconciliation is deferred. Filesystem and SQLite writes are not a single transaction.
 
 ## Safety boundary
 
-**A Git worktree is not a secure sandbox.** The network, home directory, credentials, processes, host filesystem, Git objects, Git refs, and repository configuration are shared. Commands may modify the source repository through absolute paths or Git operations. Hardknock cannot roll those effects back.
+**Git worktrees are not secure sandboxes.** Host files, processes, network, Git objects/refs/configuration, and externally accessible credentials remain shared. Clearing environment variables and moving HOME for scripted trials does not prevent access to the user's real home or credentials through other paths. Commands can modify the source repository or perform external effects that Hardknock cannot roll back.
 
-Use trusted commands on disposable tasks. Do not run untrusted code or commands with irreversible external effects. The CLI prints this warning before creating a Reality for execution; quiet mode does not hide it. Environment variables are inherited but not copied into records or debug logs. Commands, tasks, diffs, and output artifacts may contain secrets and are stored without general redaction. The dedicated data directory is private to the local user; this is not authentication or a policy engine.
+Use trusted scripts on disposable tasks. Warnings appear before execution and are not hidden by quiet mode. Arguments, tasks, diffs, and logs can contain secrets; there is no general redaction or disk quota. Raw environment secrets are not copied into records. Data directories are private to the current OS user, not authenticated storage or an enforcement policy.
 
-The V0.1 substrate currently targets Linux and macOS. Windows, containers, VM isolation, remote execution, and named vendor adapters are deferred.
-
-## Planned learning loop
-
-```text
-Agent → Adapter → Reality → Execution → Evaluation → Experience
-                                                        ↓
-                                                   Reflection
-                                                        ↓
-                                                Candidate Lesson
-                                                        ↓
-                                                   Experiment
-                                                        ↓
-                                                    Evidence
-                                                        ↓
-                                                Lesson Promotion
-```
-
-Milestone 3 adds evaluation without changing the process runner. Milestone 4 builds immutable Experiences from execution and evaluation evidence. Reflection, counterfactual planning, confidence, retrieval, and retry remain separate later modules. Process exit zero is currently only an observation; it must not be promoted into task success by assumption.
-
-## Dependency references
-
-Command substitution follows [shell-words' literal argument parsing](https://docs.rs/shell-words/latest/shell_words/fn.split.html). Process lifecycle handling uses [Tokio's process API](https://docs.rs/tokio/latest/tokio/process/struct.Command.html), with explicit process-group cleanup beyond `kill_on_drop`. Persistence uses [rusqlite](https://docs.rs/rusqlite/latest/rusqlite/) and local migration files.
+Linux and macOS are supported targets; Windows, containers, remote workers, and vendor-specific adapters remain deferred.

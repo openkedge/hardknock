@@ -3,41 +3,73 @@
 > Experiences are immutable evidence. Lessons are revisable interpretations of evidence.
 
 ```text
-Experience ≠ Memory
-Experience ≠ Lesson
 Reality ≠ Experience
 ExecutionRecord ≠ evaluated task success
+Experience ≠ Lesson
+Reflection ≠ causal proof
 ```
 
-## Implemented substrate records
+## Typed records
 
-`RealityId`, `ExecutionId`, `ExperienceId`, `LessonId`, `ExperimentId`, `ReflexId`, and `RecoveryId` are distinct types. Their textual form is a resource prefix followed by a canonical UUID. Parsing and JSON deserialization reject mismatched types and path-like IDs. Future artifact types have identifiers only, not working engines or operational schemas.
+IDs are resource prefixes followed by canonical UUIDs. Different ID types cannot be interchanged through parsing or JSON. The active prefixes are `r-`, `exec-`, `eval-`, `exp-`, `hypothesis-`, `lesson-`, `experiment-`, and `trial-`. Reflex and Recovery IDs reserve future concepts without implementing them.
 
-| Record | Current contents |
+| Record | Fields and meaning |
 | --- | --- |
-| `StateRef` | Canonical repository path, full starting commit, tree hash |
-| `Reality` | ID, optional parent, root, starting state, creation time, status, automatic-cleanup eligibility |
-| `AgentIdentity` | Adapter kind and executable; version/model are optional and currently unset |
-| `ActionRecord` | Explicit program/argv, working directory, start time, duration, exit code/signal, stdout/stderr references |
-| `ExecutionRecord` | ID, Reality reference, starting state, task, agent identity, process status, action, diff reference |
-| `ArtifactRef` | Absolute local path, BLAKE3 content hash, byte count |
+| `StateRef` | Canonical source path, full commit, tree hash |
+| `ExecutionRecord` | Agent process status, goal, identity, argv/environment mode, timing, exit/signal, stdout/stderr, pre-evaluation diff |
+| `EvaluationSpec` | Ordered, required shell check scripts |
+| `Evaluation` | ID, spec, status, success, individual checks and their process actions, summary |
+| `Experience` | ID/time, goal, context, state, Reality/Execution IDs, agent, observed actions, perturbations, outcome, evaluation, failure signatures, evidence, tags, optional explicit replay script |
+| `CandidateHypothesis` | ID/source Experience/time, claim, rationale, scope, avoid/prefer actions, reflection-provider identity |
+| `Lesson` | ID/version, source and hypothesis IDs, status, claim/scope/actions, rationale, confidence, evidence, discovery identities, creation/update times |
+| `Experiment` | Source Experience/Lesson/Hypothesis, starting state, replay plan, trial results, status, conclusion, optional runtime failure |
 
-Process states are `succeeded`, `failed`, `interrupted`, and `timed_out`. These describe the process, not whether an agent fulfilled its goal. Reality states are `created`, `running`, `completed`, `failed`, and `discarded`. A discarded Reality's execution evidence remains available.
+Actions are observed process invocations, not instrumented commands inside an opaque agent. Fixture logs such as `ACTION shell npm install` describe the simulation; the actual recorded action is `./agent-script.sh baseline`. Prediction, surprise, automatic recovery observations, and general perturbation engines are deferred. The only implemented perturbation is explicit command replacement.
 
-SQLite stores structured JSON records with primary IDs and a Reality foreign key. Migration 1 creates the schema and append-only triggers for execution updates/deletes. Reality metadata is mutable; execution insertion is not an upsert. Reopening the store reruns only unapplied migrations and rejects a database from a newer schema version.
+## Evaluation is distinct from execution
 
-Large stdout/stderr and patches live in the artifact directory, not SQLite rows. `metadata.json` mirrors the execution record. Hashes make content changes detectable when recomputed; this is not tamper-proof storage, a cryptographic ledger, or automatic verification on every read. Artifacts and database files remain editable by their owner.
+Process statuses are `succeeded`, `failed`, `interrupted`, and `timed_out`. Evaluation statuses are `completed`, `not_configured`, `interrupted`, and `timed_out`. Every configured check must pass for `success=true`. Checks use `/bin/sh -c`, preserve output/timing/exit/signal, and may modify the worktree. Missing commands normally produce a recorded shell exit 127.
 
-## Planned Experience and Lesson records
+Experience outcomes are `success`, `failure`, `inconclusive`, `interrupted`, and `timed_out`. Outcome follows evaluation rather than the agent's exit code. Agent interruption/timeout skips evaluation; later checks are marked `not_run`. With no configured checks, task success is unknown; the CLI's process-based exit fallback does not change that recorded outcome.
 
-Milestone 4 will combine an execution with a goal evaluation, context, predictions, perturbations, failure observations, recovery observations, and provenance into an Experience. Raw observations must remain unchanged as interpretations evolve.
+## Context and signatures
 
-A Lesson will be a structured claim with a context selector, suspected action, preferred alternative, rationale, evidence references, discovered/supported-by identities, and a transparent confidence score. Supporting and contradicting trials must both remain inspectable. Reflection alone creates a Candidate, not a validated fact.
+Context records source path/name/commit, optional branch (currently unset for detached executions), OS, architecture, Reality working directory, selected environment facts, and a fingerprint. It detects root markers:
 
-```text
-Candidate → CounterfactuallySupported → Validated
-                  ↓                        ↓
-             contradiction / retest / retirement
-```
+`package.json`, `pnpm-workspace.yaml`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements.txt`, `pom.xml`, `build.gradle`, and `hardknock-fixture.json`.
 
-One differential experiment can support a claim. Validation will require configurable replication criteria. Both-fail and both-pass pairs are inconclusive. Confidence will be a dedicated heuristic policy, explicitly not a calibrated probability or mathematical causal proof. None of these transitions, confidence scores, or lesson operations are implemented in Milestones 0–2.
+Marker tags are also recorded. Generic inherited environments deliberately omit arbitrary values that could contain credentials. Their fingerprint is not a reproducibility guarantee and cannot authorize replay. Controlled scripts record a normalized fixed environment; see [experiments](experiments.md).
+
+Failure signatures have a name, source (`evaluator`, `agent_output`, `rule`, or `manual`), confidence, and artifact references. The current extractor records required check failures and searches the first 64 KiB of each output for the literal fixture tokens `package_manager_conflict` and `duplicate_lockfile`. These are observations from deterministic rules, not learned semantic classifiers or established causes. Pattern confidence is a heuristic.
+
+## Evidence and storage
+
+`ArtifactRef` contains `path`, `blake3`, `bytes`, and `kind`. Existing names are preserved for compatibility. Kinds include stdout, stderr, diff, evaluation output, metadata, and other. Output and patches live on disk; SQLite stores bounded structured records and references, not log blobs.
+
+The agent diff precedes checks; the final Experience diff includes check effects. `execution.json` is a hashed metadata artifact. `metadata.json` mirrors the Experience and is excluded from its own artifact list to avoid a self-referential hash. References are content digests, not tamper-proof storage or automatic verification on read. Local owners can edit files/database contents; compare hashes before relying on exported evidence.
+
+`ExperienceStore` exposes insert/get/list with an outcome query and typed summaries. It has no update/delete operation. SQL triggers protect Experience/Evaluation/artifact history from ordinary updates/deletes. Discarding a Reality does not delete its Experience.
+
+`LessonStore` supports insert/get/list and optimistic metadata revisions. The next version is required, and creation time, identity, and historical evidence cannot change. New evidence and confidence/status changes go through `Lesson::apply_experiment` and the experiment finalization transaction. A different tested claim, scope, or pair of commands requires a new hypothesis, avoiding accidental reuse of old evidence. Rationale revisions and all prior versions remain available through the store API.
+
+## Scope and actions
+
+`ContextSelector` can constrain repository path, required markers, tags, OS, and architecture. Current proposals use the source repository, its observed markers, OS, and architecture. They never produce a global “never use npm” rule.
+
+`ActionPattern` supports shell commands, file operations, and custom actions. Only shell patterns are executable by the experiment engine. Matching is exact equality after trimming **outer whitespace only**: `npm install` does not match `npm  install`, `npm install --force`, or a substring of a larger script. There is no regex, prefix, quoting, or semantic matcher.
+
+`EvidenceRef` is either an origin Experience or a Trial linked to its Experiment. Relationships are `origin`, `supports`, `contradicts`, or `inconclusive`. The last value explicitly retains neutral comparisons without presenting them as support. Lesson → Hypothesis → source Experience and Lesson → Experiment → Trial → Evaluation/artifacts are represented by typed fields and SQLite foreign keys.
+
+## Lifecycle and confidence
+
+| Experiment | Lesson effect | Heuristic confidence |
+| --- | --- | --- |
+| New hypothesis | Candidate | 0.42 |
+| Baseline fails, alternative passes | Candidate → CounterfactuallySupported | 0.78 |
+| Baseline passes, alternative fails | Candidate or supported → Contradicted | 0.20 |
+| Both pass / both fail | Status unchanged; neutral evidence retained | Unchanged |
+| Interrupted/runtime failure | No Lesson revision or support claim | Unchanged |
+
+A timed-out trial gives an inconclusive comparison, not positive evidence. Duplicate experiment evidence is rejected. Further supporting pairs stay at 0.78 and do not promote to `Validated`. A later supporting pair does not erase a contradiction. `Validated` and `Retired` are representable domain states, but no CLI assigns them and V0.1 does not perform those transitions.
+
+**V0.1 confidence values are heuristic indicators of accumulated evidence, not calibrated probabilities.** Counterfactual support is not universal causal proof.

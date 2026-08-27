@@ -1,29 +1,32 @@
 # Implementation roadmap
 
-This pass deliberately stops at Milestones 0–2. A working execution substrate is not yet the empirical learning vertical slice.
+The local Experience → Hypothesis → Experiment → Evidence pipeline is implemented. Retrieval, retry, repeated-evidence validation, and transfer remain the next phase.
 
 | Milestone | Status | Deliverable |
 | --- | --- | --- |
-| 0 — Bootstrap | Implemented | Modular Rust crate, CLI, typed errors/IDs, SQLite migration infrastructure, tests, Linux/macOS CI definition |
-| 1 — Reality | Implemented | Clean Git state capture, detached worktrees, recreate-starting-state forks, diffs, disposal, persistence, explicit orphan cleanup |
-| 2 — Agent execution | Implemented | Generic adapter, explicit argv templates, output artifacts and hashes, raw execution records, deadlines and signal handling |
-| 3 — Evaluation | Planned next | `Evaluator`, command/test checks, separate agent-exit and task-evaluation results, `--check` |
-| 4 — Experience recording | Planned | Typed immutable Experiences that reference execution and evaluation evidence; `experience list/show` |
-| 5 — Candidate Lesson | Planned | Manual/deterministic reflection, structured scoped hypotheses, Candidate storage; no automatic truth promotion |
-| 6 — Counterfactual experiment | Planned | Same-snapshot baseline/alternative trials, command replacement, differential outcome rules, durable provenance |
-| 7 — Lesson promotion | Planned | One supporting pair → CounterfactuallySupported; configurable replications → Validated; a dedicated heuristic confidence policy |
-| 8 — Retry and retrieval | Planned | Retrieve an applicable lesson, retry in a fresh Reality, record improvement and later-task transfer |
-| 9 — Named agent adapter | Planned | Optional Claude Code or Codex noninteractive integration behind runtime detection |
+| 0 — Bootstrap | Implemented | Rust crate, CLI, typed errors/IDs, SQLite migrations, Linux/macOS CI definition |
+| 1 — Reality | Implemented | Detached worktrees, clean snapshots, forks/diffs/disposal, leases and orphan cleanup |
+| 2 — Agent execution | Implemented | Generic argv adapter, outputs/diffs, immutable Executions, deadlines/signals |
+| 3 — Evaluation | Implemented | Async required command checks, evaluation distinct from process status |
+| 4 — Experience | Implemented | Immutable observations, context, bounded signatures, artifact/provenance links, inspection |
+| 5 — Candidate Lesson | Implemented | Manual and fixture reflection, scoped hypotheses, versioned Lessons |
+| 6 — Counterfactual experiment | Implemented | Fresh controlled script trials, equivalence checks, classification, durable evidence |
+| 7 — Lesson promotion | Partial | Candidate → CounterfactuallySupported/Contradicted; centralized heuristic confidence; no Validated promotion |
+| 8 — Retrieval and retry | Deferred | Applicability-based retrieval and explicit fresh-Reality task retries |
+| 9 — Named agent integration | Deferred | Optional vendor-specific runtime detection and noninteractive adapters |
 
-## Next acceptance tests
+## Verified acceptance boundaries
 
-1. Milestone 3: an agent process exits zero while the test command fails. The evaluation must report failure without altering the raw execution record. Persist check stdout/stderr, timing, and evaluator configuration.
-2. Milestone 4: reopening the store exposes the same Experience and its complete execution/evaluation references. Later interpretations cannot rewrite that evidence.
-3. Milestones 5–8: add a deterministic pnpm-mismatch fixture and test agent, without package downloads or LLM calls. Baseline fails, alternative passes, one experiment supports the hypothesis, replication validates it, and a later related task retrieves it. Both-pass/both-fail and contradiction cases must be covered.
-4. Milestone 9: detect an installed real CLI and run an opt-in integration smoke test. Missing credentials or executables must not affect the offline test suite.
+The deterministic fixture creates an original failed Experience, Candidate Hypothesis/Lesson, failed baseline and passing alternative Experiences, supporting Experiment, and revised Lesson. It does not create a fourth task attempt. The integration suite covers all four outcome pairs, immutable evidence, reopen/query provenance, old-schema migration, cleanup, interrupted evaluation/trials, capture failure retention, scope/replay rejection, and stale Lesson updates.
 
-The current tests are real subprocess/worktree tests, not a simulated learning demo. They do not exercise lesson extraction, confidence, or transfer because those systems do not exist yet.
+Repeated supporting comparisons stay at 0.78 and do not establish validation. There are no benchmark results, transfer claims, or published binary packages. Local verification is on macOS; the existing CI definition targets Linux and macOS, but a local test run is not evidence of a remote CI pass.
 
-## Later directions
+## Exact next-phase plan
 
-Configuration files, richer context retrieval, cross-agent replication, chaos trials, operating envelopes, reflex advice, recovery procedures, and stronger isolation backends follow the working learning loop. Autonomous blocking, external-effect virtualization, hosted services, and universal rollback remain outside the current scope.
+1. **Deterministic Lesson retrieval.** Add a query API and `lesson find` that filters repository, markers, tags, environment constraints, and eligible status before ranking. Return supporting/contradicting evidence IDs and explain exclusions. Test changed commits/markers, unrelated repositories, contradictory Lessons, and stable ranking. No vector database is needed.
+2. **Explicit retry using retrieved evidence.** Add an opt-in retry command/configuration with a trial budget. Start from a fresh recorded state, select an applicable Lesson, provide its scoped advice through a structured script/adapter, and persist the new Experience plus a retry relationship. The original Experience stays unchanged. Test success, unsuccessful advice, cancellation, budget exhaustion, and cleanup.
+3. **Repeated evidence policy.** Track independent comparisons by task, snapshot, evaluator, agent, and environment. Define duplicate/nonindependent evidence and prevent repeated identical runs from masquerading as independent replications. Preserve contradiction and test confidence decreases.
+4. **Guarded Validated promotion.** Specify configurable replication and contradiction criteria in a domain policy, record the promotion rationale and policy version, and expose an auditable command. Add tests proving reflection, a single pair, and duplicated evidence cannot promote a Lesson. Do not introduce automatic enforcement.
+5. **Cross-task transfer fixture.** Add a second held-out local task whose applicable lesson can be retrieved without hardcoded task identity. Compare an unaided run with an explicit evidence-informed retry under equal budgets. Report success/failure, cost, provenance, and cases where scope rejects transfer.
+
+Keep the next phase offline and deterministic. External-command reflection, broader environment manifests, crash reconciliation, artifact integrity/retention tools, and optional real-agent smoke tests can be separate focused changes. Do not add cloud services, arbitrary command interception, reflex enforcement, or chaos while proving retrieval and transfer.

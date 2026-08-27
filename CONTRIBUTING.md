@@ -1,6 +1,6 @@
 # Contributing
 
-Hardknock currently implements the execution substrate for V0.1, not the Experience Engine. Read the [architecture](docs/architecture.md) and [milestone plan](docs/roadmap.md) before extending the interfaces.
+Hardknock implements the local V0.1 execution and empirical evidence loop. Retrieval, retry, and Validated promotion are deferred. Read the [architecture](docs/architecture.md) and [milestone plan](docs/roadmap.md) before extending the interfaces.
 
 ## Development
 

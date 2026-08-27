@@ -16,13 +16,13 @@ Claude Code, Codex, Hermes, OpenClaw, Kiro, and other agents decide what to do. 
 
 **Meet Lottie the Axolotl.** 🌸 She has broken this build 47 times in the Dojo so your production agent doesn't have to. Axolotls regenerate after injury; Lottie represents the same ambition for agents: recover, test alternatives, and retain what helped.
 
-> **Pre-alpha · Milestones 0–2 implemented.** The local execution substrate runs commands in Git worktrees and records their output. Evaluation, Experiences, Lessons, and the learning loop remain planned. The learning demo below is illustrative.
+> **Pre-alpha · Milestones 0–6 implemented.** Local runs now produce evaluated, immutable Experiences. Manual or deterministic hypotheses can be tested in fresh baseline/alternative Realities, with scoped Lesson updates and inspectable evidence. Retrieval, retry, and `Validated` promotion remain planned.
 
-[Run the prototype](#run-the-current-prototype) · [Learning-loop preview](#learning-loop-preview-planned) · [Experience](#experience-is-evidence) · [V0.1 scope](#v01-scope) · [Contributing](#contributing)
+[Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Experience](#experience-is-evidence) · [V0.1 scope](#v01-scope) · [Contributing](#contributing)
 
 ## Run the current prototype
 
-**Implemented:** a Rust CLI, detached Git Realities, a generic agent-command adapter, stdout/stderr and diff artifacts, SQLite execution records, JSON output, deadlines, and cleanup on Ctrl-C. Linux and macOS are the current targets. Build with stable Rust, Git, and a C compiler:
+**Implemented:** a Rust CLI, detached Git Realities, generic and scripted execution, required command checks, immutable Experiences, scoped Lessons, controlled experiments, hashed artifacts, SQLite provenance, JSON output, deadlines, and cleanup on Ctrl-C. Linux and macOS are the current targets. Build with stable Rust, Git, and a C compiler:
 
 ```bash
 cargo build --locked
@@ -39,9 +39,9 @@ cargo build --locked
 
 Use a repository with a committed starting state and no staged, unstaged, or untracked changes. The run saves output and a patch under `~/.hardknock`, then discards the trial worktree; use `--keep` to retain it. `HARDKNOCK_HOME` selects another dedicated data directory outside the source repository.
 
-**Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is recorded but is **not yet evaluated task success**.
+**Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
-**Planned:** `--check`, named Claude/Codex adapters, Experience and Lesson commands, counterfactual experiments, confidence, retrieval, and retry. See the [implemented CLI reference](docs/cli.md), [architecture](docs/architecture.md), and [next milestones](docs/roadmap.md).
+**Planned:** Lesson retrieval, task retry, repeated-evidence validation, cross-task transfer, and named vendor adapters. See the [implemented CLI reference](docs/cli.md), [architecture](docs/architecture.md), and [next milestones](docs/roadmap.md).
 
 ## The problem
 
@@ -53,7 +53,7 @@ Reflection, episodic memory, skill learning, sandboxing, replay, and evaluation 
 
 ## The Hardknock idea
 
-> **Reflection proposes experience. Experiment promotes it.**
+> **Reflection proposes hypotheses. Experiments provide evidence.**
 
 ```text
 A common reflective loop
@@ -64,76 +64,54 @@ The Hardknock loop
                                              ↓
                                           Evidence
                                              ↓
-                                    Validated Experience
+                                    Supported Lesson
 ```
 
 **Reflection → Hypothesis. Not Reflection → Truth.** Reflection proposes an explanation; an execution supplies evidence. Experiments test whether the explanation deserves to influence future work.
 
 Hardknock's purpose is to let agents **generate, validate, accumulate, revise, and eventually retire experience**. A failed trial remains useful evidence even when its proposed lesson turns out to be wrong.
 
-## Learning-loop preview (planned)
+## Run the learning demo
 
-**Illustrative UX, not an available command.** The outcomes and confidence scores below are mock data. Scores are not calibrated probabilities, and two matching trial pairs do not automatically establish validation; promotion criteria are still to be designed.
+The [local pnpm workspace fixture](fixtures/pnpm-workspace-conflict) simulates conflicting package-manager state. It uses no network, model API, npm, or pnpm installation. Initialize it as a separate Git repository using the [demo instructions](docs/experiments.md#run-the-offline-demo), then run:
 
-```console
-$ hardknock run --agent hermes "Upgrade dependencies in this pnpm workspace"
-
-🌸 Dojo ready · reality r-184
-→ Hermes
-
-✗ Attempt 1 failed · 13 tests failed
-  signature: duplicate_lockfile
-
-? Candidate lesson
-  npm inside this pnpm workspace caused conflicting dependency state
-  confidence 0.42
-
-Testing counterfactuals from the same starting snapshot...
-  pair 1  r-185  npm install    ✗
-          r-186  pnpm install   ✓
-  pair 2  r-201  npm install    ✗
-          r-202  pnpm install   ✓
-
-✓ lesson-042 validated under tested conditions
-  confidence 0.42 → 0.94
-
-↻ Retrying with lesson-042
-
-✓ Complete in the Dojo
-  214 tests passed · 7 files changed
-  2 task attempts · 4 counterfactual trials
-  patch ready for review · nothing deployed
+```bash
+hardknock run --agent test-agent --check './test.sh' 'upgrade dependencies'
 ```
 
-The lesson should be inspectable, not just injected into a prompt:
+The tested sequence is:
 
-```console
-$ hardknock lesson show lesson-042
+```text
+Original process: success
+Original evaluation: failure · package_manager_conflict
+Candidate Lesson: confidence 0.42
 
-lesson-042                              VALIDATED
+baseline     ./agent-script.sh baseline       failure
+alternative  ./agent-script.sh alternative    success
 
-Context
-  This repository and tested dependency snapshot
-  pnpm-workspace.yaml present
-
-Avoid under these conditions
-  npm install
-
-Prefer
-  pnpm install
-
-Evidence
-  r-185    FAIL     r-186    PASS
-  r-201    FAIL     r-202    PASS
-
-Confidence
-  0.94 · illustrative score
-
-Scope
-  Validated under tested conditions; recheck when context changes
+Conclusion: supports hypothesis
+Lesson: CounterfactuallySupported · confidence 0.78
+Original task was not retried; its evaluation remains failure.
 ```
+
+This is a compact summary of the real fixture behavior; actual output includes full UUIDs, provenance, and artifact paths. The command exits **1** because experimental support does not turn the original task into a success. Three immutable Experiences remain after the disposable worktrees are removed.
+
+```bash
+hardknock experience list
+hardknock experience show exp-<uuid>
+hardknock lesson list
+hardknock lesson show lesson-<uuid>
+hardknock experiment list
+hardknock experiment show experiment-<uuid>
+```
+
+For other workflows, use `run --script`, `lesson propose`, and `experiment run --lesson`. Replacement matches the entire recorded script; it does not intercept commands inside an opaque agent. See [CLI usage](docs/cli.md) and [experimental limits](docs/experiments.md#equivalence-and-limits).
+
+**Counterfactual support is not universal causal proof.** V0.1 confidence values are heuristic indicators of accumulated evidence, not calibrated probabilities. Repeating the pair does not automatically validate a Lesson.
 
 ## How it works
+
+The first four steps work for explicit local scripts. Retrieval, retry, and broader lifecycle management below remain the next phase.
 
 1. **Capture an execution.** Record the goal, starting state, actions, observations, and evaluation, including failures.
 2. **Propose a hypothesis.** Reflection extracts a Candidate Lesson with a specific claim and scope.
@@ -171,7 +149,7 @@ An **Experience** is evidence from an actual execution. A reflection alone canno
 | **Reflex** | A recognizable precursor to a known failure that can trigger warning, reconsideration, or replanning. Severe cases supported by strong evidence may justify blocking, but only with independent policy authorization. |
 | **Recovery** | A validated procedure for returning to a safe state after failure. |
 
-The proposed typed Experience schema captures:
+The full target Experience schema captures the following; the implemented subset and deferred fields are documented in [the model reference](docs/experience-model.md):
 
 | Field group | Contents |
 | --- | --- |
@@ -415,7 +393,7 @@ Retrieval must check applicability. Do not blindly transfer lessons across repos
 
 ## CLI resource model
 
-The proposed first-class resources are `experience`, `skill`, `lesson`, `reflex`, `recovery`, `experiment`, and `reality`. This is the **long-term CLI model**; only the basic `run` and Reality operations are implemented from this tree. The current CLI also has `execution list/show` for raw process records. See [docs/cli.md](docs/cli.md) for the implemented command set.
+The proposed first-class resources are `experience`, `skill`, `lesson`, `reflex`, `recovery`, `experiment`, and `reality`. This is the **long-term CLI model**; `run`, Reality management, Experience inspection, Lesson inspection/proposal, and Experiment inspection/execution are implemented. The CLI also has `execution list/show` for raw process records. Other operations in the tree remain planned. See [docs/cli.md](docs/cli.md) for the implemented command set.
 
 ```text
 hardknock
@@ -461,7 +439,7 @@ Decision → Reflex → Lesson → Experiment → Experience
 | Experience Engine | Store typed evidence, propose lessons, track support and contradiction, and retrieve applicable artifacts |
 | Policy and review gates | Keep trial permissions and artifact acceptance explicit; authorize any blocking behavior independently of confidence |
 
-These are conceptual boundaries, not a commitment to separate services. The current substrate is a single modular Rust crate with SQLite metadata, local artifact files, a generic command adapter, and a Git-worktree `RealityProvider`. The Experiment Controller and Experience Engine remain planned. See the [architecture decisions and current guarantees](docs/architecture.md).
+These are conceptual boundaries, not a commitment to separate services. The current substrate is a single modular Rust crate with SQLite metadata, local artifact files, a generic command adapter, and a Git-worktree `RealityProvider`. The initial Experiment Engine, immutable Experience store, and Lesson evidence policies are implemented; retrieval and retry remain planned. See the [architecture decisions and current guarantees](docs/architecture.md).
 
 ## V0.1 scope
 
@@ -474,18 +452,17 @@ These are conceptual boundaries, not a commitment to separate services. The curr
 - Generic process execution, command/output capture, filesystem diffs, and persistent execution records.
 - Timeouts, signal handling, optional retention, and explicit orphan cleanup.
 
-**Still planned:** test/evaluation results, broader environment reproducibility, and stronger isolation backends such as containers.
+**Also implemented:** required command checks and explicit scripted replay with snapshot/environment verification. Broader environment reproducibility and stronger isolation backends such as containers remain planned.
 
-### Planned Experience Engine
+### Implemented Experience Engine foundation
 
-- A typed Experience schema and evidence provenance.
-- Candidate Lesson extraction from observed executions.
-- A controlled counterfactual trial workflow.
-- Confidence/evidence tracking, including contradictory outcomes.
-- Retrieval of validated Lessons for relevant contexts.
-- A retry that uses the retrieved experience.
+- Typed immutable Experiences with context, failure signatures, and artifact provenance.
+- Manual and deterministic Candidate Hypotheses and scoped, versioned Lessons.
+- Explicit baseline/alternative scripts in fresh Realities with equivalence checks.
+- Centralized support/contradiction classification and heuristic confidence.
+- Candidate → CounterfactuallySupported or Contradicted transitions.
 
-The first useful demonstration should connect these pieces end to end: a coding agent fails, proposes a lesson, tests it, and completes a related attempt using the resulting evidence.
+**Next:** applicable Lesson retrieval, explicit retry, independent replication criteria for `Validated`, and a held-out cross-task transfer fixture. The current demo stops at evidence and never retries the original task.
 
 ### Out of scope initially
 
@@ -522,13 +499,13 @@ No benchmark results are available yet.
 | **Safe failure is useful** | Failure within a controlled boundary is a source of information. |
 | **Context matters** | Lessons are conditional beliefs with scope and confidence, not global prohibitions. |
 | **Experience is inspectable** | Every durable conclusion should trace back to observable evidence. |
-| **Experience is revisable** | Lessons can be weakened, contradicted, retested, or retired. |
+| **Interpretations are revisable** | Lessons can be weakened, contradicted, retested, or retired. |
 | **Agents are interchangeable** | Evidence should survive changes in the reasoning model or agent implementation; applicability must be checked again. |
 | **Failure should improve resilience** | Measure recognition, recovery, and operating judgment as well as completion. |
 
 ## Roadmap
 
-All milestones are proposed, with no release dates committed.
+The broader release goals below include work beyond the implemented local loop. No release dates are committed; see the [implementation roadmap](docs/roadmap.md) for exact status.
 
 | Milestone | Intended outcome |
 | --- | --- |
@@ -540,9 +517,9 @@ All milestones are proposed, with no release dates committed.
 
 ## Project status
 
-Hardknock is a **pre-alpha execution prototype**. Milestones 0–2 are implemented and covered by local unit/integration tests. The CLI builds from source; there is no published release package or benchmark result. CI is configured for Linux and macOS.
+Hardknock is a **pre-alpha empirical learning prototype**. Milestones 0–6 and the first guarded Lesson transitions are implemented and covered by local unit/integration tests. The CLI builds from source; there is no published release package or benchmark result. CI is configured for Linux and macOS.
 
-The empirical learning loop has not been implemented or demonstrated yet. Next come evaluation and structured Experiences, followed by a deterministic counterfactual fixture. APIs, command syntax, and schemas may change as those milestones expose what is needed.
+The offline fixture demonstrates Experience → Hypothesis → Experiment → Evidence and counterfactual support. It does not establish general agent performance, automatic retry, validated causal claims, or cross-task transfer. APIs, command syntax, and schemas may change as those next steps are tested.
 
 ## Contributing
 

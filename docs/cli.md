@@ -1,46 +1,82 @@
 # CLI reference
 
-This page describes **implemented Milestones 0–2**. Requires Git and a current stable Rust toolchain to build; runtime support is Linux/macOS. There is no published release package yet.
+Milestones 0–6 are implemented for Linux/macOS. Build from source with stable Rust, Git, and a C compiler:
 
 ```bash
 cargo build --locked
-./target/debug/hardknock --version
 ./target/debug/hardknock --help
 ```
 
-The examples below use `hardknock` as shorthand for the built binary's absolute path or a binary on your `PATH`.
+Below, `hardknock` means the built binary on PATH or its absolute path. Use a committed repository without staged, unstaged, or untracked changes. Hardknock does not stash, commit, or reset the source checkout. Ignored files are not copied; submodules are unsupported.
 
-## Run a command
+## Run and evaluate
 
-```bash
-hardknock --repo /path/to/clean-repository run \
-  --agent-command 'sh -c "{task}"' \
-  'printf "hello from the Dojo\n"'
-```
-
-The source must have a commit and no staged, unstaged, or untracked changes. Hardknock does not auto-commit, stash, or reset your checkout. Ignored files are not copied. Submodules are not supported yet.
-
-`--agent-command` uses shell-style **quoting for argument splitting only**. Exactly one complete argument must be `{task}`. It is replaced after splitting, so task quotes, whitespace, dollar signs, and semicolons remain literal within that argument. There is no implicit shell, variable expansion, pipe handling, or command substitution.
+Choose exactly one adapter:
 
 ```bash
-# A custom agent receives the task as one literal argument.
-hardknock run --agent-command 'my-agent --prompt {task}' 'fix the build'
+# Opaque agent: task is substituted into one literal argv element.
+hardknock --repo /path/to/repo run \
+  --agent-command 'my-agent --prompt {task}' \
+  --check 'make lint' --check 'make test' 'fix the build'
 
-# Shell execution is an explicit choice: the task is then shell code.
-hardknock run --agent-command 'bash -c "{task}"' 'echo hello'
+# Explicit script: eligible for manual counterfactual replay.
+hardknock run --script './fix.sh' --check './test.sh' 'fix the build'
+
+# Local fixture: failed evaluation triggers deterministic reflection + two trials.
+hardknock run --agent test-agent --check './test.sh' 'upgrade dependencies'
 ```
 
-Use noninteractive flags appropriate for your installed agent. The runner closes stdin. Named `--agent claude`, `--agent codex`, and `--agent test-agent` adapters are **not implemented** in this pass.
+Initialize the fixture as described in [experiments.md](experiments.md#run-the-offline-demo). `test-agent` requires its marker at the Git repository root. It simulates package-manager behavior without installing npm/pnpm or downloading anything.
+
+`--agent-command` uses shell quoting only to split argv. Exactly one complete argument must be `{task}`; substitution occurs afterward. No implicit shell expansion takes place. An explicit template such as `sh -c '{task}'` intentionally treats the task as shell code. Generic agents inherit the environment and cannot be replayed automatically.
+
+`--script` and checks use `/bin/sh -c`. The script is executed verbatim; the task string is a recorded goal, **not** substituted into the script. Scripted runs use the controlled environment documented in [experiments.md](experiments.md#equivalence-and-limits). All adapters are noninteractive with stdin closed. Named Claude/Codex/Hermes adapters are not implemented.
 
 | Flag | Behavior |
 | --- | --- |
-| `--agent-command TEMPLATE` | Required executable/argument template |
-| `--timeout-secs N` | Deadline in seconds; default 300, range 1–86400 |
-| `--keep` | Retain the worktree for inspection; otherwise save artifacts then discard it |
+| `--agent-command TEMPLATE` | Opaque executable/argv adapter |
+| `--script SCRIPT` | Explicit replayable shell script |
+| `--agent test-agent` | Deterministic fixture adapter and automatic experimental comparison |
+| `--check SCRIPT` | Required shell check; repeat to run several in order |
+| `--timeout-secs N` | Per agent/check process deadline; default 300, range 1–86400 |
+| `--keep` | Keep the original run's Reality; experiment trials are still discarded |
 
-Human output identifies the process status, exit code, Reality, execution ID, and artifact paths. Child output is captured to files, not streamed or mixed into CLI output. A zero child exit code does **not** establish task success; there is no `--check` evaluator yet.
+All required checks must pass. An agent exiting zero does not establish task success. A failed agent with passing checks can have a successful task evaluation. No checks means `inconclusive`; the CLI preserves its historical process-based exit code in that case. Normal failed checks do not skip later checks; timeouts or cancellation do.
 
-## Reality commands
+Output identifies the process result, evaluation, source Experience, and artifacts. The fixture also reports its Candidate, trials, conclusion, and updated Lesson. Successful counterfactual support does **not** change the original failed task result or retry the task; that demo intentionally exits 1.
+
+## Evidence and Lesson inspection
+
+```bash
+hardknock execution list
+hardknock execution show exec-<uuid>
+hardknock experience list
+hardknock experience show exp-<uuid>
+hardknock lesson list
+hardknock lesson show lesson-<uuid>
+hardknock experiment list
+hardknock experiment show experiment-<uuid>
+```
+
+Use full IDs returned by the CLI. Executions are raw process records. Experiences include evaluation, context, failure signatures, and durable artifact references. Lesson details include the source Experience, hypothesis ID/provider, scope, evidence IDs, confidence, and revision. Experiment details include both actions, trials, Reality/Experience IDs, state, and conclusion. JSON detail responses retain the complete typed record.
+
+## Manual hypotheses and experiments
+
+```bash
+hardknock lesson propose \
+  --experience exp-<uuid> \
+  --claim 'The baseline script may create conflicting state in this repository' \
+  --avoid './agent-script.sh baseline' \
+  --prefer './agent-script.sh alternative'
+
+hardknock experiment run --lesson lesson-<uuid>
+```
+
+Propose does not execute anything. It creates a scoped Candidate at confidence 0.42. Run reconstructs the source Experience's starting commit and uses its original checks/deadlines. `--avoid` must match the **entire** recorded script after trimming outer whitespace; `--prefer` replaces that script. No interception of commands inside an opaque live agent is attempted. Unsupported replay conditions fail clearly before trials begin.
+
+The CLI does not accept arbitrary Lesson statuses or confidence values. An inconclusive comparison exits 3; support or contradiction exits 0 because the investigation completed. The Lesson's status conveys which conclusion was reached.
+
+## Reality management
 
 ```bash
 hardknock reality create
@@ -52,83 +88,68 @@ hardknock reality discard r-<uuid>
 hardknock reality cleanup
 ```
 
-Replace IDs with actual values from command output. Create uses `--repo`; other operations use the persisted source repository reference. List includes discarded records so history stays inspectable.
+Create uses `--repo`; subsequent operations use persisted repository references. Fork recreates the original commit, not the parent's modifications. Diff includes tracked/nonignored files against that commit, with patch bytes in human mode and an artifact reference in JSON mode. Saved diffs remain available after disposal.
 
-- **Fork** recreates the parent's original commit; it does not copy current changes.
-- **Diff** includes tracked changes and nonignored new files. Human mode writes patch bytes; JSON mode returns an artifact reference. A discarded Reality's saved diff is available through its execution record.
-- **Discard** explicitly deletes the managed worktree and its uncommitted changes. It is idempotent for already discarded Realities. It retains metadata and artifacts. It refuses active leases, unmanaged paths, and symlink replacements.
-- **Cleanup** deletes only unlocked automatic-run Realities left after interrupted cleanup. It skips active runs, manual Realities, `--keep` runs, and Realities retained after capture failures. Stop abandoned processes first: Hardknock cannot detect or undo arbitrary escaped descendants or external effects.
+Discard removes only the selected managed worktree, retains records/artifacts, and refuses active leases or unsafe paths. Cleanup removes unlocked automatic-run orphans, skipping manual, kept, or capture-failure Realities. Stop abandoned commands before cleanup; escaped descendants and external effects cannot be undone.
 
-## Execution inspection
-
-```bash
-hardknock execution list
-hardknock execution show exec-<uuid>
-hardknock --json execution show exec-<uuid>
-```
-
-Execution records are append-only process observations, not the future Experience abstraction. `show` exposes the task, argv, agent identity, starting state, timing, exit/signal, and hashed stdout/stderr/diff references.
-
-## Global flags and output
+## Global flags and JSON
 
 | Flag | Behavior |
 | --- | --- |
-| `--repo PATH` | Source repository, default current directory |
-| `--home PATH` | Dedicated storage directory; overrides `HARDKNOCK_HOME` |
+| `--repo PATH` | Source Git repository; default current directory |
+| `--home PATH` | Dedicated storage directory outside the source; overrides `HARDKNOCK_HOME` |
 | `--json` | One JSON result on stdout; newline-delimited JSON diagnostics on stderr |
-| `--quiet` | Suppress normal stdout, but not safety warnings/errors; conflicts with JSON and verbose |
-| `--verbose` | Debug logs on stderr, with arguments/environment omitted |
+| `--quiet` | Suppress stdout, not warnings/errors; conflicts with JSON and verbose |
+| `--verbose` | Debug tracing on stderr; does not dump argv/environment |
 | `--no-emoji` | Remove emoji from human output |
 
-Flags can precede or follow subcommands. No spinners or ANSI status codes are used. `--help` and `--version` retain their normal text output. Runtime/usage errors leave stdout empty and emit an `error` object on stderr in JSON mode. Process failure is a completed run result with a nonzero CLI exit code, not a runtime exception.
+Global flags can precede or follow subcommands. `--help` and `--version` remain text. Child logs are captured to files, never mixed into CLI stdout. Runtime/usage errors leave stdout empty and emit an `error` object on stderr:
 
 ```json
-{"event":"error","message":"Record r-… not found","exit_code":2}
+{"event":"error","message":"Record exp-… not found","exit_code":2}
 ```
 
-JSON result events include `run_completed`, `reality`, `realities`, `reality_diff`, `execution`, `executions`, and `cleanup_completed`. `run_completed` contains both the Reality and the complete execution record. Diagnostic events include `isolation_warning` and `error`; verbose tracing is also JSON in JSON mode. The schema is experimental.
+The existing single-result JSON contract is preserved, rather than introducing a streaming stdout protocol. `run_completed` retains `execution`/`reality` and adds `experience`, nullable `lesson`, and nullable `experiment`. Other events include `experience(s)`, `lesson(s)`, `experiment(s)`, `experiment_completed`, `execution(s)`, `reality`, `realities`, `reality_diff`, and `cleanup_completed`. Parentheses here denote singular/plural event names, not literal syntax. Diagnostics include `isolation_warning`, `error`, and optional structured tracing.
 
-## Storage and logging
+On partial experiment runtime failure, inspect `experiment list/show` and `experience list`: evidence may have been persisted even though stdout contains no success response. The error identifies the Experiment and any retained Reality. Schemas remain pre-alpha and may evolve through migrations.
+
+## Storage
 
 ```text
 ~/.hardknock/
 ├── hardknock.db
 ├── artifacts/
-│   └── exec-<uuid>/
-│       ├── stdout.log
-│       ├── stderr.log
+│   └── exp-<uuid>/
+│       ├── agent/{stdout.log,stderr.log}
+│       ├── check-0/{stdout.log,stderr.log}
+│       ├── check-1/{stdout.log,stderr.log}
+│       ├── agent.diff.patch
 │       ├── diff.patch
+│       ├── execution.json
 │       └── metadata.json
 ├── realities/
 ├── locks/
 └── logs/
 ```
 
-`HARDKNOCK_HOME` overrides the default. Use a dedicated directory outside the source repository. The directory is created with owner-only access; SQLite is owner read/write. SQLite may create WAL/SHM sidecars. `logs/` is reserved; current tracing goes to stderr.
+Each original run and trial has its own Experience artifact directory. Existing `exec-<uuid>` directories remain readable. Hash references retain the fields `blake3`/`bytes` and add `kind`. The final diff includes check effects; the agent diff does not. The Experience mirror is not self-hashed.
 
-```bash
-HARDKNOCK_HOME=/tmp/hardknock-demo hardknock reality list
-RUST_LOG=hardknock=debug hardknock --no-emoji reality list
-```
+The data directory is owner-only and SQLite is owner read/write; WAL/SHM sidecars may appear. `logs/` is reserved and tracing currently goes to stderr. General redaction, artifact quotas/garbage collection, and TOML configuration are not implemented. Tasks, scripts, and logs can contain secrets; review before sharing.
 
-Environment variables are not logged, but the child inherits them. Command arguments, tasks, and captured outputs are raw and can contain secrets. Review artifacts before sharing. Outputs are written directly to disk without a memory-sized buffer or automatic size cap; provision disk space and use a sensible deadline.
-
-Repository/global TOML configuration and automatic artifact garbage collection are deferred. No configuration file is currently read.
-
-## Exit codes
+## Exit codes and cancellation
 
 | Code | Meaning |
 | --- | --- |
-| `0` | Requested management operation succeeded, or process exited zero; no task evaluation yet |
-| `1` | Child process failed, received a signal, or exceeded its deadline |
-| `2` | Usage error or Hardknock runtime/internal failure |
-| `3` | Reserved: experiment inconclusive |
-| `4` | Reserved: policy/invariant failure |
-| `5` | User intervention required, including dirty input, an active Reality lease, SIGINT, or SIGTERM cancellation |
-| `6` | Reserved: no successful candidate |
+| `0` | Management succeeded, checks passed, or a classified experiment completed; with no checks, agent exited zero |
+| `1` | Task evaluation failed/timed out; with no checks, agent failed/timed out |
+| `2` | Usage or runtime/internal failure |
+| `3` | Explicit experiment completed inconclusively |
+| `4` | Reserved for future policy/invariant failures |
+| `5` | Intervention required, invalid replay conditions, active lease, SIGINT/SIGTERM interruption |
+| `6` | Reserved for future candidate selection |
 
-Ctrl-C and SIGTERM terminate the process group, capture the interrupted execution, and clean up unless `--keep` was requested. Capture/persistence failures preserve trial state and report its location. SIGKILL or power loss cannot run cleanup; inspect `reality list` and use `reality cleanup` only after stopping abandoned commands.
+Cancellation terminates the active process group, records available evidence, and skips pending work. Normal failures, timeouts, and interruptions clean up. Capture/storage failures preserve the affected Reality. SIGKILL/power loss can leave running Experiments and orphan worktrees; automatic experiment resumption is deferred.
 
-## Planned commands
+## Deferred commands
 
-`--check`, `experience`, `lesson`, `experiment`, `reflex`, `recovery`, `try`, `why`, and chaos operations are not implemented. They are not placeholder commands that silently succeed. See the [roadmap](roadmap.md) for the next implementation steps.
+Retrieval, retry/`try`, `why`, reflexes, recovery, chaos, skill synthesis, arbitrary action interception, named vendor adapters, and `Validated` promotion are not implemented. See [the next-phase plan](roadmap.md#exact-next-phase-plan).
