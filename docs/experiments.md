@@ -67,7 +67,7 @@ C lacks the pnpm workspace marker/family tag: npm succeeds with no injected Less
 
 Use `run --script` with explicit required checks, then `lesson propose --experience ... --avoid ... --prefer ...` and `experiment run --lesson ...`. The entire recorded script is the replacement unit. File-operation and custom ActionPatterns are representable but not executable mutations. Proposals from opaque generic-agent runs are inspectable Candidates; attempting to replay them fails rather than guessing their internal actions.
 
-The deterministic reflection provider recognizes only fixture A; B/C/D do not invent new hypotheses automatically. Manual proposals work for other scripts. External-command/LLM reflection is deferred; no API call is needed to test the empirical loop.
+The V0.1 deterministic reflection provider recognizes only fixture A; B/C/D do not invent new hypotheses automatically. Manual proposals work for other scripts. External-command/LLM reflection is deferred; no API call is needed to test the empirical loop.
 
 ## Equivalence and limits
 
@@ -116,3 +116,9 @@ Plans are persisted before trials. Each trial has its own Experience, evaluation
 Normal failed checks, timeouts, and Ctrl-C retain evidence and remove worktrees. If artifact capture or database persistence fails, the affected worktree is retained to avoid losing the only copy of changes. The error reports its location. This is a deliberate exception to automatic cleanup. Stop abandoned commands before `reality cleanup`; kept/retained worktrees need explicit inspection/discard.
 
 SIGKILL/power loss can leave an Experiment marked running. Inspection and orphan Reality cleanup work; automatic experiment recovery, resumption, artifact pruning, and cross-filesystem transactions are deferred.
+
+## Local chaos and restoration tests (V0.2)
+
+[Chaos campaigns](chaos.md) run a healthy control followed by bounded environmental conditions, producing Experiences and a sparse envelope. They differ from a Lesson counterfactual: changing one condition does not automatically support a universal Lesson. The three resilience fixtures have their own explicitly scoped candidate generator; V0.1 fixture B/C/D behavior is unchanged.
+
+[Reflex testing](reflexes.md) compares identical conditions without and with one early response rule. [Recovery testing](recovery.md) repeats a known failure inside the response Reality, checks it before restoration, then executes typed steps and checks the result. Both protocols retain paired evidence, mismatches, false positives, and contradictions. Neither validates a Lesson or independently demonstrates cross-agent transfer.

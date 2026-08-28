@@ -1,45 +1,32 @@
 # Implementation roadmap
 
-The local Experience → Hypothesis → Experiment → Evidence → Retrieval → Application → Validation loop is implemented. The evidence is limited to trusted local fixtures and explicit scripts; the generic context contract has one successful Codex CLI smoke test.
+The local passive learning and active resilience loops are implemented. Evidence remains limited to trusted local fixtures and explicit scripts. The older generic context contract has one historical Codex CLI smoke test; V0.2 adds no new real-agent integration.
 
 | Milestone | Status | Deliverable |
 | --- | --- | --- |
-| 0 — Bootstrap | Implemented | Rust crate, CLI, typed errors/IDs, SQLite migrations, Linux/macOS CI definition |
-| 1 — Reality | Implemented | Detached worktrees, clean snapshots, forks/diffs/disposal, leases and cleanup |
-| 2 — Agent execution | Implemented | Generic argv adapter, outputs/diffs, immutable Executions, deadlines/signals |
-| 3 — Evaluation | Implemented | Required command checks, evaluation distinct from process status |
-| 4 — Experience | Implemented | Immutable observations, context, signatures, artifact/provenance links |
-| 5 — Candidate Lesson | Implemented | Manual/fixture hypotheses, scoped versioned Lessons |
-| 6 — Counterfactual | Implemented | Fresh controlled paired trials, equivalence checks, classification |
-| 7 — Lesson promotion | Implemented | Distinct application validation, contradiction, explicit retirement |
-| 8 — Retrieval and retry | Implemented | Explained scoring, context injection, bounded retries, lineage, `why` |
-| 9 — Agent integration | Partial | Vendor-neutral files and generic Codex smoke test; named adapters deferred |
+| 0–2 — Bootstrap, Reality, execution | Implemented | Rust CLI, detached worktrees, controlled scripts, artifacts, process groups and cleanup |
+| 3–6 — Evaluation through counterfactual evidence | Implemented | Immutable Experiences, hypotheses, versioned Lessons, fresh paired trials |
+| 7–8 — Retrieval and transfer | Implemented | Scope gates, explained scores, context files, bounded retry, distinct application validation and contradiction |
+| 9 — Local chaos | Implemented | Healthy control, four local perturbations, bounded campaigns, three deterministic fixtures |
+| 10 — Operating envelopes and Skills | Implemented locally | Explicit tested points, unknown untested space, manual supported procedure registration |
+| 11 — Reflexes | Implemented locally | Scoped precursor matching, paired response tests, false positives, separate activation and historical explanations |
+| 12 — Recovery | Implemented locally | Failure reproduction/precheck, typed steps, paired Experiences, support/contradiction and metrics |
+| 13 — External-agent integration | Next | Stable integration contracts, adapters/hooks, cross-agent validation |
 
 ## Verified acceptance boundaries
 
-Fixture A fails, proposes a Lesson, compares explicit strategies, and succeeds on an opt-in retry. B differs in tree, packages and task: its experience-disabled control fails with one repeated mistake; its observed advised application succeeds without that mistake and validates the Lesson. C rejects irrelevant pnpm advice. D supplies a controlled contradiction that lowers confidence without erasing support or retiring the Lesson.
+The V0.1 fixtures retain observed transfer on distinct task B, scope rejection on C, and controlled contradiction on D. V0.2 observes the explicit retry delay points 0/100/500ms PASS, 1000ms DEGRADED, and 2000ms FAIL. A paired Reflex test replans after three failures and succeeds; a transient three-failure negative case identifies a false positive. Stale simulated credentials and planned/config generation drift demonstrate failure reproduction and restoration. Source repositories remain unchanged.
 
-The suite also covers duplicate contexts, self-reports, candidate/retired exclusion, cancellation, retry limits, context collisions, concurrent evidence writes, immutable history, migration, and Reality cleanup. No external model is required for tests. Local verification is on macOS; configured Linux/macOS CI is not evidence of a completed remote CI run.
-
-See [the transfer phase report](implementation-transfer.md) and the historical [Milestones 3–6 report](implementation-phase-3-6.md). The historical report describes the earlier boundary, not current functionality.
+See [the V0.2 report](implementation-v02.md), [transfer report](implementation-transfer.md), and historical [Milestones 3–6 report](implementation-phase-3-6.md). Local verification is on macOS; configured Linux/macOS CI is not a report of a remote CI run. No external model is required by the test suite.
 
 ## Exact next-phase plan
 
-**Active resilience building in trusted local fixtures**, proceeding through:
+**Stable real-agent integration surfaces**, building on the deterministic local loop:
 
-```text
-Validated Skill → Deliberate Perturbations → Failure Boundary Discovery
-                                                      ↓
-                                              Operating Envelope
-                                                      ↓
-                                            Advisory Reflex → Recovery
-```
+1. Specify versioned portable contracts for Experience Query, Experiment Request, Reflex Evaluation, and Evidence Reporting, preserving scope, agent identity, immutable artifacts, and observed/self-reported distinctions.
+2. Expose an explicitly permissioned MCP/API layer and adapter capability negotiation. Do not imply a query grants permission to execute, block, or access credentials.
+3. Add opt-in lifecycle hooks for selected real agents (Claude, Codex, Hermes, OpenClaw), with clear observation boundaries and explicit integration tests. No vendor should gain confidence merely from its identity.
+4. Validate influence on related tasks across different agents, retain disabled controls and contradictory evidence, and account for tokens, retries, and experiment costs.
+5. Strengthen artifact verification, crash reconciliation, environment manifests, and isolation before broadening the adversity model or making stronger causal claims.
 
-1. Define a Skill as an explicit replayable procedure, evaluator, applicability scope and source Experiences. Establish its clean baseline before calling it validated.
-2. Add bounded, deterministic, reversible local perturbations one factor at a time: fixture files, explicit environment inputs or command replacement. Record seeds, trial budget, manifests and deviations. Do not begin with network/cloud faults.
-3. Compare perturbed trials with matched controls, retaining all failures and inconclusive observations. Discover boundaries only within the tested factor ranges; preserve correlations and duplicate-trial limits.
-4. Derive an operating envelope that links each tested condition to its evidence. It must distinguish observed regions, unknown regions and contradicted expectations.
-5. Derive disabled-by-default advisory reflex candidates from reproducible precursors. Activation must be explicit; advice or replanning does not authorize blocking or extra permissions.
-6. Test a bounded recovery procedure from each captured failure state with explicit restoration checks. Measure recovery success, repeated mistakes and total experiment/retry cost against controls, preserving every Experience.
-
-This is a recommendation for the next pass, not work started here. Keep the first resilience work offline and deterministic. Stronger isolation, fuller environment manifests, crash reconciliation, artifact verification/retention, broader tasks and verified external-agent observers remain focused follow-ups. Do not add hosted services, arbitrary action interception, automatic policy enforcement, or universal rollback claims.
+These integrations have not begun in V0.2. Keep real network/privileged/cloud chaos, external financial effects, arbitrary credential interception, browser transaction isolation, WASM, tournaments, GUI, hosted services, organization-wide sharing, and automatic blocking out of this local release.

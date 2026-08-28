@@ -98,3 +98,9 @@ A relevant failed application alone is inconclusive about causality. `lesson tes
 The automated B comparison records success 0/1 → 1/1 and repeated mistakes 1/1 → 0/1. Conceptually, Experience Transfer Rate is the fraction of applicable Lessons that improve outcome on related unseen tasks. This designed fixture pair supplies one comparison, not a population estimate. A benchmark CLI, randomization, larger task sets, token/cost accounting, and independent semantic context checks remain deferred.
 
 `experience show`, `lesson show`, `experiment show`, and `why --experience ...` expose application → Lesson revision → controlled Experiment → source Experience. `why` also shows the current Lesson, so later contradiction or retirement is visible without changing the historical application. `status` reports stored counts; it does not compute a benchmark.
+
+## Chaos-derived candidates and Reflex scope
+
+V0.2 chaos failures can propose repository/fixture-scoped Candidate Lessons. They stay excluded from ordinary Lesson advice until the existing evidence policy supports them; one induced failure is not a prohibition. Reflex matching is a separate deterministic scope-and-precursor gate, not a relevance-score shortcut. The fixture runtime executes a Replan only for an explicitly active matching rule or its isolated paired test. It does not feed a Reflex back into Lesson confidence as transfer evidence.
+
+False-positive firings disable the overbroad rule and retain the paired original success. A later positive replay cannot erase that negative evidence. `Narrows` is modeled as a future evidence relationship; automatic scope refinement is not implemented. See [reflexes](reflexes.md).

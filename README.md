@@ -16,13 +16,13 @@ Claude Code, Codex, Hermes, OpenClaw, Kiro, and other agents decide what to do. 
 
 **Meet Lottie the Axolotl.** 🌸 She has broken this build 47 times in the Dojo so your production agent doesn't have to. Axolotls regenerate after injury; Lottie represents the same ambition for agents: recover, test alternatives, and retain what helped.
 
-> **Pre-alpha · First transfer loop implemented.** Local failures produce immutable Experiences and scoped Lessons tested in fresh baseline/alternative Realities. Deterministic retrieval can advise a bounded retry or a distinct task. Observed successful transfer can promote a Lesson to `Validated`; contradictory evidence and retirement remain inspectable.
+> **Pre-alpha · Local resilience loop implemented (V0.2).** Local failures produce immutable Experiences and scoped Lessons tested in fresh baseline/alternative Realities. Deterministic retrieval can advise a bounded retry or a distinct task. Observed successful transfer can promote a Lesson to `Validated`; contradictory evidence and retirement remain inspectable.
 
-[Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Experience](#experience-is-evidence) · [V0.1 scope](#v01-scope) · [Contributing](#contributing)
+[Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
 
 ## Run the current prototype
 
-**Implemented:** a Rust CLI, detached Git Realities, generic and scripted execution, required checks, immutable Experiences, scoped Lessons, controlled experiments, deterministic retrieval, application provenance, bounded retries, transfer validation, hashed artifacts, SQLite, JSON output, deadlines, and cleanup on Ctrl-C. Linux and macOS are the current targets. Build with stable Rust, Git, and a C compiler:
+**Implemented:** a Rust CLI, detached Git Realities, generic and scripted execution, required checks, immutable Experiences, scoped Lessons, controlled experiments, deterministic retrieval, application provenance, bounded retries, transfer validation, hashed artifacts, SQLite, JSON output, deadlines, and cleanup on Ctrl-C. V0.2 adds local chaos campaigns, four perturbation types, sparse operating envelopes, scoped reflex tests, explicit activation, recovery experiments, and manual Skill registration. Linux and macOS are the current targets. Build with stable Rust, Git, and a C compiler:
 
 ```bash
 cargo build --locked
@@ -41,7 +41,7 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
-**Planned:** active resilience experiments, stronger environment controls, broader transfer measurements, and named vendor adapters. See the [CLI reference](docs/cli.md), [retrieval policy](docs/retrieval.md), and [next phase](docs/roadmap.md).
+**Planned:** stable real-agent integration surfaces, stronger environment controls, broader transfer measurements, and named vendor adapters. See the [CLI reference](docs/cli.md), [retrieval policy](docs/retrieval.md), and [next phase](docs/roadmap.md).
 
 ## The problem
 
@@ -119,6 +119,25 @@ For other workflows, use `run --script`, `lesson propose`, and `experiment run -
 
 **Validated** means Hardknock observed supporting evidence in both a controlled counterfactual and at least one distinct application context. It does not imply universal correctness. Distinctness requires a different repository tree; an identical clone or renamed task cannot boost confidence. Confidence is a heuristic, not a calibrated probability. See the [phase report](docs/implementation-transfer.md) for the checks, contradiction case, and Codex CLI smoke test.
 
+## Don't Wait for Useful Mistakes
+
+Production incidents provide valuable experience, but they are an expensive and incomplete curriculum. Hardknock can deliberately create controlled adversity inside the Dojo to discover how an agent behaves outside nominal conditions.
+
+```text
+Skill → Chaos → Observed failure conditions → Lesson → Reflex → Recovery
+```
+
+**Hardknock doesn't just teach agents how to succeed. It discovers how their success breaks.**
+
+```bash
+hardknock chaos run --fixture retry-resilience \
+  --perturb-sweep delay=0,100,500,1000,2000
+```
+
+The bundled local fixture observes control PASS, 0/100/500ms PASS, 1000ms DEGRADED, and 2000ms FAIL. It simulates dependency delay; it does not shape network traffic. The result records Experiences, a Candidate Lesson/Reflex/Recovery, and an Operating Envelope containing those tested points. All untested conditions remain unknown.
+
+Use the emitted IDs with `reflex test`, `reflex enable`, and `recovery test`. Tests can support a response but do not activate it. A transient-failure negative case records when the original action would have succeeded and disables the overbroad Reflex. See the [runnable chaos guide](docs/chaos.md), [Reflex rules](docs/reflexes.md), and [recovery protocol](docs/recovery.md).
+
 ## How it works
 
 These steps work for the local fixtures and explicit scripts. Generic agents can opt into the [context-file contract](docs/agent-integration.md); their internal action claims remain self-reported.
@@ -157,7 +176,10 @@ An **Experience** is evidence from an actual execution. A reflection alone canno
 | **Skill** | What has been observed to work under recorded conditions. |
 | **Lesson** | What tends to fail under particular conditions, the supported explanation, and what to try instead. |
 | **Reflex** | A recognizable precursor to a known failure that can trigger warning, reconsideration, or replanning. Severe cases supported by strong evidence may justify blocking, but only with independent policy authorization. |
-| **Recovery** | A validated procedure for returning to a safe state after failure. |
+| **Recovery** | A scoped restoration procedure with explicit candidate, support, and contradiction evidence. |
+| **Perturbation** | A deliberate experimental condition applied inside a Reality. |
+| **Chaos Campaign** | A healthy control followed by bounded perturbation trials. |
+| **Operating Envelope** | Observed behavior at explicitly tested conditions; all other conditions remain unknown. |
 
 The full target Experience schema captures the following; the implemented subset and deferred fields are documented in [the model reference](docs/experience-model.md):
 
@@ -171,7 +193,7 @@ The full target Experience schema captures the following; the implemented subset
 
 Confidence belongs to a specific claim or evaluation, not to every byte in a log. Preserve the execution record; version and revise interpretations of it. “Validated experience” means evidence with conclusions validated under tested conditions, not an infallible account of the world.
 
-Future derived artifacts could include heuristics, operating envelopes, invariants, and causal models. These are design directions, not V0.1 commitments.
+Operating envelopes are implemented as sparse tested points. Future derived artifacts could include broader heuristics, invariants, and causal models.
 
 ## Evidence has a lifecycle
 
@@ -283,11 +305,11 @@ The claim is **empirically supported under tested conditions**. It is not a univ
 
 ## Chaos engineering for agents
 
-Traditional chaos engineering introduces controlled perturbations to discover weaknesses before production incidents do. Hardknock proposes applying the same philosophy to **agent behavior**: do not merely wait for useful mistakes; create bounded adversity and observe how the agent responds.
+Traditional chaos engineering introduces controlled perturbations to discover weaknesses before production incidents do. Hardknock applies this philosophy to deterministic local **agent behavior**: do not merely wait for useful mistakes; create bounded adversity and observe how the agent responds.
 
 > **Hardknock doesn't just teach an agent how to succeed. It discovers how that success breaks.**
 
-Planned perturbation families include:
+The implemented local mechanisms are environment overrides, file mutations, command failures, and command delays. These broader perturbation families remain future work:
 
 | Surface | Examples |
 | --- | --- |
@@ -298,16 +320,16 @@ Planned perturbation families include:
 | Information and instructions | Outdated documentation, ambiguous instruction, stale memory, misleading external information |
 
 ```text
-Known Skill → Chaos Trials → Discover Failure Boundary
+Known Skill → Chaos Trials → Observe Failure Conditions
                                         ↓
                              Lesson + Reflex + Recovery
                                         ↓
                                More Resilient Skill
 ```
 
-An **operating envelope** is the set of conditions under which a skill has been empirically observed to remain effective. Outside that envelope, an agent should carry uncertainty rather than assume success will transfer.
+An **operating envelope** records empirically observed success, degradation, or failure at tested conditions. Untested conditions remain unknown; an agent should not assume success will transfer.
 
-Chaos trials should specify the perturbation, control run, success checks, safety limits, and stopping conditions. They belong in disposable environments, not live production. This is a later milestone, not a claim about current functionality.
+Chaos trials should specify the perturbation, control run, success checks, safety limits, and stopping conditions. They belong in disposable environments, not live production. The local subset is implemented in V0.2; real infrastructure chaos remains deferred.
 
 ### Experience budget
 
@@ -403,7 +425,7 @@ Retrieval must check applicability. Do not blindly transfer lessons across repos
 
 ## CLI resource model
 
-The proposed first-class resources are `experience`, `skill`, `lesson`, `reflex`, `recovery`, `experiment`, and `reality`. This is the **long-term CLI model**; `run`, Reality management, Experience inspection, Lesson inspection/proposal, and Experiment inspection/execution are implemented. The CLI also has `execution list/show` for raw process records. Other operations in the tree remain planned. See [docs/cli.md](docs/cli.md) for the implemented command set.
+Implemented resources include `experience`, `skill`, `lesson`, `reflex`, `recovery`, `experiment`, `chaos`, `envelope`, and `reality`, plus `run`, `why`, `status`, and raw `execution list/show`. The tree below also includes the still-planned `try` and general Experience replay commands. See [docs/cli.md](docs/cli.md) for the implemented command set.
 
 ```text
 hardknock
@@ -423,20 +445,21 @@ hardknock
 ├── skill
 ├── recovery
 ├── chaos
+├── envelope
 ├── reality
 └── why
 ```
 
-The implemented inspectability command explains recorded Lesson influence:
+The implemented inspectability command explains recorded Lesson and Reflex influence:
 
 ```bash
 hardknock why
 ```
 
-Current explanations follow application → Lesson → Experiment → source Experience. A future reflex should extend that chain with its trigger and independent policy authorization:
+Current explanations follow application → Lesson → Experiment → source Experience, or a historical Reflex match → source Lesson → chaos Trial → Experience. Blocking still requires future independent policy authorization:
 
 ```text
-Decision → Reflex → Lesson → Experiment → Experience
+Decision → Reflex → Lesson → Chaos Trial → Experience
 ```
 
 ## Target architecture
@@ -474,7 +497,7 @@ These are conceptual boundaries, not a commitment to separate services. The impl
 - Deterministic scoped retrieval, context injection, observable application and retry lineage.
 - Bounded opt-in retry and a distinct transfer fixture with an experience-disabled control.
 
-**Next:** active resilience building: validated skills, deliberate local perturbations, failure boundaries, operating envelopes, advisory reflexes, and bounded recovery. These are not implemented in this phase.
+**V0.2 also implemented:** manually registered supported Skills, healthy-control campaigns, reversible local perturbations, observed operating points, Candidate/Supported/Active Reflexes, false-positive detection, and bounded recovery tests. See [the resilience report](docs/implementation-v02.md). **Next:** stable real-agent integrations; no MCP server or new vendor adapters are included in this phase.
 
 ### Out of scope initially
 
@@ -522,14 +545,14 @@ The broader release goals below include work beyond the implemented local loop. 
 | Milestone | Intended outcome |
 | --- | --- |
 | **V0.1 — Controlled coding experiments** | Runner adapters, disposable coding trials, typed evidence, counterfactual lesson validation, retrieval, and retry |
-| **V0.2 — Richer experience and retrieval** | Better context matching, contradiction and retirement workflows, cross-agent replication, and transfer measurements |
-| **V0.3 — Chaos and operating envelopes** | Controlled perturbations, failure-boundary discovery, and evidence for reflexes and recovery |
+| **V0.2 — Local resilience** | Deterministic chaos, observed operating envelopes, scoped reflexes, false positives, and recovery |
+| **V0.3 — External-agent integration** | Stable query/experiment/reflex/evidence contracts, MCP/API surfaces, lifecycle hooks, and cross-agent validation |
 | **V0.4 — Deeper agent hooks** | Lifecycle integration and policy-authorized reflex responses before consequential actions |
 | **Later — External-effect virtualization** | Explore explicit semantics for selected external systems, without claiming universal rollback |
 
 ## Project status
 
-Hardknock is a **pre-alpha empirical learning prototype**. The first retrieval, retry, application, and transfer-validation loop is implemented and tested. It builds from source; no release package is published. CI is configured for Linux and macOS; local verification was on macOS.
+Hardknock is a **pre-alpha empirical learning prototype**. The retrieval, retry, transfer-validation, and local resilience loops are implemented and tested. It builds from source; no release package is published. CI is configured for Linux and macOS; local verification was on macOS.
 
 The fixtures demonstrate limited transfer from one task to a related, distinct repository. They do not establish general agent performance or universal causal claims. APIs, command syntax, and schemas remain subject to change.
 

@@ -1,6 +1,6 @@
 # Architecture
 
-## Implemented: first empirical transfer loop
+## Implemented: empirical transfer and local resilience
 
 One modular Rust crate runs the local empirical loop. Reflection proposes a hypothesis; recorded trials supply counterfactual evidence. Scoped retrieval can advise a future run, and observed successful application in a distinct repository tree can validate a supported Lesson.
 
@@ -59,6 +59,8 @@ One modular Rust crate runs the local empirical loop. Reflection proposes a hypo
 | `validation` | Distinct successful application policy, deduplication, recorded decisions |
 | `explanation` | Historical application snapshot, current Lesson, source and experiment chain |
 | `store` | SQLite migrations, typed store traits, immutable records, revisions, provenance keys |
+| `perturbation` | Typed local conditions, reversible Reality handles, child environment inputs |
+| `resilience` | Campaigns, fixture lifecycle, scoped Reflex matcher, paired tests, recovery and envelope models |
 | `cli` | Parsing, adapter selection, human/JSON presentation; no conclusion or confidence rules |
 
 SQLite is bundled through `rusqlite`. Tokio handles subprocess waits and cancellation. No service, model API, or additional runtime is needed for the fixture.
@@ -97,10 +99,11 @@ The adapter API remains compatible: context preparation wraps command execution 
 | `002_experiences.sql` | Evaluations, immutable Experiences, typed artifact references |
 | `003_learning.sql` | Hypotheses, Lessons, immutable revisions, Experiments, Trials, evidence and artifact links |
 | `004_transfer.sql` | Immutable applications/artifact links, Experience relations, repeated mistakes, validation decisions |
+| `005_resilience.sql` | Perturbations, campaigns/trials, envelopes, Skills, Reflex/Recovery revisions, matches/attempts, paired tests and provenance |
 
 Foreign keys represent Lesson → source Experience/Hypothesis, Experiment → Lesson/Hypothesis/source, Trial → Experiment/Reality/Execution/Evaluation/Experience, and Trial → artifacts. Store validation checks the structured records agree with these links. Triggers reject updates/deletes of immutable history. Terminal experiments cannot be rewritten. Lessons use checked versions; updates preserve creation time and existing evidence. Changing the tested claim, scope, or commands requires a new hypothesis; a rationale can be revised through the store API.
 
-Migrations are additive, transactional, and applied once. Existing Execution/Experience/Lesson JSON is not rewritten. New Experience collections default empty and new Lesson lifecycle fields default absent. Old artifact references default to kind `other`, and old commands to inherited environment. Unknown newer schemas are rejected. There is no automatic backfill or scope broadening. Migration 004 has no destructive down migration; restore a backup to run an older binary.
+Migrations are transactional and applied once. Migration 005 rebuilds the relation/evidence tables to extend their allowed values, preserving every row and reestablishing immutable triggers. Other additions introduce new tables. Existing Execution/Experience/Lesson JSON is not rewritten. New Experience collections default empty and new Lesson lifecycle fields default absent. Old artifact references default to kind `other`, and old commands to inherited environment. Unknown newer schemas are rejected. There is no automatic backfill or scope broadening. Migrations 004/005 have no destructive down migration; restore a backup to run an older binary.
 
 ## Retention, cancellation, and crashes
 
@@ -119,3 +122,11 @@ SIGKILL or power loss can leave a running Experiment and an orphan worktree. `ex
 Use trusted scripts on disposable tasks. Warnings appear before execution and are not hidden by quiet mode. Arguments, tasks, diffs, and logs can contain secrets; there is no general redaction or disk quota. Raw environment secrets are not copied into records. Data directories are private to the current OS user, not authenticated storage or an enforcement policy.
 
 Linux and macOS are supported targets; Windows, containers, remote workers, and vendor-specific adapters remain deferred.
+
+## V0.2 resilience layer
+
+The shared workflow verifies a fresh Reality, captures context, applies scoped perturbation handles, runs the deterministic lifecycle (or top-level shell Command), evaluates, and commits immutable Experience evidence. It captures diffs before reversing perturbations and disposing of the Reality. Every fixture operation has a real ActionRecord and hashed logs. Runtime environment overrides are explicit in commands and perturbation records, not hidden host mutations.
+
+Campaigns require a healthy unperturbed control. Trial rows commit with Experiences; inspection reconstructs partial trial lists from those rows. Finished campaigns create immutable sparse envelopes. Candidate Lessons remain unpromoted by chaos alone. Reflex and Recovery tests produce paired Experiences and commit the test conclusion plus the latest object revision in an immediate transaction. Concurrent tests retain all evidence. Reflex matching is limited to local fixture hooks; generic agents are unaffected.
+
+See [chaos](chaos.md) for limits/JSON/budgets, [operating envelopes](operating-envelopes.md) for point semantics, [reflexes](reflexes.md) for activation/false positives, and [recovery](recovery.md) for failure-state reproduction. Host crashes may leave running campaigns/tests; automatic reconciliation and resumption remain deferred.

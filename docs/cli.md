@@ -168,6 +168,7 @@ On partial experiment runtime failure, inspect `experiment list/show` and `exper
 │       ├── execution.json
 │       └── metadata.json
 ├── realities/
+├── fixtures/                      # versioned bundled sources for replay
 ├── locks/
 └── logs/
 ```
@@ -192,4 +193,22 @@ Cancellation terminates the active process group, records available evidence, an
 
 ## Deferred commands
 
-`try`, benchmark CLI, reflexes, recovery, chaos, skill synthesis, arbitrary action interception, and named vendor adapters remain deferred. The generic adapter has a tested context-file contract; see [agent integration](agent-integration.md). See [the next-phase plan](roadmap.md#exact-next-phase-plan).
+`try`, benchmark CLI, autonomous skill synthesis, arbitrary action interception, and named vendor adapters remain deferred. V0.2 implements the local resilience commands below. The generic adapter has a tested context-file contract; see [agent integration](agent-integration.md). See [the next-phase plan](roadmap.md#exact-next-phase-plan).
+
+## V0.2 resilience commands
+
+```text
+chaos run --fixture KIND --profile PROFILE [--trials N] [--max-duration SECONDS]
+chaos run --agent test-agent --check SCRIPT --perturb CONDITION TASK
+chaos run --command SCRIPT --check SCRIPT --perturb CONDITION TASK
+chaos run --skill NAME_OR_ID --perturb-sweep delay=0,100,500,1000,2000
+chaos list | show ID | report ID
+envelope list | show ID
+reflex list | show ID | test ID [--perturb CONDITION] | enable ID | disable ID
+recovery list | show ID | test ID
+skill list | show NAME_OR_ID | register NAME --experience ID
+```
+
+Kinds: `retry-resilience`, `stale-credential`, `config-drift`. Profiles: `latency`, `command-failure`, `config-drift`, `credential`. Conditions: `delay:100ms`, `command-failure:once|N|always`, `env:KEY=VALUE`, `file:relative-path=content`. Repeat `--perturb` for separate campaign trials; in `reflex test`, repeated values form one compound paired condition. Read [the chaos guide](chaos.md) for defaults, limits, exact behavior, JSON events, and exit semantics. Bundle mode uses a managed fixture source, not `--repo`.
+
+`why` additionally explains historical Reflex match → Lesson → chaos Trial → source Experience, including scope, precursor, confidence, and test-only/active status. `status` includes new resource counts. Resilience commands emit `event: resilience` with a typed `result`; campaign progress is NDJSON on stderr, leaving stdout as one final object. Fixture action logs are in `agent-N/`, rather than the single-process `agent/` directory.

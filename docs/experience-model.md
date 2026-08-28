@@ -11,7 +11,7 @@ Reflection ≠ causal proof
 
 ## Typed records
 
-IDs are resource prefixes followed by canonical UUIDs. Different ID types cannot be interchanged through parsing or JSON. The active prefixes are `r-`, `exec-`, `eval-`, `exp-`, `hypothesis-`, `lesson-`, `experiment-`, `trial-`, and `application-`. Reflex and Recovery IDs reserve future concepts without implementing them.
+IDs are resource prefixes followed by canonical UUIDs. Different ID types cannot be interchanged through parsing or JSON. The active prefixes are `r-`, `exec-`, `eval-`, `exp-`, `hypothesis-`, `lesson-`, `experiment-`, `trial-`, and `application-`. V0.2 additionally implements `perturb-`, `chaos-`, `chaos-trial-`, `envelope-`, `skill-`, `reflex-`, `recovery-`, and `resilience-test-`.
 
 | Record | Fields and meaning |
 | --- | --- |
@@ -24,7 +24,7 @@ IDs are resource prefixes followed by canonical UUIDs. Different ID types cannot
 | `Lesson` | ID/version, source and hypothesis IDs, status, claim/scope/actions, rationale, confidence, evidence, discovery identities, creation/update times |
 | `Experiment` | Source Experience/Lesson/Hypothesis, starting state, replay plan, trial results, status, conclusion, optional runtime failure |
 
-Actions are observed process invocations, not instrumented commands inside an opaque agent. Fixture logs such as `ACTION shell npm install` describe a simulation. The recorded process may invoke `./agent-script.sh run`; its explicit replay script is the observed strategy (`baseline` or `alternative`). Prediction, surprise, automatic recovery observations, and general perturbation engines are deferred. The only implemented perturbation is explicit command replacement.
+Actions are observed process invocations, not instrumented commands inside an opaque agent. Fixture logs such as `ACTION shell npm install` describe a simulation. The recorded process may invoke `./agent-script.sh run`; its explicit replay script is the observed strategy (`baseline` or `alternative`). Prediction and surprise remain deferred. V0.2 adds typed local conditions alongside the historical `ReplaceCommand` record; `Local` perturbation references resolve to immutable parameter records.
 
 ## Application and lineage
 
@@ -33,7 +33,7 @@ Experience includes `lesson_applications`, `relations`, `repeated_mistakes`, `ob
 | Record | Meaning |
 | --- | --- |
 | `LessonApplication` | Lesson ID/version, Experience ID, relevance/matches, delivered flag, influence, verification, resulting action, reason, proof artifacts |
-| `ExperienceRelation` | `retry_of`, `counterfactual_of`, or observed `transfer_from`, directed from new to prior Experience |
+| `ExperienceRelation` | `retry_of`, `counterfactual_of`, observed `transfer_from`, `chaos_variant_of`, or `recovery_of`, directed from new to prior Experience |
 | `RepeatedMistakeObservation` | Relevant supported/validated Lesson, observed avoid action, score and artifact |
 | `LessonValidationDecision` | Policy version, result, distinct successful context count and reason |
 
@@ -71,7 +71,7 @@ The agent diff precedes checks; the final Experience diff includes check effects
 
 `ActionPattern` supports shell commands, file operations, and custom actions. Only shell patterns are executable by the experiment engine. Matching is exact equality after trimming **outer whitespace only**: `npm install` does not match `npm  install`, `npm install --force`, or a substring of a larger script. There is no regex, prefix, quoting, or semantic matcher.
 
-`EvidenceRef` is either an Experience or a Trial linked to its Experiment. Relationships are `origin`, `supports`, `contradicts`, or `inconclusive`. The last value explicitly retains neutral comparisons without presenting them as support. Lesson → Hypothesis → source Experience and Lesson → Experiment → Trial → Evaluation/artifacts are represented by typed fields and SQLite foreign keys.
+`EvidenceRef` is either an Experience or a Trial linked to its Experiment. Relationships are `origin`, `supports`, `contradicts`, `inconclusive`, and the reserved `narrows`. Automatic narrowing is deferred. `inconclusive` explicitly retains neutral comparisons without presenting them as support. Lesson → Hypothesis → source Experience and Lesson → Experiment → Trial → Evaluation/artifacts are represented by typed fields and SQLite foreign keys.
 
 ## Lifecycle and confidence
 
@@ -93,3 +93,13 @@ Validation requires controlled support plus a relevant, observed, successful app
 **Validated means Hardknock observed supporting evidence in both a controlled counterfactual and at least one distinct application context. It does not imply universal correctness.**
 
 **V0.1 confidence values are heuristic indicators of accumulated evidence, not calibrated probabilities.** Counterfactual support is not universal causal proof.
+
+## Resilience observations
+
+The optional `Experience.resilience` field defaults absent for historical JSON. It records origin campaign/trial/control, typed perturbation IDs, classification, metrics, temporal observations, exact Reflex matches, and a RecoveryAttempt when configured. Existing Experience outcome still follows evaluation; the resilience classification additionally requires successful execution for PASS/DEGRADED. A control therefore cannot be healthy on checks alone after a failed command.
+
+Temporal observations contain attempt number, consecutive failures, state-change and stale-config flags, exact proposed operation, logical elapsed time, and output artifacts. The bounded fixture parser recognizes `retry_exhaustion`, `stale_credential`, `configuration_stale`, and `transient_command_failure`. Pre-recovery failures remain part of the Experience even if final recovery succeeds. Simulated delay metrics are labeled separately from measured action durations.
+
+New explicit tables preserve Envelope → Campaign → Trial → Experience, Reflex → source Lesson/Trial, Recovery → source Trial/Experiences, and version-specific match/step/attempt relationships. Experience/trial/observation history is immutable. Reflexes and Recoveries have immutable revisions and evidence rows; terminal tests and campaigns cannot be rewritten. Envelopes are emitted per campaign with revision records rather than aggregating sparse results into inferred intervals. Skills are manually registered immutable procedures with a successful unperturbed source Experience.
+
+A first chaos failure creates only candidates. Supported Reflex/Recovery is a different evidence policy from a Validated Lesson; none may borrow the other's status. See the [V0.2 report](implementation-v02.md) for the implemented semantics and remaining limits.

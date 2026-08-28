@@ -74,3 +74,9 @@ This task's fixture outputs were produced in the disposable repository; the agen
 ## Limits
 
 No named vendor adapter, command interception, automatic parsing of vendor event streams, model-brand promotion rule, MCP server, or enforcement is implemented. The generic adapter records the executable; future adapters may add verified version/model information and independent action observers. Git worktrees remain repository isolation, not a host security boundary. Tasks, logs, and Lesson text can contain sensitive data; review them before sending them to a model or sharing artifacts.
+
+## V0.2 deterministic lifecycle hooks
+
+The resilience test-agent executes bounded local operations and evaluates `ActionContext` before the next attempt. Matched active Reflexes can replan using the fixture's explicit alternative. Candidate tests are isolated and marked `test_only`. Recovery reconstructs failure and checks it before restoring state. These are observed fixture actions; they are not inferred from a vendor's prose.
+
+This phase adds no real-agent adapter, MCP/API server, vendor hooks, or opaque pre-tool interception. Existing context files and the historical Codex smoke result remain unchanged. The recommended next phase is to define stable query, experiment-request, Reflex-evaluation, and evidence-reporting contracts, then implement explicitly permitted adapters/hooks and cross-agent validation against this tested local substrate. See [the roadmap](roadmap.md).
