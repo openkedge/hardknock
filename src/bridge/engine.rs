@@ -79,10 +79,12 @@ pub struct Bridge {
     pub stopping: AtomicBool,
     pub persistence_error: Mutex<Option<String>>,
     pub(crate) learning_cancel: crate::cancellation::Cancellation,
+    pub(crate) experiments: super::experiments::ExperimentService,
 }
 impl Drop for Bridge {
     fn drop(&mut self) {
         self.learning_cancel.cancel();
+        self.experiments.cancel_all();
     }
 }
 enum Job {
@@ -133,6 +135,7 @@ impl Bridge {
         let (tx, rx) = mpsc::sync_channel(4096);
         let learning_cancel = crate::cancellation::Cancellation::default();
         let bridge = Arc::new(Self {
+            experiments: super::experiments::ExperimentService::open(&store.home, &config)?,
             home: store.home.clone(),
             config,
             cache: RwLock::new(cache),
@@ -365,9 +368,11 @@ impl Bridge {
                     Ok(serde_json::to_value(record)?)
                 })
             }
-            AgentEvent::SessionEnded(end) => self.with_session(&end.hardknock_session_id, |s| {
-                s.ended = true; s.revision += 1; self.enqueue(&s.id,"session_ended",json!({}))?; Ok(json!({"accepted":true}))
-            }),
+            AgentEvent::SessionEnded(end) => {
+                self.with_session(&end.hardknock_session_id, |s| { s.ended = true; s.revision += 1; self.enqueue(&s.id,"session_ended",json!({}))?; Ok(()) })?;
+                self.experiments.end_session(&end.hardknock_session_id,self.config.experiments.continue_after_session_end);
+                Ok(json!({"accepted":true}))
+            },
             AgentEvent::LessonRejected(mut feedback) => self.with_session(&feedback.hardknock_session_id.clone(), |s| {
                 if !s.delivered.iter().any(|l| l.lesson.id.to_string() == feedback.lesson_id) { return Err(invalid("Cannot reject an undelivered lesson")); }
                 feedback.detail = feedback.detail.as_ref().map(|d|redact(d,512));
@@ -378,10 +383,18 @@ impl Bridge {
                 self.enqueue(&s.id,"agent_message",json!({"summary":redact(&message.summary,512)}))?; Ok(json!({"accepted":true}))
             }),
             AgentEvent::ExperimentRequested(request) => {
-                self.with_session(&request.hardknock_session_id, |_| Ok(()))?;
-                // Deliberate arbitrary experiments are V0.4; no request can silently run commands.
-                Err(invalid(if request.budget.max_trials == 0 || self.config.bridge.experiment_budget.max_trials == 0 { "Experiment budget exhausted or disabled" } else { "Bridge experiment execution is not enabled in V0.3; use the bounded experiment CLI" }))
-            }
+                let session = self.with_session(&request.hardknock_session_id, |s| Ok(s.clone()))?;
+                self.context_config(&session.agent.name)?;
+                self.experiments.request(request,&session,&self.config)
+            },
+            AgentEvent::ExperimentProgress { hardknock_session_id, experiment_id, after } => {
+                self.with_session(&hardknock_session_id, |_| Ok(()))?;
+                self.experiments.poll(&hardknock_session_id,&experiment_id,after)
+            },
+            AgentEvent::ExperimentCancelled { hardknock_session_id, experiment_id } => {
+                self.with_session(&hardknock_session_id, |_| Ok(()))?;
+                self.experiments.cancel(&hardknock_session_id,&experiment_id)
+            },
         }
     }
     fn with_session<T>(&self, id: &str, f: impl FnOnce(&mut Session) -> Result<T>) -> Result<T> {
@@ -392,6 +405,11 @@ impl Bridge {
     }
     fn context_config(&self, agent: &str) -> Result<super::config::BridgeConfig> {
         let mut config = self.config.bridge.clone();
+        config.experiment_budget.max_realities = if self.config.experiments.agent_requests.enabled {
+            self.config.experiments.agent_requests.max_realities
+        } else {
+            0
+        };
         if let Some(adapter) = self.config.integrations.get(agent) {
             if !adapter.enabled {
                 return Err(invalid("Integration disabled in local configuration"));
@@ -427,6 +445,7 @@ impl Bridge {
                 ));
             }
             session.ended = false;
+            self.experiments.resume_session(&id);
             session.revision += 1;
             self.enqueue(&id, "session_resumed", json!({"agent":session.agent.name}))?;
             return Ok(serde_json::to_value(context_response(

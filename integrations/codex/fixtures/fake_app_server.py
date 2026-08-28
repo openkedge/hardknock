@@ -43,7 +43,8 @@ for line in sys.stdin:
     elif method == "turn/start":
         assert initialized and request["params"]["input"][0]["type"] == "text"
         send({"id": request["id"], "result": {"turn": {"id": "turn-fixture", "status": "inProgress"}}})
-        if request["params"]["input"][0]["text"] == "fixture-stall":
+        if any(item.get("type") == "text" and item.get("text") == "fixture-stall"
+               for item in request["params"]["input"]):
             Path(cwd, "fixture-server.pid").write_text(str(__import__("os").getpid()))
             continue
         events = [json.loads(line) for line in Path(__file__).with_name("lifecycle.jsonl").read_text().splitlines()]

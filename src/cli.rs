@@ -8,6 +8,7 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
+mod experimentation;
 pub mod integrations;
 mod resilience;
 use resilience::{ChaosCommand, EnvelopeCommand, RecoveryCommand, ReflexCommand, SkillCommand};
@@ -136,11 +137,15 @@ pub enum Commands {
     Why {
         #[arg(long)]
         experience: Option<ExperienceId>,
+        #[arg(long, conflicts_with = "experience")]
+        experiment: Option<ExperimentId>,
     },
     /// Count recorded evidence and Lesson states.
     Status,
     /// Run a noninteractive command in a detached worktree; capture output and diff.
     Run(RunArgs),
+    /// Stop guessing: try explicit alternatives from an equivalent committed state.
+    Try(experimentation::TryArgs),
     /// Inspect and manage disposable Git working states.
     Reality {
         #[command(subcommand)]
@@ -330,7 +335,10 @@ pub enum LessonCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum ExperimentCommand {
-    List,
+    List {
+        #[arg(long)]
+        agent: Option<String>,
+    },
     Show {
         id: ExperimentId,
     },
@@ -338,12 +346,33 @@ pub enum ExperimentCommand {
         #[arg(long)]
         lesson: LessonId,
     },
+    Replay {
+        id: ExperimentId,
+        #[arg(long, conflicts_with = "candidate")]
+        all: bool,
+        #[arg(long)]
+        candidate: Option<String>,
+    },
+    Fork {
+        id: ExperimentId,
+        #[arg(long = "candidate", required = true)]
+        candidates: Vec<String>,
+    },
+    Cancel {
+        id: ExperimentId,
+    },
 }
 
 #[derive(Debug, Subcommand)]
 pub enum RealityCommand {
     Create,
     List,
+    Tree,
+    Export {
+        id: RealityId,
+        #[arg(long)]
+        patch: PathBuf,
+    },
     Show {
         id: RealityId,
     },
@@ -378,6 +407,9 @@ pub enum ExperienceCommand {
 #[derive(Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Experimentation {
+        result: Box<experimentation::ExperimentResponse>,
+    },
     Integration {
         result: serde_json::Value,
     },
@@ -417,6 +449,7 @@ pub enum Response {
     },
     Experiments {
         experiments: Vec<Experiment>,
+        strategy_experiments: Vec<crate::experimentation::StrategyExperiment>,
     },
     ExperimentCompleted {
         experiment: Box<Experiment>,
@@ -453,6 +486,7 @@ pub enum Response {
 impl Response {
     pub fn exit_code(&self) -> u8 {
         match self {
+            Self::Experimentation { result } => result.exit_code(),
             Self::Resilience { result } => result.exit_code(),
             Self::RunCompleted {
                 execution,
@@ -499,6 +533,7 @@ impl Response {
             return Ok(());
         }
         match self {
+            Self::Experimentation { result } => result.print(&mut stdout)?,
             Self::Integration { .. } => {}
             Self::Resilience { result } => result.print(&mut stdout)?,
             Self::RunCompleted {
@@ -762,7 +797,17 @@ impl Response {
                 serde_json::to_writer_pretty(&mut stdout, lesson)?;
                 writeln!(stdout)?;
             }
-            Self::Experiments { experiments } => {
+            Self::Experiments {
+                experiments,
+                strategy_experiments,
+            } => {
+                for e in strategy_experiments {
+                    writeln!(
+                        stdout,
+                        "{} · {:?} · {} · {}",
+                        e.id, e.status, e.request.requested_by.kind, e.request.question
+                    )?;
+                }
                 for e in experiments {
                     writeln!(
                         stdout,
@@ -1007,6 +1052,33 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if let Commands::Experiment {
+        command: ExperimentCommand::List { agent },
+    } = &cli.command
+    {
+        return Ok(Response::Experiments {
+            experiments: if agent.is_none() {
+                store.experiments()?
+            } else {
+                vec![]
+            },
+            strategy_experiments: crate::store::ExperimentStore::list(&store, agent.as_deref())?,
+        });
+    }
+    if let Commands::Experiment {
+        command: ExperimentCommand::Show { id },
+    } = &cli.command
+        && crate::store::ExperimentStore::get(&store, id)?.is_none()
+    {
+        return Ok(Response::Experiment {
+            experiment: Box::new(store.experiment(id)?),
+        });
+    }
+    if experimentation::handles(&cli.command) {
+        return Ok(Response::Experimentation {
+            result: Box::new(experimentation::execute(cli, &store, cancel).await?),
+        });
+    }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
         Commands::Bridge { .. }
@@ -1019,7 +1091,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         | Commands::Reflex { .. }
         | Commands::Recovery { .. }
         | Commands::Skill { .. } => resilience::execute(cli, &store, cancel).await,
-        Commands::Why { experience } => Ok(Response::Why {
+        Commands::Why { experience, .. } => Ok(Response::Why {
             explanation: Box::new(store.explain(experience.as_ref())?),
         }),
         Commands::Status => Ok(Response::Status {
@@ -1073,9 +1145,10 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                 LearningRunOptions {
                     experience_budget: args.experience_budget.map(|n| {
                         crate::bridge::protocol::ExperienceBudget {
-                            max_trials: n as usize,
+                            max_realities: n as usize,
                             max_agent_runs: n as usize,
                             max_duration_ms: None,
+                            max_commands_per_reality: None,
                         }
                     }),
                     learning: RunLearningOptions {
@@ -1225,12 +1298,6 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             }
         },
         Commands::Experiment { command } => match command {
-            ExperimentCommand::List => Ok(Response::Experiments {
-                experiments: store.experiments()?,
-            }),
-            ExperimentCommand::Show { id } => Ok(Response::Experiment {
-                experiment: Box::new(store.experiment(id)?),
-            }),
             ExperimentCommand::Run { lesson } => {
                 warning(cli.json)?;
                 let experiment = ExperimentEngine { store: &store }
@@ -1241,6 +1308,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                     lesson: Box::new(store.lesson(lesson)?),
                 })
             }
+            _ => Err(Error::InvalidInput("Experiment dispatch failed".into())),
         },
         Commands::Experience { command } => match command {
             ExperienceCommand::List => Ok(Response::Experiences {
@@ -1251,6 +1319,9 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             }),
         },
         Commands::Reality { command } => match command {
+            RealityCommand::Tree | RealityCommand::Export { .. } => {
+                Err(Error::InvalidInput("Reality dispatch failed".into()))
+            }
             RealityCommand::Create => {
                 warning(cli.json)?;
                 Ok(Response::Reality {
@@ -1330,5 +1401,6 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                 execution: Box::new(store.execution(id)?),
             }),
         },
+        Commands::Try(_) => Err(Error::InvalidInput("Experiment dispatch failed".into())),
     }
 }

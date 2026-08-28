@@ -156,6 +156,7 @@ pub async fn serve(home: &Path, tcp: Option<u16>, cancel: &Cancellation) -> Resu
     }
     bridge.stopping.store(true, Ordering::Relaxed);
     bridge.learning_cancel.cancel();
+    bridge.experiments.cancel_all();
     clients.abort_all();
     while clients.join_next().await.is_some() {}
     let b = bridge.clone();

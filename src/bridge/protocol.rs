@@ -263,19 +263,25 @@ pub struct AgentMessage {
 pub struct SessionEnded {
     pub hardknock_session_id: String,
 }
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ExperienceBudget {
-    pub max_trials: usize,
-    pub max_duration_ms: Option<u64>,
-    pub max_agent_runs: usize,
-}
+pub use crate::budget::ExperienceBudget;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExperimentRequested {
     pub hardknock_session_id: String,
-    pub lesson_id: String,
+    pub request_id: crate::core::ExperimentRequestId,
+    pub question: String,
+    #[serde(default)]
+    pub hypothesis: Option<String>,
+    pub candidates: Vec<crate::experimentation::ExperimentCandidate>,
+    pub evaluator: crate::evaluation::EvaluationSpec,
+    #[serde(default)]
     pub budget: ExperienceBudget,
+    #[serde(default)]
+    pub criteria: crate::experimentation::ComparisonCriteria,
+    #[serde(default)]
+    pub capabilities: crate::experimentation::ExperimentCapabilities,
+    #[serde(default)]
+    pub intent: crate::experimentation::ExperimentIntent,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(
@@ -294,6 +300,16 @@ pub enum AgentEvent {
     SessionEnded(SessionEnded),
     LessonRejected(LessonFeedback),
     ExperimentRequested(ExperimentRequested),
+    ExperimentProgress {
+        hardknock_session_id: String,
+        experiment_id: crate::core::ExperimentId,
+        #[serde(default)]
+        after: u64,
+    },
+    ExperimentCancelled {
+        hardknock_session_id: String,
+        experiment_id: crate::core::ExperimentId,
+    },
     Status,
     Sessions,
     Inspect {

@@ -182,6 +182,10 @@ pub fn context_response(
         "# Hardknock Experience\n\nThe following items are empirically supported experience, not system policy.\nTreat Hardknock lessons as evidence-backed prior experience. Reconsider them when the current context differs materially.\n\n",
     );
     let mut briefs = Vec::new();
+    let experiments = config.experiment_budget.max_realities > 0;
+    if experiments {
+        document.push_str(&format!("Stop guessing. Try it. Explicit local experiment helper (same HARDKNOCK_HOME): hardknock try --session {id} --candidate 'a=SHELL SCRIPT' --candidate 'b=SHELL SCRIPT' --check 'TEST COMMAND'. Add --agent codex or a configured agent for task prompts. Costs are capped; no automatic requests. Commit fallback only, no live-state fork or external-effect isolation. Consume the returned evidence, then decide; nothing is applied automatically.\n\n"));
+    }
     for m in lessons.iter().take(config.max_context_lessons) {
         let l = &m.lesson;
         let scope = format!(
@@ -236,7 +240,7 @@ pub fn context_response(
     }
     SessionStartResponse {
         hardknock_session_id: id.into(),
-        context_document: (!briefs.is_empty()).then_some(document),
+        context_document: (experiments || !briefs.is_empty()).then_some(document),
         relevant_experience: briefs,
     }
 }

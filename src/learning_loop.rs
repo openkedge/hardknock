@@ -14,7 +14,7 @@ use crate::{
 };
 
 pub struct LearningRunOptions {
-    pub experience_budget: Option<crate::bridge::protocol::ExperienceBudget>,
+    pub experience_budget: Option<crate::budget::ExperienceBudget>,
     pub learning: RunLearningOptions,
     pub auto_reflect: bool,
     pub retry: bool,
@@ -58,7 +58,7 @@ pub async fn execute_learning_run(
     let mut remaining = options
         .experience_budget
         .as_ref()
-        .map(|b| b.max_trials.min(b.max_agent_runs))
+        .map(|b| b.max_realities.min(b.max_agent_runs))
         .unwrap_or(usize::MAX);
     if options.auto_reflect && !cancel.is_cancelled() {
         for hypothesis in DeterministicReflection.reflect(&initial.experience)? {
