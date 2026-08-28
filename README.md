@@ -22,7 +22,7 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.4 experience on demand.** Agents can request bounded strategy experiments through the local Bridge. Equivalent starting states, evaluator comparisons, progress, cancellation, replay, and immutable Experiences have deterministic coverage. Successful live acceptance with two different agents is still pending; see the [V0.3 report](docs/implementation-v03.md) and [V0.4 report](docs/implementation-v04.md). Recommendations never apply changes automatically.
+> **Pre-alpha · V0.5 skill hardening.** Explicit curricula find evidence gaps, run bounded trials, and assemble evidence-backed Experience Packages. Coverage and maturity describe tested conditions under configured policy, not universal safety. Successful live acceptance with two different agents is still pending; see the [V0.3 report](docs/implementation-v03.md), [V0.4 report](docs/implementation-v04.md), and [V0.5 report](docs/implementation-v05.md). Recommendations never apply changes automatically.
 
 [Works With Your Agent](#works-with-your-agent) · [Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
 
@@ -47,7 +47,39 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
-V0.4 adds `hardknock try`, structured agent requests, explicit budget enforcement, equivalent-state verification, bounded parallel candidates, comparison quality, replay/lineage, cancellation, and patch export. **Next:** skill hardening and autonomous curriculum, alongside live integration acceptance and stronger environment controls. See the [CLI reference](docs/cli.md), [agent experiments](docs/agent-experiments.md), and [next phase](docs/roadmap.md).
+V0.4 adds `hardknock try`, structured agent requests, explicit budget enforcement, equivalent-state verification, bounded parallel candidates, comparison quality, replay/lineage, cancellation, and patch export. V0.5 adds deterministic curricula, skill coverage/maturity, recovery-gap and contradiction planning, Experience Packages, and a held-out local resilience benchmark. **Next:** persistent agent development, alongside live integration acceptance and stronger environment controls. See the [CLI reference](docs/cli.md), [agent experiments](docs/agent-experiments.md), and [next phase](docs/roadmap.md).
+
+## Experience Should Have a Curriculum
+
+Human experts encounter edge cases, recover from mistakes, and learn where familiar techniques stop working. Hardknock gives agents that opportunity through explicitly started, bounded trials.
+
+**Production should not be your agent's first teacher.**
+
+**Hardknock turns failure from an incident into a curriculum.**
+
+```text
+Known Skill → Find Evidence Gaps → Generate Trials
+    → Experience Failure in the Dojo → Learn → Harden Skill
+```
+
+For an already registered Skill:
+
+```bash
+hardknock curriculum plan --skill deploy-rolling-update --profile resilience-basic --budget 5
+hardknock curriculum why <curriculum-id>
+hardknock curriculum run <curriculum-id>
+hardknock curriculum report <curriculum-id>
+
+# Convenience wrapper: plan + run
+hardknock skill harden deploy-rolling-update --profile resilience-basic --budget 5
+hardknock skill package deploy-rolling-update
+```
+
+`resilience-basic` describes local fixture faults, not real infrastructure outages. A fresh Skill can expose failures without becoming Hardened: tested recoveries and reflex negative controls may require another explicitly started curriculum. All controls and response arms consume the aggregate budget. There is no background scheduler.
+
+**Profile Coverage = observed relevant conditions / configured relevant conditions.** Unknown remains UNKNOWN. `Hardened` means the Skill satisfies the configured Hardknock evidence policy across the tested curriculum. It does not imply correctness under untested conditions.
+
+The deterministic held-out benchmark observes 0/2 successes without experience, 1/2 using Lesson advice, and 2/2 using the full package's tested recovery procedures. This measures two local fixture cases, not autonomous model improvement or production reliability. [Run the complete demo and benchmark](docs/curriculum.md).
 
 ## Stop Guessing. Try It.
 
@@ -598,7 +630,8 @@ The broader release goals below include work beyond the implemented local loop. 
 | **V0.2 — Local resilience** | Deterministic chaos, observed operating envelopes, scoped reflexes, false positives, and recovery |
 | **V0.3 — External-agent integration** | Authenticated Bridge, lifecycle adapters, cached advice, provenance; live acceptance still pending |
 | **V0.4 — Agent-Native Experimentation** | Implemented for trusted local alternatives; bounded requests, quality, evidence, replay and cancellation |
-| **V0.5 — Skill Hardening and Autonomous Curriculum** | Next: controlled trials for unexperienced conditions, weak-spot discovery and deliberate practice |
+| **V0.5 — Skill Hardening and Autonomous Curriculum** | Implemented locally: evidence-gap plans, bounded trials, coverage/maturity, packages, held-out benchmark |
+| **V0.6 — Persistent Agent Development** | Next: long-lived experience profiles and measured improvement across many tasks |
 | **Later — External-effect virtualization** | Explore explicit semantics for selected external systems, without claiming universal rollback |
 
 ## Project status

@@ -133,3 +133,24 @@ Terminal events are `experiment_completed`, `experiment_cancelled`, or `experime
 The same bounded context document delivered to Claude and Codex now describes `hardknock try --session`. It is a suggestion to request deliberate experience, not an instruction to initiate automatically. Session end cancels pending/running agent requests unless configured otherwise. Network isolation is advisory; external mutation declarations are rejected. Obvious external-effect commands and exact locally blocked/approval-required commands are rejected, but this is not a shell security parser.
 
 **Experiment privacy differs from opaque lifecycle observation:** candidate prompts, commands, evaluator specifications and resulting diffs are explicit operational inputs persisted for replay. Do not submit secrets or entire conversations. The ordinary adapter rule against collecting hidden reasoning/full transcripts remains unchanged.
+
+## V0.5 curriculum lifecycle
+
+Agent requests require `[curriculum] agent_requests=true`; the default is false. Curricula use the same authenticated transport and shared bounded experiment queue. No MCP endpoint is implemented.
+
+```json
+{"event":"curriculum_requested","data":{"hardknock_session_id":"<session>","request_id":"curriculum-00000000-0000-4000-8000-000000000005","target":{"skill":"process-task-successfully"},"profile":"resilience-basic","budget":{"max_trials":2}}}
+```
+
+`target` accepts exactly one `skill` or `task_family` name/ID. The reply is `curriculum_planned`, including ID, selected-trial count, budget, bounded gap decisions and `requires_start: true`. Matching request IDs are idempotent; conflicting reuse and foreign sessions are rejected. Agent requests are limited to verified bundled hardening procedures/evaluators in the requesting repository. All planned, cancelled and completed curriculum reservations count toward `max_agent_session_trials`; they do not bypass this limit by submitting another request ID.
+
+```json
+{"event":"curriculum_started","data":{"hardknock_session_id":"<session>","curriculum_id":"curriculum-00000000-0000-4000-8000-000000000005"}}
+{"event":"curriculum_progress","data":{"hardknock_session_id":"<session>","curriculum_id":"curriculum-00000000-0000-4000-8000-000000000005","after":0}}
+{"event":"curriculum_cancelled","data":{"hardknock_session_id":"<session>","curriculum_id":"curriculum-00000000-0000-4000-8000-000000000005"}}
+{"event":"skill_package_requested","data":{"hardknock_session_id":"<session>","skill":"process-task-successfully","profile":"resilience-basic"}}
+```
+
+Start only queues work; it does not report completion. Poll replies include `curriculum_progress` or `curriculum_completed`, with authoritative status (`planned`, `running`, `completed`, `partially_completed`, `cancelled`). Progress is `[sequence,event]`, at most 16 rows per reply. Advance `after` to consume more; local `show`/`report` retains full evidence. Events include planned, started, trial started/completed, evidence gap observed, and maturity changed. A gap can close with known failure; that does not mean the condition is safe.
+
+Results report trial outcomes, generated IDs, budget, reservations/recorded usage, profile coverage and policy-derived maturity. Summary lists are capped; raw scripts, model prompts and outputs are omitted. Package replies include bounded condition observations and item IDs; the local package retains full versioned provenance. Session end and shutdown cancel pending/running curricula regardless of the strategy-only `continue_after_session_end` setting. There is no continuous autonomous scheduler.

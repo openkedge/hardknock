@@ -1,5 +1,36 @@
 # Architecture
 
+## V0.5 curriculum and Experience Packages
+
+```text
+                     AGENT
+                       |
+                     SKILL
+                       |
+                Experience Package
+                       |
+              Deterministic Planner
+                  /    |    \
+              Trial A  B  Trial C
+                PASS FAIL DEGRADED
+                  \    |    /
+                    Evidence
+                  /    |    \
+              Lesson Reflex Recovery
+                  \    |    /
+              Operating Envelope
+                       |
+             Coverage + Maturity Policy
+```
+
+`curriculum::{catalog,inventory,planner,policy}` builds explicit plans from immutable Experiences, existing Skills, versioned Lessons/responses, sparse envelopes, contradictory contexts and exact trial history. The executor dispatches to V0.4 strategy experiments for base/context revalidation, V0.2 chaos campaigns for condition/control pairs, and the existing resilience engine for paired recovery/reflex tests. It does not introduce another process runner.
+
+The outer executor owns aggregate reservations, a monotonic cancellation deadline and a one-executor lease. Controls and paired arms count. At most two planning rounds are supported; round two can only validate a newly proposed Recovery. Shared provider slots coordinate curriculum work with V0.4 experiments. Every selected trial has a persisted reason, fingerprint, policy decision, cost and engine reference.
+
+Migration 008 adds curriculum plans/goals/trials/gaps, events, engine links, explicit task families, derived skill usage/coverage, immutable package snapshots and review records. Original Skill rows remain immutable. Reads enrich them from the latest package snapshot; neither old Experience JSON nor the registered procedure is rewritten. Trial results refer to existing evidence, not copied Execution or Experiment records. Historical package item versions preserve provenance.
+
+The Bridge's bounded experiment worker also accepts explicit curriculum jobs. Planning and starting are separate requests, disabled for agents by default. Session ownership and cumulative trial reservations are checked; only verified bundled hardening procedures in the requesting repository are admitted from agents. No background scheduler or MCP server is added. See [curriculum semantics](curriculum.md) and the [V0.5 report](implementation-v05.md).
+
 ## V0.4 experience on demand
 
 ```text

@@ -1,5 +1,21 @@
 # CLI reference
 
+## V0.5 curriculum
+
+```text
+curriculum plan (--skill NAME | --task-family NAME) [--profile resilience-basic] [--budget 5] [--replicate]
+curriculum run ID
+curriculum list | show ID | why ID | report ID | cancel ID
+skill harden NAME [--profile PROFILE] [--budget N] [--replicate]
+skill package NAME [--profile PROFILE]
+task-family register NAME --experience ID [--experience ID ...]
+task-family list | show NAME
+```
+
+Planning creates no Realities. `harden` explicitly plans and runs. JSON uses `event: curriculum` and a typed `result`; full plans retain policy explanations, engine/evidence references, coverage/maturity before/after, reservations and recorded usage. Normal `skill show` displays the package; `skill list` retains the registered Skill status plus latest derived metadata. `--budget` counts curriculum trial slots, with controls/response arms additionally charged to Reality and agent-run limits. An exact replication is allowed with `--replicate`; all other policy gates remain in force.
+
+Exit codes: planned/completed 0, partially completed 3, cancelled 5; rejected input/policy errors use 2. A tested failure can be a completed, useful curriculum observation. Cancellation is a request; inspect terminal status for cleanup confirmation. [Complete configuration, demo and benchmark](curriculum.md).
+
 ## V0.4 strategy experiments
 
 `hardknock try [QUESTION] --candidate NAME=STRATEGY --candidate NAME=STRATEGY --check COMMAND` runs shell alternatives; `--agent NAME` interprets them as task prompts. `--session ID` uses the active native Bridge contract. Budget flags are `--budget-realities`, `--budget-agent-runs`, `--budget-duration` (`500ms`, `30s`, `5m`), and shell-only `--max-commands-per-reality`. Optional tie breakers are `--minimize-diff-size` and `--minimize-duration`; `--allow-network` declares advisory intent, not isolation.
