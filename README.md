@@ -22,7 +22,7 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.5 skill hardening.** Explicit curricula find evidence gaps, run bounded trials, and assemble evidence-backed Experience Packages. Coverage and maturity describe tested conditions under configured policy, not universal safety. Successful live acceptance with two different agents is still pending; see the [V0.3 report](docs/implementation-v03.md), [V0.4 report](docs/implementation-v04.md), and [V0.5 report](docs/implementation-v05.md). Recommendations never apply changes automatically.
+> **Pre-alpha · V0.6 persistent development.** Scoped profiles, immutable snapshots, freshness, explicit revalidation, and a longitudinal fixture benchmark track what agents actually learn. Coverage and maturity describe tested conditions under configured policy, not universal safety. Successful live acceptance with two different agents is still pending. See the [V0.6 report](docs/implementation-v06.md) and [integration limits](docs/implementation-v03.md). Recommendations never apply changes automatically.
 
 [Works With Your Agent](#works-with-your-agent) · [Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
 
@@ -47,7 +47,35 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
-V0.4 adds `hardknock try`, structured agent requests, explicit budget enforcement, equivalent-state verification, bounded parallel candidates, comparison quality, replay/lineage, cancellation, and patch export. V0.5 adds deterministic curricula, skill coverage/maturity, recovery-gap and contradiction planning, Experience Packages, and a held-out local resilience benchmark. **Next:** persistent agent development, alongside live integration acceptance and stronger environment controls. See the [CLI reference](docs/cli.md), [agent experiments](docs/agent-experiments.md), and [next phase](docs/roadmap.md).
+V0.4 adds `hardknock try`, structured agent requests, explicit budgets, equivalent-state verification, bounded parallel candidates, comparison quality, replay/lineage, cancellation, and patch export. V0.5 adds curricula, Skill coverage/maturity, Experience Packages, and a held-out resilience benchmark. V0.6 adds persistent development profiles, immutable history, freshness-aware retrieval, and measured learning across episodes. See the [CLI reference](docs/cli.md), [development guide](docs/development.md), and [next phase](docs/roadmap.md).
+
+## Does Your Agent Actually Get Better?
+
+Hardknock measures observed behavior across tasks: success, repeated mistakes, recovery, transfer, and remaining uncertainty. Profiles can follow an agent, repository, or explicit task family. They are rebuilt from evidence; they do not assign a universal intelligence score.
+
+**Models change. Experience survives.** The longitudinal fixture replaces the agent/model identity while retaining the origin of each Lesson and recording the new agent's applications. A new model name is not independent replication.
+
+```bash
+# Use a fresh dedicated home; the benchmark refuses to mix in existing evidence.
+export HARDKNOCK_HOME="$(mktemp -d "${TMPDIR:-/tmp}/hardknock-v06.XXXXXX")"
+hardknock benchmark longitudinal --output /tmp/hardknock-longitudinal.json
+hardknock profile show --agent test-agent
+hardknock profile history --agent test-agent
+hardknock growth --agent test-agent
+hardknock timeline --agent test-agent --limit 20
+```
+
+Measured local results: five episodes, 30 evaluated tasks per arm, no external model or API.
+
+| Arm | Task success | Repeated mistakes | Recovery success | Stale-rule success |
+| --- | --- | --- | --- | --- |
+| Stateless | 3/30 | 25/30 | 0/15 | 3/3 |
+| Reflection memory | 9/30 | 18/30 | 0/15 | 0/3 |
+| Hardknock | 23/30 | 4/30 | 12/15 | 2/3 |
+
+The new agent successfully applied the old validated Lesson on **3/3 observed opportunities**. On the environment update, Hardknock first failed, then tested the old rule, recorded its contradiction, and stopped delivering it. Stateless already chose the newly valid default; it did better on that subset. The reflection baseline retained its stale preference.
+
+These are designed fixture results, not estimates of production reliability or general model improvement. Hardknock spends additional bounded training executions. Recovery rates include unchanged retries in the baselines; normal profile metrics separately count typed Recovery attempts. Missing evidence stays **UNKNOWN**. [Definitions, reproducibility, and limitations](docs/implementation-v06.md).
 
 ## Experience Should Have a Curriculum
 
@@ -631,7 +659,8 @@ The broader release goals below include work beyond the implemented local loop. 
 | **V0.3 — External-agent integration** | Authenticated Bridge, lifecycle adapters, cached advice, provenance; live acceptance still pending |
 | **V0.4 — Agent-Native Experimentation** | Implemented for trusted local alternatives; bounded requests, quality, evidence, replay and cancellation |
 | **V0.5 — Skill Hardening and Autonomous Curriculum** | Implemented locally: evidence-gap plans, bounded trials, coverage/maturity, packages, held-out benchmark |
-| **V0.6 — Persistent Agent Development** | Next: long-lived experience profiles and measured improvement across many tasks |
+| **V0.6 — Persistent Agent Development** | Implemented locally: profiles, snapshots, revisions, freshness, revalidation, longitudinal and model-transfer fixtures |
+| **V0.7 — Experience Federation and Team Learning** | Next: explicit sharing, trust review, provenance and conflict handling; no automatic federation yet |
 | **Later — External-effect virtualization** | Explore explicit semantics for selected external systems, without claiming universal rollback |
 
 ## Project status

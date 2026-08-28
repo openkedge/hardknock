@@ -179,10 +179,12 @@ The adapter API remains compatible: context preparation wraps command execution 
 | `005_resilience.sql` | Perturbations, campaigns/trials, envelopes, Skills, Reflex/Recovery revisions, matches/attempts, paired tests and provenance |
 | `006_bridge.sql` | Native sessions, telemetry, completed runs, feedback and revalidation flags |
 | `007_agent_experiments.sql` | Immutable structured requests, candidates/results, variables, relations, progress and candidate-Experience uniqueness |
+| `008_curriculum.sql` | Bounded curricula, goals/trials, task families, evidence gaps, Skill coverage/usage and package snapshots |
+| `009_development.sql` | Compact canonical observation view, derived profiles, immutable snapshots/episodes, Skill/package revisions, revalidation, regressions and benchmark records |
 
 Foreign keys represent Lesson → source Experience/Hypothesis, Experiment → Lesson/Hypothesis/source, Trial → Experiment/Reality/Execution/Evaluation/Experience, and Trial → artifacts. Store validation checks the structured records agree with these links. Triggers reject updates/deletes of immutable history. Terminal experiments cannot be rewritten. Lessons use checked versions; updates preserve creation time and existing evidence. Changing the tested claim, scope, or commands requires a new hypothesis; a rationale can be revised through the store API.
 
-Migrations are transactional and applied once. Migration 005 rebuilds the relation/evidence tables to extend their allowed values, preserving every row and reestablishing immutable triggers. Other additions introduce new tables. Existing Execution/Experience/Lesson JSON is not rewritten. New Experience collections default empty and new Lesson lifecycle fields default absent. Old artifact references default to kind `other`, and old commands to inherited environment. Unknown newer schemas are rejected. There is no automatic backfill or scope broadening. Migrations 004/005 have no destructive down migration; restore a backup to run an older binary.
+Migrations are transactional and applied once. Migration 005 rebuilds the relation/evidence tables to extend their allowed values, preserving every row and reestablishing immutable triggers. Other additions introduce new tables. Existing Execution/Experience/Lesson JSON is not rewritten. New Experience collections default empty and new Lesson lifecycle fields default absent. Old artifact references default to kind `other`, and old commands to inherited environment. Unknown newer schemas are rejected. Migration 009 backfills Skill revision 1 from existing records; it does not promote evidence or broaden scope. There is no destructive down migration; restore a backup to run an older binary.
 
 ## Retention, cancellation, and crashes
 
@@ -209,3 +211,24 @@ The shared workflow verifies a fresh Reality, captures context, applies scoped p
 Campaigns require a healthy unperturbed control. Trial rows commit with Experiences; inspection reconstructs partial trial lists from those rows. Finished campaigns create immutable sparse envelopes. Candidate Lessons remain unpromoted by chaos alone. Reflex and Recovery tests produce paired Experiences and commit the test conclusion plus the latest object revision in an immediate transaction. Concurrent tests retain all evidence. This resilience runtime matches at fixture hooks. V0.3 also matches supported/active rules through the Bridge; opaque generic runners remain unaffected.
 
 See [chaos](chaos.md) for limits/JSON/budgets, [operating envelopes](operating-envelopes.md) for point semantics, [reflexes](reflexes.md) for activation/false positives, and [recovery](recovery.md) for failure-state reproduction. Host crashes may leave running campaigns/tests; automatic reconciliation and resumption remain deferred.
+
+## V0.6 development projections
+
+`development::{model,profile,policy}` builds scoped profiles in a consistent SQLite read transaction. The compact `development_observations` view reads canonical Experience JSON without deserializing raw action logs. Snapshots store metric denominators, policy/configuration hashes and evidence IDs. Profile cache rows are disposable; snapshots, episodes and revisions are retained. Skill revision 1 is backfilled without rewriting original Skill/Experience rows. Package generation and legacy package snapshot writes are separate transactions; generation can be retried if interrupted between them.
+
+```mermaid
+flowchart LR
+  E[Canonical Experiences and artifact revisions] --> V[Compact observation projection]
+  V --> P[Scoped Experience Profile]
+  P --> S[Immutable snapshots and episodes]
+  S --> T[Window comparison and review recommendations]
+  E --> F[Freshness and scope policy]
+  F --> C[Bounded in-memory activation]
+  P --> Q[Explicit revalidation queue]
+  Q --> X[Existing paired experiment engine]
+  X --> E
+```
+
+Cold retrieval reads only linked source/support observations for freshness; cache loading also resolves Reflex support once. Pre-tool decisions never query the store. Optional development context is assembled during session/context requests, outside the session mutex, and obeys the existing serialized byte budget. Broader local profile aggregation does not widen an artifact's selector or turn evidence into user policy.
+
+`development::benchmark` runs three isolated fixture arms through existing execution, experiment, curriculum and recovery engines. Task and training evidence remain distinguishable. Each terminal result contains run configuration, source trees, agent versions, per-episode metrics and learning-curve Experience IDs. See [development semantics](development.md) and the [V0.6 report](implementation-v06.md).

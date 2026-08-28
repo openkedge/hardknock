@@ -95,7 +95,7 @@ A relevant failed application alone is inconclusive about causality. `lesson tes
 
 ## Measurement and provenance
 
-The automated B comparison records success 0/1 → 1/1 and repeated mistakes 1/1 → 0/1. Conceptually, Experience Transfer Rate is the fraction of applicable Lessons that improve outcome on related unseen tasks. This designed fixture pair supplies one comparison, not a population estimate. A benchmark CLI, randomization, larger task sets, token/cost accounting, and independent semantic context checks remain deferred.
+The original automated B comparison records success 0/1 → 1/1 and repeated mistakes 1/1 → 0/1. This designed fixture pair supplies one comparison, not a population estimate. V0.6 adds a [longitudinal benchmark CLI](development.md#benchmark), with explicit denominators and 90 evaluated tasks across three arms. Randomization, token/cost accounting, and independent semantic context checks remain deferred.
 
 `experience show`, `lesson show`, `experiment show`, and `why --experience ...` expose application → Lesson revision → controlled Experiment → source Experience. `why` also shows the current Lesson, so later contradiction or retirement is visible without changing the historical application. `status` reports stored counts; it does not compute a benchmark.
 

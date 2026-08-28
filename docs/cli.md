@@ -218,7 +218,7 @@ Cancellation terminates the active process group, records available evidence, an
 
 ## Deferred commands
 
-`try`, benchmark CLI, autonomous skill synthesis and arbitrary action interception remain deferred. Native integration commands are available as a V0.3 preview. V0.2 implements the local resilience commands below. The generic adapter has a tested context-file contract; see [agent integration](agent-integration.md). See [the next-phase plan](roadmap.md#exact-next-phase-plan).
+Autonomous skill synthesis and arbitrary action interception remain deferred. `try` and `benchmark longitudinal` are implemented; see [agent experiments](agent-experiments.md) and [persistent development](development.md). Native integration commands remain a preview with live acceptance pending. The generic adapter has a tested context-file contract; see [agent integration](agent-integration.md).
 
 ## V0.2 resilience commands
 
@@ -261,3 +261,27 @@ hardknock --repo /path/to/project integrate codex run [--resume THREAD] 'task'
 Brackets indicate optional arguments. Integration commands return JSON even without `--json`. `doctor` verifies managed files, Bridge reachability, local configuration, and Codex version/schema/initialization if installed; it does not claim native plugin enablement. Codex run returns a queued recording ID; task evaluation completes asynchronously. Poll `run_status` with `bridge call` or inspect event telemetry. Successful submission is not successful evaluation.
 
 `integration-event --agent claude` consumes one native hook payload on stdin. `bridge call` consumes one authenticated-transport payload without credentials in input. `hardknock-test-adapter` accepts JSONL events with `HARDKNOCK_HOME` set; all session/action/run IDs remain explicit. See the [integration guide](integrations.md) for configuration, privacy and exact capability limits.
+
+## V0.6 development commands
+
+```text
+profile show | rebuild | snapshot | gaps [--agent KIND | --task-family NAME | --shared]
+  [--agent-version VERSION] [--model MODEL] [--since DATE|30d | --last-days N | --last-experiences N]
+profile history [--agent KIND | --task-family NAME | --shared]
+profile compare [subject flags] --from DATE_OR_SNAPSHOT --to DATE_OR_SNAPSHOT
+profile export [profile flags] --output NEW_JSON_FILE
+growth [subject flags]
+timeline [--skill NAME | --lesson ID] [--agent KIND] [--since DATE|30d] [--limit N]
+episode start NAME [subject flags] | finish ID | list
+experience health [subject flags] | maintain [subject flags]
+revalidation list | run ID
+lesson history ID
+skill history NAME | revise NAME --experience ID
+skill package NAME [--profile PROFILE]
+skill package history NAME | diff NAME --from N --to N
+skill package export NAME [--revision N] --output NEW_JSON_FILE
+benchmark longitudinal [--output NEW_JSON_FILE] | list
+doctor
+```
+
+The global `--repo` selects the default Repository subject. Agent subjects default to the whole local store. Health/maintain need a clean repository context; read-only profile/history commands do not. JSON uses `event: development` with a `result.kind` discriminator. `doctor` is local evidence/database health; `integrate doctor` still diagnoses native integrations. [Full semantics and examples](development.md).

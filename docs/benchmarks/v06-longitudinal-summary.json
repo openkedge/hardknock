@@ -1,0 +1,4767 @@
+{
+  "format": "hardknock-longitudinal-summary-v1",
+  "benchmark_id": "benchmark-c7df2b11-034c-40ad-b633-a4cb90e7e571",
+  "created_at": "2026-08-28T23:19:05.410748Z",
+  "status": "completed",
+  "source_result_sha256": "e0e0727eb5c7f7869b08ef6e6dfc5fdd3f58e22bbc929d7eda53e40e8d804b31",
+  "note": "Measured local fixture run. Machine-specific home paths omitted; full evidence remains in each arm store. This summary is not an import package.",
+  "hardknock_version": "0.6.0-dev.1",
+  "fixture_version": "longitudinal-fixtures-v1",
+  "config": {
+    "bridge": {
+      "autostart": true,
+      "evaluator_timeout_secs": 30,
+      "evaluators": {},
+      "experiment_budget": {
+        "max_agent_runs": 3,
+        "max_commands_per_reality": null,
+        "max_curriculum_trials": null,
+        "max_duration_ms": 300000,
+        "max_parallel_trials": null,
+        "max_realities": 3
+      },
+      "max_actions": 2048,
+      "max_context_bytes": 32768,
+      "max_context_lessons": 5,
+      "max_sessions": 256,
+      "max_verification_retries": 1,
+      "policy": {
+        "approval_shell_commands": [],
+        "blocked_shell_commands": []
+      },
+      "timeout_ms": 200
+    },
+    "curriculum": {
+      "agent_requests": false,
+      "max_agent_runs": 16,
+      "max_agent_session_trials": 2,
+      "max_duration_seconds": 300,
+      "max_parallel_trials": 1,
+      "max_realities": 16,
+      "max_rounds": 1,
+      "max_trials": 8,
+      "min_hardening_dimensions": 3,
+      "profiles": {
+        "longitudinal": {
+          "conditions": [
+            "delay:500",
+            "env:missing",
+            "config:drift",
+            "dependency:unavailable"
+          ]
+        }
+      },
+      "require_high_severity_recovery": true,
+      "require_reflex_negative_controls": true,
+      "stale_after_days": 30
+    },
+    "development": {
+      "aging_after_days": 30,
+      "bridge_context": false,
+      "max_lessons": 5,
+      "max_recoveries": 3,
+      "max_reflexes": 3,
+      "min_trend_samples": 5,
+      "rate_change_threshold": 0.05,
+      "stale_after_days": 90
+    },
+    "experience_budget": {
+      "max_agent_runs": 3,
+      "max_commands_per_reality": null,
+      "max_duration_seconds": 300,
+      "max_realities": 3
+    },
+    "experiments": {
+      "agent_requests": {
+        "allow_network": false,
+        "auto_request": false,
+        "enabled": true,
+        "max_parallel": 2,
+        "max_realities": 3
+      },
+      "agents": {},
+      "continue_after_session_end": false,
+      "max_parallel_realities": 3,
+      "provider_capacity": 8
+    },
+    "integrations": {}
+  },
+  "random_seed": null,
+  "source_trees": {
+    "hardknock": [
+      "f2d70d1a17f50cd2c0bec24ce4fb15fe72048b68",
+      "e9d352fe16ec7879e031379669eeed3132e7bdfd",
+      "b8dd5e142962d21d6e3f4fe2eb2bb9038832a514"
+    ],
+    "reflection_memory": [
+      "f2d70d1a17f50cd2c0bec24ce4fb15fe72048b68",
+      "e9d352fe16ec7879e031379669eeed3132e7bdfd",
+      "b8dd5e142962d21d6e3f4fe2eb2bb9038832a514"
+    ],
+    "stateless": [
+      "f2d70d1a17f50cd2c0bec24ce4fb15fe72048b68",
+      "e9d352fe16ec7879e031379669eeed3132e7bdfd",
+      "b8dd5e142962d21d6e3f4fe2eb2bb9038832a514"
+    ]
+  },
+  "metrics": {
+    "hardknock": {
+      "aggregate": {
+        "curriculum_yield": {
+          "confidence": "low",
+          "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+          "numerator": 5,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 7,
+          "value": 0.7142857142857143
+        },
+        "experience_portability_rate": {
+          "confidence": "low",
+          "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+          "numerator": 3,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 4,
+          "value": 0.75
+        },
+        "experience_transfer_rate": {
+          "confidence": "low",
+          "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+          "numerator": 6,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 7,
+          "value": 0.8571428571428571
+        },
+        "experiences_to_validation": {
+          "confidence": "low",
+          "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+          "numerator": 7,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 1,
+          "value": 7.0
+        },
+        "experiment_success_rate": {
+          "confidence": "low",
+          "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+          "numerator": 2,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 2,
+          "value": 1.0
+        },
+        "lesson_contradiction_rate": {
+          "confidence": "low",
+          "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+          "numerator": 1,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 3,
+          "value": 0.3333333333333333
+        },
+        "lesson_precision": {
+          "confidence": "low",
+          "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+          "numerator": 9,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 10,
+          "value": 0.9
+        },
+        "median_time_to_recovery_ms": {
+          "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+          "sample_count": 12,
+          "value": 25
+        },
+        "recovery_success_rate": {
+          "confidence": "low",
+          "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+          "numerator": 12,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 15,
+          "value": 0.8
+        },
+        "reflex_false_positive_rate": {
+          "confidence": "insufficient_evidence",
+          "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "repeated_failure_rate": {
+          "confidence": "medium",
+          "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+          "numerator": 4,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 30,
+          "value": 0.13333333333333333
+        },
+        "repeated_mistake_rate": {
+          "confidence": "medium",
+          "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+          "numerator": 4,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 30,
+          "value": 0.13333333333333333
+        },
+        "skill_hardening_rate": {
+          "confidence": "low",
+          "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+          "numerator": 1,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 1,
+          "value": 1.0
+        },
+        "task_success_rate": {
+          "confidence": "medium",
+          "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+          "numerator": 23,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 30,
+          "value": 0.7666666666666667
+        }
+      },
+      "episodes": [
+        {
+          "episode": 1,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "low",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": 5,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:23.677699Z"
+              },
+              "sample_count": 7,
+              "value": 0.7142857142857143
+            },
+            "experience_portability_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:23.677699Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_transfer_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:23.677699Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiences_to_validation": {
+              "confidence": "insufficient_evidence",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:23.677699Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiment_success_rate": {
+              "confidence": "low",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": 1,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:23.677699Z"
+              },
+              "sample_count": 1,
+              "value": 1.0
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "low",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": 0,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:23.677699Z"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "lesson_precision": {
+              "confidence": "insufficient_evidence",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:23.677699Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 0,
+              "value": null
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:23.677699Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 4,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.6666666666666666
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 4,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.6666666666666666
+            },
+            "skill_hardening_rate": {
+              "confidence": "low",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": 1,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:23.677699Z"
+              },
+              "sample_count": 1,
+              "value": 1.0
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            }
+          }
+        },
+        {
+          "episode": 2,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:30.900790Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:30.900790Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_transfer_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:30.900790Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiences_to_validation": {
+              "confidence": "insufficient_evidence",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:30.900790Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiment_success_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:30.900790Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "low",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": 0,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:30.900790Z"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "lesson_precision": {
+              "confidence": "low",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": 3,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:30.900790Z"
+              },
+              "sample_count": 3,
+              "value": 1.0
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 3,
+              "value": 26
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 1.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:30.900790Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            },
+            "skill_hardening_rate": {
+              "confidence": "low",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": 1,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:30.900790Z"
+              },
+              "sample_count": 1,
+              "value": 1.0
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 6,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 1.0
+            }
+          }
+        },
+        {
+          "episode": 3,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:32.819981Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:32.819981Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_transfer_rate": {
+              "confidence": "low",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": 3,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:32.819981Z"
+              },
+              "sample_count": 3,
+              "value": 1.0
+            },
+            "experiences_to_validation": {
+              "confidence": "low",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": 7,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:32.819981Z"
+              },
+              "sample_count": 1,
+              "value": 7.0
+            },
+            "experiment_success_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:32.819981Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "low",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": 0,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:32.819981Z"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "lesson_precision": {
+              "confidence": "low",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": 3,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:32.819981Z"
+              },
+              "sample_count": 3,
+              "value": 1.0
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 3,
+              "value": 25
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 1.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:32.819981Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            },
+            "skill_hardening_rate": {
+              "confidence": "low",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": 1,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:32.819981Z"
+              },
+              "sample_count": 1,
+              "value": 1.0
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 6,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 1.0
+            }
+          }
+        },
+        {
+          "episode": 4,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:34.740319Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "low",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": 3,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:34.740319Z"
+              },
+              "sample_count": 3,
+              "value": 1.0
+            },
+            "experience_transfer_rate": {
+              "confidence": "low",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": 3,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:34.740319Z"
+              },
+              "sample_count": 3,
+              "value": 1.0
+            },
+            "experiences_to_validation": {
+              "confidence": "low",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": 7,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:34.740319Z"
+              },
+              "sample_count": 1,
+              "value": 7.0
+            },
+            "experiment_success_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:34.740319Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "low",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": 0,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:34.740319Z"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "lesson_precision": {
+              "confidence": "low",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": 3,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:34.740319Z"
+              },
+              "sample_count": 3,
+              "value": 1.0
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 3,
+              "value": 25
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 1.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:34.740319Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            },
+            "skill_hardening_rate": {
+              "confidence": "low",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": 1,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:34.740319Z"
+              },
+              "sample_count": 1,
+              "value": 1.0
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 6,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 1.0
+            }
+          }
+        },
+        {
+          "episode": 5,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:36.759594Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "low",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": 0,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:36.759594Z"
+              },
+              "sample_count": 1,
+              "value": 0.0
+            },
+            "experience_transfer_rate": {
+              "confidence": "low",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": 0,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:36.759594Z"
+              },
+              "sample_count": 1,
+              "value": 0.0
+            },
+            "experiences_to_validation": {
+              "confidence": "low",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": 7,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:36.759594Z"
+              },
+              "sample_count": 1,
+              "value": 7.0
+            },
+            "experiment_success_rate": {
+              "confidence": "low",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": 1,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:36.759594Z"
+              },
+              "sample_count": 1,
+              "value": 1.0
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "low",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": 1,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:36.759594Z"
+              },
+              "sample_count": 3,
+              "value": 0.3333333333333333
+            },
+            "lesson_precision": {
+              "confidence": "low",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": 0,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:36.759594Z"
+              },
+              "sample_count": 1,
+              "value": 0.0
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 3,
+              "value": 25
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 1.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:36.759594Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            },
+            "skill_hardening_rate": {
+              "confidence": "low",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": 1,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:36.759594Z"
+              },
+              "sample_count": 1,
+              "value": 1.0
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 5,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.8333333333333334
+            }
+          }
+        }
+      ],
+      "learning_curve": [
+        {
+          "experience_id": "exp-4f30d50e-127e-454d-83a8-90c3b86e5b98",
+          "success": false,
+          "task": 1
+        },
+        {
+          "experience_id": "exp-31d834a9-0302-4e22-8d90-49a3c3077bc9",
+          "success": false,
+          "task": 2
+        },
+        {
+          "experience_id": "exp-7372fd9b-db50-4f0d-9c11-0592fad6041c",
+          "success": false,
+          "task": 3
+        },
+        {
+          "experience_id": "exp-0f1a2f71-008b-43bb-b7de-6f299a46fbf9",
+          "success": false,
+          "task": 4
+        },
+        {
+          "experience_id": "exp-5ee1af85-6177-44e3-a65e-8c46f22cae81",
+          "success": false,
+          "task": 5
+        },
+        {
+          "experience_id": "exp-61f49f64-36a0-4a54-8744-a10bf9556da3",
+          "success": false,
+          "task": 6
+        },
+        {
+          "experience_id": "exp-75c22dca-e284-49f2-96e4-17a891524094",
+          "success": true,
+          "task": 7
+        },
+        {
+          "experience_id": "exp-7de37b2f-ed18-4082-b556-4a41097d504c",
+          "success": true,
+          "task": 8
+        },
+        {
+          "experience_id": "exp-b687bb10-bfbd-4a51-b898-0a8f014cb2db",
+          "success": true,
+          "task": 9
+        },
+        {
+          "experience_id": "exp-fc1f6087-db65-4cef-aeae-14b54d88b05f",
+          "success": true,
+          "task": 10
+        },
+        {
+          "experience_id": "exp-3e3a22f3-ebc5-46d0-adf4-cc5d83d9d2d5",
+          "success": true,
+          "task": 11
+        },
+        {
+          "experience_id": "exp-db0d6613-79a5-4bf5-8715-c3b90c01bd69",
+          "success": true,
+          "task": 12
+        },
+        {
+          "experience_id": "exp-cb5f7067-d4a4-4768-b0a4-ace0137409f2",
+          "success": true,
+          "task": 13
+        },
+        {
+          "experience_id": "exp-0dcc3623-9461-49fd-a1a3-7586d5f3a010",
+          "success": true,
+          "task": 14
+        },
+        {
+          "experience_id": "exp-c71ebc6e-aa5f-48cc-8c39-5d5d741d02f9",
+          "success": true,
+          "task": 15
+        },
+        {
+          "experience_id": "exp-a0e7527a-5744-42ef-85ab-205354fce514",
+          "success": true,
+          "task": 16
+        },
+        {
+          "experience_id": "exp-86ef088e-8dda-4ad6-b7d9-bf697d899151",
+          "success": true,
+          "task": 17
+        },
+        {
+          "experience_id": "exp-a5feec5d-7ab3-4f2c-a26b-a7d70c156679",
+          "success": true,
+          "task": 18
+        },
+        {
+          "experience_id": "exp-7c72990c-4552-40cf-9cb8-cff7551032f0",
+          "success": true,
+          "task": 19
+        },
+        {
+          "experience_id": "exp-2514d59e-7cf0-44f4-b049-48b036f9039d",
+          "success": true,
+          "task": 20
+        },
+        {
+          "experience_id": "exp-c9b88fc7-1d65-4998-a83b-f30d4bc726b8",
+          "success": true,
+          "task": 21
+        },
+        {
+          "experience_id": "exp-a0d88116-e766-43e4-b724-7cbf9fbdad84",
+          "success": true,
+          "task": 22
+        },
+        {
+          "experience_id": "exp-e2b5eb6f-0301-429e-9bd5-f63c6ea01cca",
+          "success": true,
+          "task": 23
+        },
+        {
+          "experience_id": "exp-e5fd2891-2b97-403d-931c-38caeb08fc90",
+          "success": true,
+          "task": 24
+        },
+        {
+          "experience_id": "exp-bf373a29-52fc-4a1d-b08d-e153d697db27",
+          "success": false,
+          "task": 25
+        },
+        {
+          "experience_id": "exp-7d40b6d1-1400-48a4-95be-cda33faa2e6c",
+          "success": true,
+          "task": 26
+        },
+        {
+          "experience_id": "exp-72b6f554-f5fb-43ba-ac6e-46949db420f7",
+          "success": true,
+          "task": 27
+        },
+        {
+          "experience_id": "exp-da4f608e-4bb5-4842-8738-ff64976f34fa",
+          "success": true,
+          "task": 28
+        },
+        {
+          "experience_id": "exp-e2067064-3de3-4395-9ae9-a881886c294b",
+          "success": true,
+          "task": 29
+        },
+        {
+          "experience_id": "exp-b56ecc66-90e7-412f-a024-a40a6f505250",
+          "success": true,
+          "task": 30
+        }
+      ]
+    },
+    "reflection_memory": {
+      "aggregate": {
+        "curriculum_yield": {
+          "confidence": "insufficient_evidence",
+          "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "experience_portability_rate": {
+          "confidence": "insufficient_evidence",
+          "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "experience_transfer_rate": {
+          "confidence": "insufficient_evidence",
+          "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "experiences_to_validation": {
+          "confidence": "insufficient_evidence",
+          "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "experiment_success_rate": {
+          "confidence": "insufficient_evidence",
+          "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "lesson_contradiction_rate": {
+          "confidence": "insufficient_evidence",
+          "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "lesson_precision": {
+          "confidence": "insufficient_evidence",
+          "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "median_time_to_recovery_ms": {
+          "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+          "sample_count": 0,
+          "value": null
+        },
+        "recovery_success_rate": {
+          "confidence": "low",
+          "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+          "numerator": 0,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 15,
+          "value": 0.0
+        },
+        "reflex_false_positive_rate": {
+          "confidence": "insufficient_evidence",
+          "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "repeated_failure_rate": {
+          "confidence": "medium",
+          "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+          "numerator": 18,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 30,
+          "value": 0.6
+        },
+        "repeated_mistake_rate": {
+          "confidence": "medium",
+          "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+          "numerator": 18,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 30,
+          "value": 0.6
+        },
+        "skill_hardening_rate": {
+          "confidence": "insufficient_evidence",
+          "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "task_success_rate": {
+          "confidence": "medium",
+          "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+          "numerator": 9,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 30,
+          "value": 0.3
+        }
+      },
+      "episodes": [
+        {
+          "episode": 1,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:14.563105Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:14.563105Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_transfer_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:14.563105Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiences_to_validation": {
+              "confidence": "insufficient_evidence",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:14.563105Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiment_success_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:14.563105Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:14.563105Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_precision": {
+              "confidence": "insufficient_evidence",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:14.563105Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 0,
+              "value": null
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:14.563105Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 4,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.6666666666666666
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 4,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.6666666666666666
+            },
+            "skill_hardening_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:14.563105Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            }
+          }
+        },
+        {
+          "episode": 2,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:16.286772Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:16.286772Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_transfer_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:16.286772Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiences_to_validation": {
+              "confidence": "insufficient_evidence",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:16.286772Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiment_success_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:16.286772Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:16.286772Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_precision": {
+              "confidence": "insufficient_evidence",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:16.286772Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 0,
+              "value": null
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:16.286772Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.5
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.5
+            },
+            "skill_hardening_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:16.286772Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.5
+            }
+          }
+        },
+        {
+          "episode": 3,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:18.087179Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:18.087179Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_transfer_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:18.087179Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiences_to_validation": {
+              "confidence": "insufficient_evidence",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:18.087179Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiment_success_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:18.087179Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:18.087179Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_precision": {
+              "confidence": "insufficient_evidence",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:18.087179Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 0,
+              "value": null
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:18.087179Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.5
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.5
+            },
+            "skill_hardening_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:18.087179Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.5
+            }
+          }
+        },
+        {
+          "episode": 4,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:19.818328Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:19.818328Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_transfer_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:19.818328Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiences_to_validation": {
+              "confidence": "insufficient_evidence",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:19.818328Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiment_success_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:19.818328Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:19.818328Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_precision": {
+              "confidence": "insufficient_evidence",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:19.818328Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 0,
+              "value": null
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:19.818328Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.5
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.5
+            },
+            "skill_hardening_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:19.818328Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.5
+            }
+          }
+        },
+        {
+          "episode": 5,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:21.643138Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:21.643138Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_transfer_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:21.643138Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiences_to_validation": {
+              "confidence": "insufficient_evidence",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:21.643138Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiment_success_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:21.643138Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:21.643138Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_precision": {
+              "confidence": "insufficient_evidence",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:21.643138Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 0,
+              "value": null
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:21.643138Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 5,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.8333333333333334
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 5,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.8333333333333334
+            },
+            "skill_hardening_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:21.643138Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            }
+          }
+        }
+      ],
+      "learning_curve": [
+        {
+          "experience_id": "exp-38dae350-85e3-42da-8b54-7045f6fb7ba0",
+          "success": false,
+          "task": 1
+        },
+        {
+          "experience_id": "exp-fd215206-188b-4ada-9b0b-1448e5f9ebf2",
+          "success": false,
+          "task": 2
+        },
+        {
+          "experience_id": "exp-4a2dd778-2c39-47d9-839b-4b244c9050b5",
+          "success": false,
+          "task": 3
+        },
+        {
+          "experience_id": "exp-fa0cf818-7f17-4975-8e49-c489c7373b29",
+          "success": false,
+          "task": 4
+        },
+        {
+          "experience_id": "exp-079f3e95-abb5-4b51-8962-a0338e044496",
+          "success": false,
+          "task": 5
+        },
+        {
+          "experience_id": "exp-87e020d3-20c4-4e2a-91c2-895b0c4910f0",
+          "success": false,
+          "task": 6
+        },
+        {
+          "experience_id": "exp-c5626389-3ad2-4bbc-b789-977138aa4879",
+          "success": true,
+          "task": 7
+        },
+        {
+          "experience_id": "exp-322f851c-8564-43b9-9f37-2b91e3bcbbf2",
+          "success": true,
+          "task": 8
+        },
+        {
+          "experience_id": "exp-36ae2f1a-08b5-4f41-a435-ce8d96fe1bae",
+          "success": true,
+          "task": 9
+        },
+        {
+          "experience_id": "exp-8d37ab9b-6f36-4982-9515-fc6aa074d5b4",
+          "success": false,
+          "task": 10
+        },
+        {
+          "experience_id": "exp-3370902f-706a-42ad-b914-762b82d3e2fe",
+          "success": false,
+          "task": 11
+        },
+        {
+          "experience_id": "exp-91197da6-20c6-46da-a243-d86e2debbe5b",
+          "success": false,
+          "task": 12
+        },
+        {
+          "experience_id": "exp-2248e75a-072e-4e39-a608-217e268d8b3b",
+          "success": true,
+          "task": 13
+        },
+        {
+          "experience_id": "exp-1795c648-2769-4dea-9af7-9737046015c3",
+          "success": true,
+          "task": 14
+        },
+        {
+          "experience_id": "exp-07535fc3-85b6-422e-bd19-0aa593f63e4f",
+          "success": true,
+          "task": 15
+        },
+        {
+          "experience_id": "exp-8004707e-6263-4345-9db6-dd5ec71228ef",
+          "success": false,
+          "task": 16
+        },
+        {
+          "experience_id": "exp-3c890310-b8f1-43d6-8db6-75dbf54b8ecd",
+          "success": false,
+          "task": 17
+        },
+        {
+          "experience_id": "exp-535e8806-6d74-46a5-9d4b-c094c77ba892",
+          "success": false,
+          "task": 18
+        },
+        {
+          "experience_id": "exp-81b6a8fc-5ec7-43f8-8d54-2175eeda2132",
+          "success": true,
+          "task": 19
+        },
+        {
+          "experience_id": "exp-00137321-b585-4fac-8249-a165d7d29373",
+          "success": true,
+          "task": 20
+        },
+        {
+          "experience_id": "exp-3945b0ac-5443-4554-a7d0-20f5dde1b96c",
+          "success": true,
+          "task": 21
+        },
+        {
+          "experience_id": "exp-b812dee7-c377-46d0-98d7-2bee9396e353",
+          "success": false,
+          "task": 22
+        },
+        {
+          "experience_id": "exp-bbb0d96e-5726-446f-8535-a978ec31ae59",
+          "success": false,
+          "task": 23
+        },
+        {
+          "experience_id": "exp-49e5fb91-2f8a-4cf0-aad0-72093ce01e8a",
+          "success": false,
+          "task": 24
+        },
+        {
+          "experience_id": "exp-1e2fe423-1684-409e-8d4d-33b28087d3dd",
+          "success": false,
+          "task": 25
+        },
+        {
+          "experience_id": "exp-11c43024-c41f-4ced-b081-d22b30bbedda",
+          "success": false,
+          "task": 26
+        },
+        {
+          "experience_id": "exp-497b4759-f21c-4a09-b38c-5797161cbf1e",
+          "success": false,
+          "task": 27
+        },
+        {
+          "experience_id": "exp-e69fabbd-0165-421a-a7b8-dc29b0f33b09",
+          "success": false,
+          "task": 28
+        },
+        {
+          "experience_id": "exp-785232f5-fe71-4d70-8609-53532564e08a",
+          "success": false,
+          "task": 29
+        },
+        {
+          "experience_id": "exp-c4e3a8ee-26cc-4ccf-9efc-30d6385b4b09",
+          "success": false,
+          "task": 30
+        }
+      ]
+    },
+    "stateless": {
+      "aggregate": {
+        "curriculum_yield": {
+          "confidence": "insufficient_evidence",
+          "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "experience_portability_rate": {
+          "confidence": "insufficient_evidence",
+          "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "experience_transfer_rate": {
+          "confidence": "insufficient_evidence",
+          "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "experiences_to_validation": {
+          "confidence": "insufficient_evidence",
+          "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "experiment_success_rate": {
+          "confidence": "insufficient_evidence",
+          "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "lesson_contradiction_rate": {
+          "confidence": "insufficient_evidence",
+          "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "lesson_precision": {
+          "confidence": "insufficient_evidence",
+          "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "median_time_to_recovery_ms": {
+          "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+          "sample_count": 0,
+          "value": null
+        },
+        "recovery_success_rate": {
+          "confidence": "low",
+          "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+          "numerator": 0,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 15,
+          "value": 0.0
+        },
+        "reflex_false_positive_rate": {
+          "confidence": "insufficient_evidence",
+          "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "repeated_failure_rate": {
+          "confidence": "medium",
+          "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+          "numerator": 25,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 30,
+          "value": 0.8333333333333334
+        },
+        "repeated_mistake_rate": {
+          "confidence": "medium",
+          "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+          "numerator": 25,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 30,
+          "value": 0.8333333333333334
+        },
+        "skill_hardening_rate": {
+          "confidence": "insufficient_evidence",
+          "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+          "numerator": null,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 0,
+          "value": null
+        },
+        "task_success_rate": {
+          "confidence": "medium",
+          "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+          "numerator": 3,
+          "period": {
+            "kind": "all_time"
+          },
+          "sample_count": 30,
+          "value": 0.1
+        }
+      },
+      "episodes": [
+        {
+          "episode": 1,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:05.640894Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:05.640894Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_transfer_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:05.640894Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiences_to_validation": {
+              "confidence": "insufficient_evidence",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:05.640894Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiment_success_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:05.640894Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:05.640894Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_precision": {
+              "confidence": "insufficient_evidence",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:05.640894Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 0,
+              "value": null
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:05.640894Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 4,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.6666666666666666
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 4,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.6666666666666666
+            },
+            "skill_hardening_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:05.640894Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            }
+          }
+        },
+        {
+          "episode": 2,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:07.348218Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:07.348218Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_transfer_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:07.348218Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiences_to_validation": {
+              "confidence": "insufficient_evidence",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:07.348218Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiment_success_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:07.348218Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:07.348218Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_precision": {
+              "confidence": "insufficient_evidence",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:07.348218Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 0,
+              "value": null
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:07.348218Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 6,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 1.0
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 6,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 1.0
+            },
+            "skill_hardening_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:07.348218Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            }
+          }
+        },
+        {
+          "episode": 3,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:09.072911Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:09.072911Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_transfer_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:09.072911Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiences_to_validation": {
+              "confidence": "insufficient_evidence",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:09.072911Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiment_success_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:09.072911Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:09.072911Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_precision": {
+              "confidence": "insufficient_evidence",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:09.072911Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 0,
+              "value": null
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:09.072911Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 6,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 1.0
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 6,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 1.0
+            },
+            "skill_hardening_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:09.072911Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            }
+          }
+        },
+        {
+          "episode": 4,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:10.789870Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:10.789870Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_transfer_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:10.789870Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiences_to_validation": {
+              "confidence": "insufficient_evidence",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:10.789870Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiment_success_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:10.789870Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:10.789870Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_precision": {
+              "confidence": "insufficient_evidence",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:10.789870Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 0,
+              "value": null
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:10.789870Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 6,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 1.0
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 6,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 1.0
+            },
+            "skill_hardening_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:10.789870Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.0
+            }
+          }
+        },
+        {
+          "episode": 5,
+          "metrics": {
+            "curriculum_yield": {
+              "confidence": "insufficient_evidence",
+              "definition": "New Lesson/Reflex/Recovery artifacts / executed curriculum trials; can exceed one and does not measure usefulness",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:12.598514Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_portability_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:12.598514Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experience_transfer_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Beneficial observed applications / observed delivered items in a different source tree; not an independence claim",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:12.598514Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiences_to_validation": {
+              "confidence": "insufficient_evidence",
+              "definition": "Mean unique linked Experiences by first validated Lesson revision; UNKNOWN until an artifact validates",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:12.598514Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "experiment_success_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Conclusive paired Lesson experiments / observed paired Lesson experiments; strategy comparisons are not pooled",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:12.598514Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_contradiction_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Contradicted current Lessons / known Lessons at episode end; inventory, not a task rate",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:12.598514Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "lesson_precision": {
+              "confidence": "insufficient_evidence",
+              "definition": "Successful task outcomes with observed applied Lessons / observed applications; association, not causal precision",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:12.598514Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "median_time_to_recovery_ms": {
+              "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+              "sample_count": 0,
+              "value": null
+            },
+            "recovery_success_rate": {
+              "confidence": "low",
+              "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+              "numerator": 0,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 3,
+              "value": 0.0
+            },
+            "reflex_false_positive_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Proven false positives / paired tests where a Reflex fired; normal runtime firings alone cannot label false positives",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:12.598514Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "repeated_failure_rate": {
+              "confidence": "low",
+              "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.5
+            },
+            "repeated_mistake_rate": {
+              "confidence": "low",
+              "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.5
+            },
+            "skill_hardening_rate": {
+              "confidence": "insufficient_evidence",
+              "definition": "Currently Hardened Skills / registered Skills at episode end; scoped catalog,",
+              "numerator": null,
+              "period": {
+                "kind": "since",
+                "value": "2026-08-28T23:19:12.598514Z"
+              },
+              "sample_count": 0,
+              "value": null
+            },
+            "task_success_rate": {
+              "confidence": "low",
+              "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+              "numerator": 3,
+              "period": {
+                "kind": "all_time"
+              },
+              "sample_count": 6,
+              "value": 0.5
+            }
+          }
+        }
+      ],
+      "learning_curve": [
+        {
+          "experience_id": "exp-5b628b8b-b699-48b7-bb81-e17b2ba432b1",
+          "success": false,
+          "task": 1
+        },
+        {
+          "experience_id": "exp-bef7c90b-b8b8-41d1-ba71-7d138f908465",
+          "success": false,
+          "task": 2
+        },
+        {
+          "experience_id": "exp-d54ec808-903f-446a-833b-b068a158d63c",
+          "success": false,
+          "task": 3
+        },
+        {
+          "experience_id": "exp-fd6db07c-1fb7-4e1f-89da-33c0c3374b98",
+          "success": false,
+          "task": 4
+        },
+        {
+          "experience_id": "exp-6e138b38-3cb0-4991-a885-fb7d5d67775d",
+          "success": false,
+          "task": 5
+        },
+        {
+          "experience_id": "exp-4cf7c0f1-e048-41d3-9f5a-1ff4d8ce5105",
+          "success": false,
+          "task": 6
+        },
+        {
+          "experience_id": "exp-f4121412-cbcd-49e4-9624-07af3926e5fa",
+          "success": false,
+          "task": 7
+        },
+        {
+          "experience_id": "exp-55202290-246f-471b-a8de-5703d2879a0c",
+          "success": false,
+          "task": 8
+        },
+        {
+          "experience_id": "exp-636d3e1a-9037-4b7b-9547-54422bacab1e",
+          "success": false,
+          "task": 9
+        },
+        {
+          "experience_id": "exp-7a9b29da-4b35-4fdb-90af-efde119cd145",
+          "success": false,
+          "task": 10
+        },
+        {
+          "experience_id": "exp-205c4c3f-0e11-406b-9c2b-405fa409be7a",
+          "success": false,
+          "task": 11
+        },
+        {
+          "experience_id": "exp-b6563b6a-b159-4d17-baef-728ebe3b8fb7",
+          "success": false,
+          "task": 12
+        },
+        {
+          "experience_id": "exp-21359b68-7ad6-4c55-b9eb-d825d579bcc4",
+          "success": false,
+          "task": 13
+        },
+        {
+          "experience_id": "exp-8137d681-cf02-49ca-a52c-50cfc85ddf34",
+          "success": false,
+          "task": 14
+        },
+        {
+          "experience_id": "exp-aaa6aacc-bf22-4660-a52d-0efa72166429",
+          "success": false,
+          "task": 15
+        },
+        {
+          "experience_id": "exp-ed482d73-777f-450f-a569-9d7c092e2ec7",
+          "success": false,
+          "task": 16
+        },
+        {
+          "experience_id": "exp-a2fd4869-316e-4006-9796-e5717006435c",
+          "success": false,
+          "task": 17
+        },
+        {
+          "experience_id": "exp-c502ff67-842e-48af-93c1-ce2e709c9f09",
+          "success": false,
+          "task": 18
+        },
+        {
+          "experience_id": "exp-176c5508-a659-47ea-aef9-664365eccf36",
+          "success": false,
+          "task": 19
+        },
+        {
+          "experience_id": "exp-0127d6e5-fc7c-433f-ac98-41b2e4fe6d4c",
+          "success": false,
+          "task": 20
+        },
+        {
+          "experience_id": "exp-42bb2f60-775d-49e8-9a99-e966cb6dbbfd",
+          "success": false,
+          "task": 21
+        },
+        {
+          "experience_id": "exp-ae3b7e2f-86cd-4376-870d-8578f2d8e112",
+          "success": false,
+          "task": 22
+        },
+        {
+          "experience_id": "exp-59523ebb-3cba-423f-957e-bb17771b922f",
+          "success": false,
+          "task": 23
+        },
+        {
+          "experience_id": "exp-55e5c78c-f914-4973-968d-903d67c851b8",
+          "success": false,
+          "task": 24
+        },
+        {
+          "experience_id": "exp-64cfea61-0c1a-427d-82d5-8de45bfd5bf3",
+          "success": true,
+          "task": 25
+        },
+        {
+          "experience_id": "exp-0e6adf86-1512-4284-b672-e6cb29404186",
+          "success": true,
+          "task": 26
+        },
+        {
+          "experience_id": "exp-6ab49f92-787b-42d1-8aa2-a340da10f0e3",
+          "success": true,
+          "task": 27
+        },
+        {
+          "experience_id": "exp-464c5173-c22d-4302-89b2-bac34563ca3d",
+          "success": false,
+          "task": 28
+        },
+        {
+          "experience_id": "exp-296a9e87-0ca4-4d7c-85e1-f7844206e89b",
+          "success": false,
+          "task": 29
+        },
+        {
+          "experience_id": "exp-d57422d0-47c5-41a8-9416-462ea031be6d",
+          "success": false,
+          "task": 30
+        }
+      ]
+    }
+  },
+  "stale_rule": {
+    "stateless": {
+      "median_time_to_recovery_ms": {
+        "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+        "sample_count": 0,
+        "value": null
+      },
+      "recovery_success_rate": {
+        "confidence": "insufficient_evidence",
+        "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+        "numerator": null,
+        "period": {
+          "kind": "all_time"
+        },
+        "sample_count": 0,
+        "value": null
+      },
+      "repeated_failure_rate": {
+        "confidence": "low",
+        "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+        "numerator": 0,
+        "period": {
+          "kind": "all_time"
+        },
+        "sample_count": 3,
+        "value": 0.0
+      },
+      "repeated_mistake_rate": {
+        "confidence": "low",
+        "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+        "numerator": 0,
+        "period": {
+          "kind": "all_time"
+        },
+        "sample_count": 3,
+        "value": 0.0
+      },
+      "task_success_rate": {
+        "confidence": "low",
+        "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+        "numerator": 3,
+        "period": {
+          "kind": "all_time"
+        },
+        "sample_count": 3,
+        "value": 1.0
+      }
+    },
+    "reflection_memory": {
+      "median_time_to_recovery_ms": {
+        "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+        "sample_count": 0,
+        "value": null
+      },
+      "recovery_success_rate": {
+        "confidence": "insufficient_evidence",
+        "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+        "numerator": null,
+        "period": {
+          "kind": "all_time"
+        },
+        "sample_count": 0,
+        "value": null
+      },
+      "repeated_failure_rate": {
+        "confidence": "low",
+        "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+        "numerator": 2,
+        "period": {
+          "kind": "all_time"
+        },
+        "sample_count": 3,
+        "value": 0.6666666666666666
+      },
+      "repeated_mistake_rate": {
+        "confidence": "low",
+        "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+        "numerator": 2,
+        "period": {
+          "kind": "all_time"
+        },
+        "sample_count": 3,
+        "value": 0.6666666666666666
+      },
+      "task_success_rate": {
+        "confidence": "low",
+        "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+        "numerator": 0,
+        "period": {
+          "kind": "all_time"
+        },
+        "sample_count": 3,
+        "value": 0.0
+      }
+    },
+    "hardknock": {
+      "median_time_to_recovery_ms": {
+        "definition": "Successful typed recovery latency only; unsuccessful recovery time is not imputed",
+        "sample_count": 0,
+        "value": null
+      },
+      "recovery_success_rate": {
+        "confidence": "insufficient_evidence",
+        "definition": "Successful recovery / credential faults with observed retries or typed recovery after failure; unchanged retries count as attempted recovery",
+        "numerator": null,
+        "period": {
+          "kind": "all_time"
+        },
+        "sample_count": 0,
+        "value": null
+      },
+      "repeated_failure_rate": {
+        "confidence": "low",
+        "definition": "Unresolved task after a prior failure in its task family/version / scheduled tasks",
+        "numerator": 0,
+        "period": {
+          "kind": "all_time"
+        },
+        "sample_count": 3,
+        "value": 0.0
+      },
+      "repeated_mistake_rate": {
+        "confidence": "low",
+        "definition": "Failed reuse of a previously failed observed strategy in this task family/version / scheduled tasks; harness audit shared across arms, never delivered to stateless",
+        "numerator": 0,
+        "period": {
+          "kind": "all_time"
+        },
+        "sample_count": 3,
+        "value": 0.0
+      },
+      "task_success_rate": {
+        "confidence": "low",
+        "definition": "Successful evaluated scheduled tasks / scheduled tasks; training executions excluded",
+        "numerator": 2,
+        "period": {
+          "kind": "all_time"
+        },
+        "sample_count": 3,
+        "value": 0.6666666666666666
+      }
+    },
+    "lesson_after": "contradicted",
+    "revalidation": {
+      "created_at": "2026-08-28T23:19:37.136009Z",
+      "experiment_id": "experiment-dc10f010-79a2-4a8e-8466-128e6af842f7",
+      "explanation": "lesson lesson-c9b3d042-69f7-4eed-9803-b83e0650c592: Repository/runtime context changed; revalidation recommended. Explicit invocation required",
+      "id": "revalidation-abd79df1-b5c6-4d3a-8df6-179409a27476",
+      "item": {
+        "id": "lesson-c9b3d042-69f7-4eed-9803-b83e0650c592",
+        "kind": "lesson",
+        "revision": 12
+      },
+      "reason": "environment_changed",
+      "status": "recorded"
+    }
+  },
+  "portability": {
+    "contributors": {
+      "contributions": [
+        {
+          "agent": {
+            "executable": "/bin/sh",
+            "kind": "test-agent",
+            "model": "deterministic-a",
+            "version": "fixture-agent-a-v1"
+          },
+          "experience_id": "exp-4f30d50e-127e-454d-83a8-90c3b86e5b98",
+          "relationship": "origin",
+          "role": "discovery"
+        },
+        {
+          "agent": {
+            "executable": "/bin/sh",
+            "kind": "scripted-trial",
+            "model": null,
+            "version": "0.6.0-dev.1"
+          },
+          "experience_id": "exp-06dfa28b-cd23-4df0-8d65-358bb42ca0a0",
+          "relationship": "supports",
+          "role": "counterfactual"
+        },
+        {
+          "agent": {
+            "executable": "/bin/sh",
+            "kind": "scripted-trial",
+            "model": null,
+            "version": "0.6.0-dev.1"
+          },
+          "experience_id": "exp-06fe7f0c-e478-4e2e-8890-fa7248e70e8a",
+          "relationship": "supports",
+          "role": "counterfactual"
+        },
+        {
+          "agent": {
+            "executable": "/bin/sh",
+            "kind": "test-agent",
+            "model": "deterministic-a",
+            "version": "fixture-agent-a-v1"
+          },
+          "experience_id": "exp-75c22dca-e284-49f2-96e4-17a891524094",
+          "relationship": "supports",
+          "role": "application"
+        },
+        {
+          "agent": {
+            "executable": "/bin/sh",
+            "kind": "test-agent",
+            "model": "deterministic-a",
+            "version": "fixture-agent-a-v1"
+          },
+          "experience_id": "exp-7de37b2f-ed18-4082-b556-4a41097d504c",
+          "relationship": "supports",
+          "role": "application"
+        },
+        {
+          "agent": {
+            "executable": "/bin/sh",
+            "kind": "test-agent",
+            "model": "deterministic-a",
+            "version": "fixture-agent-a-v1"
+          },
+          "experience_id": "exp-b687bb10-bfbd-4a51-b898-0a8f014cb2db",
+          "relationship": "supports",
+          "role": "application"
+        },
+        {
+          "agent": {
+            "executable": "/bin/sh",
+            "kind": "test-agent",
+            "model": "deterministic-a",
+            "version": "fixture-agent-a-v1"
+          },
+          "experience_id": "exp-cb5f7067-d4a4-4768-b0a4-ace0137409f2",
+          "relationship": "supports",
+          "role": "successful_transfer"
+        },
+        {
+          "agent": {
+            "executable": "/bin/sh",
+            "kind": "test-agent",
+            "model": "deterministic-a",
+            "version": "fixture-agent-a-v1"
+          },
+          "experience_id": "exp-0dcc3623-9461-49fd-a1a3-7586d5f3a010",
+          "relationship": "supports",
+          "role": "successful_transfer"
+        },
+        {
+          "agent": {
+            "executable": "/bin/sh",
+            "kind": "test-agent",
+            "model": "deterministic-a",
+            "version": "fixture-agent-a-v1"
+          },
+          "experience_id": "exp-c71ebc6e-aa5f-48cc-8c39-5d5d741d02f9",
+          "relationship": "supports",
+          "role": "successful_transfer"
+        },
+        {
+          "agent": {
+            "executable": "/bin/sh",
+            "kind": "test-agent",
+            "model": "deterministic-b",
+            "version": "fixture-agent-b-v1"
+          },
+          "experience_id": "exp-7c72990c-4552-40cf-9cb8-cff7551032f0",
+          "relationship": "supports",
+          "role": "successful_transfer"
+        },
+        {
+          "agent": {
+            "executable": "/bin/sh",
+            "kind": "test-agent",
+            "model": "deterministic-b",
+            "version": "fixture-agent-b-v1"
+          },
+          "experience_id": "exp-2514d59e-7cf0-44f4-b049-48b036f9039d",
+          "relationship": "supports",
+          "role": "successful_transfer"
+        },
+        {
+          "agent": {
+            "executable": "/bin/sh",
+            "kind": "test-agent",
+            "model": "deterministic-b",
+            "version": "fixture-agent-b-v1"
+          },
+          "experience_id": "exp-c9b88fc7-1d65-4998-a83b-f30d4bc726b8",
+          "relationship": "supports",
+          "role": "successful_transfer"
+        }
+      ],
+      "independence_established": false,
+      "needs_revalidation": false,
+      "review_reason": null
+    },
+    "independent_replication": false,
+    "lesson_id": "lesson-c9b3d042-69f7-4eed-9803-b83e0650c592",
+    "metric": {
+      "confidence": "low",
+      "definition": "Beneficial observed applications / delivered validated Lesson applications to a changed agent/version/model; not independent replication",
+      "numerator": 3,
+      "period": {
+        "kind": "since",
+        "value": "2026-08-28T23:19:34.740319Z"
+      },
+      "sample_count": 3,
+      "value": 1.0
+    },
+    "new_agent": {
+      "executable": "/bin/sh",
+      "kind": "test-agent",
+      "model": "deterministic-b",
+      "version": "fixture-agent-b-v1"
+    },
+    "new_experiences": [
+      "exp-2514d59e-7cf0-44f4-b049-48b036f9039d",
+      "exp-7c72990c-4552-40cf-9cb8-cff7551032f0",
+      "exp-a0d88116-e766-43e4-b724-7cbf9fbdad84",
+      "exp-c9b88fc7-1d65-4998-a83b-f30d4bc726b8",
+      "exp-e2b5eb6f-0301-429e-9bd5-f63c6ea01cca",
+      "exp-e5fd2891-2b97-403d-931c-38caeb08fc90"
+    ],
+    "origin_agent": {
+      "executable": "/bin/sh",
+      "kind": "test-agent",
+      "model": "deterministic-a",
+      "version": "fixture-agent-a-v1"
+    }
+  },
+  "efficiency": [
+    {
+      "artifact": {
+        "id": "lesson-c9b3d042-69f7-4eed-9803-b83e0650c592",
+        "kind": "lesson",
+        "revision": 13
+      },
+      "definition": "Unique linked Experience IDs present by the first validated revision, including controlled support arms; not all store traffic",
+      "experiences_to_validation": 7
+    },
+    {
+      "artifact": {
+        "id": "lesson-db94fb8c-bd8f-4629-9e29-8c13c8e1ce51",
+        "kind": "lesson",
+        "revision": 1
+      },
+      "definition": "Unique linked Experience IDs present by the first validated revision, including controlled support arms; not all store traffic",
+      "experiences_to_validation": null
+    },
+    {
+      "artifact": {
+        "id": "lesson-8fe4e4d1-97cf-4049-a4d4-f1b15d0d0a30",
+        "kind": "lesson",
+        "revision": 1
+      },
+      "definition": "Unique linked Experience IDs present by the first validated revision, including controlled support arms; not all store traffic",
+      "experiences_to_validation": null
+    }
+  ],
+  "snapshots": [
+    "profile-snapshot-f2a20ee7-0faf-4a15-8b91-d4c4faed79ad",
+    "profile-snapshot-e486bded-fb27-4d80-8fb3-90e965deb772",
+    "profile-snapshot-f29f29d1-8e46-46f8-b83f-9dca23616dc8",
+    "profile-snapshot-94fc3504-664b-4090-9060-3b114e205ce0",
+    "profile-snapshot-892c2b09-e39b-4c79-b3b1-f447b8716610"
+  ],
+  "tasks": [
+    {
+      "arm": "stateless",
+      "episode": 1,
+      "experience_id": "exp-5b628b8b-b699-48b7-bb81-e17b2ba432b1",
+      "index": 1,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 1,
+      "experience_id": "exp-bef7c90b-b8b8-41d1-ba71-7d138f908465",
+      "index": 2,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 1,
+      "experience_id": "exp-d54ec808-903f-446a-833b-b068a158d63c",
+      "index": 3,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 1,
+      "experience_id": "exp-fd6db07c-1fb7-4e1f-89da-33c0c3374b98",
+      "index": 4,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 1,
+      "experience_id": "exp-6e138b38-3cb0-4991-a885-fb7d5d67775d",
+      "index": 5,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 1,
+      "experience_id": "exp-4cf7c0f1-e048-41d3-9f5a-1ff4d8ce5105",
+      "index": 6,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 2,
+      "experience_id": "exp-f4121412-cbcd-49e4-9624-07af3926e5fa",
+      "index": 7,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 2,
+      "experience_id": "exp-55202290-246f-471b-a8de-5703d2879a0c",
+      "index": 8,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 2,
+      "experience_id": "exp-636d3e1a-9037-4b7b-9547-54422bacab1e",
+      "index": 9,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 2,
+      "experience_id": "exp-7a9b29da-4b35-4fdb-90af-efde119cd145",
+      "index": 10,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 2,
+      "experience_id": "exp-205c4c3f-0e11-406b-9c2b-405fa409be7a",
+      "index": 11,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 2,
+      "experience_id": "exp-b6563b6a-b159-4d17-baef-728ebe3b8fb7",
+      "index": 12,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 3,
+      "experience_id": "exp-21359b68-7ad6-4c55-b9eb-d825d579bcc4",
+      "index": 13,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 3,
+      "experience_id": "exp-8137d681-cf02-49ca-a52c-50cfc85ddf34",
+      "index": 14,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 3,
+      "experience_id": "exp-aaa6aacc-bf22-4660-a52d-0efa72166429",
+      "index": 15,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 3,
+      "experience_id": "exp-ed482d73-777f-450f-a569-9d7c092e2ec7",
+      "index": 16,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 3,
+      "experience_id": "exp-a2fd4869-316e-4006-9796-e5717006435c",
+      "index": 17,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 3,
+      "experience_id": "exp-c502ff67-842e-48af-93c1-ce2e709c9f09",
+      "index": 18,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 4,
+      "experience_id": "exp-176c5508-a659-47ea-aef9-664365eccf36",
+      "index": 19,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 4,
+      "experience_id": "exp-0127d6e5-fc7c-433f-ac98-41b2e4fe6d4c",
+      "index": 20,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 4,
+      "experience_id": "exp-42bb2f60-775d-49e8-9a99-e966cb6dbbfd",
+      "index": 21,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 4,
+      "experience_id": "exp-ae3b7e2f-86cd-4376-870d-8578f2d8e112",
+      "index": 22,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 4,
+      "experience_id": "exp-59523ebb-3cba-423f-957e-bb17771b922f",
+      "index": 23,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 4,
+      "experience_id": "exp-55e5c78c-f914-4973-968d-903d67c851b8",
+      "index": 24,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 5,
+      "experience_id": "exp-64cfea61-0c1a-427d-82d5-8de45bfd5bf3",
+      "index": 25,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "updated_workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 5,
+      "experience_id": "exp-0e6adf86-1512-4284-b672-e6cb29404186",
+      "index": 26,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "updated_workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 5,
+      "experience_id": "exp-6ab49f92-787b-42d1-8aa2-a340da10f0e3",
+      "index": 27,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "updated_workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 5,
+      "experience_id": "exp-464c5173-c22d-4302-89b2-bac34563ca3d",
+      "index": 28,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 5,
+      "experience_id": "exp-296a9e87-0ca4-4d7c-85e1-f7844206e89b",
+      "index": 29,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "stateless",
+      "episode": 5,
+      "experience_id": "exp-d57422d0-47c5-41a8-9416-462ea031be6d",
+      "index": 30,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 1,
+      "experience_id": "exp-38dae350-85e3-42da-8b54-7045f6fb7ba0",
+      "index": 1,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 1,
+      "experience_id": "exp-fd215206-188b-4ada-9b0b-1448e5f9ebf2",
+      "index": 2,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 1,
+      "experience_id": "exp-4a2dd778-2c39-47d9-839b-4b244c9050b5",
+      "index": 3,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 1,
+      "experience_id": "exp-fa0cf818-7f17-4975-8e49-c489c7373b29",
+      "index": 4,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 1,
+      "experience_id": "exp-079f3e95-abb5-4b51-8962-a0338e044496",
+      "index": 5,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 1,
+      "experience_id": "exp-87e020d3-20c4-4e2a-91c2-895b0c4910f0",
+      "index": 6,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 2,
+      "experience_id": "exp-c5626389-3ad2-4bbc-b789-977138aa4879",
+      "index": 7,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 2,
+      "experience_id": "exp-322f851c-8564-43b9-9f37-2b91e3bcbbf2",
+      "index": 8,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 2,
+      "experience_id": "exp-36ae2f1a-08b5-4f41-a435-ce8d96fe1bae",
+      "index": 9,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 2,
+      "experience_id": "exp-8d37ab9b-6f36-4982-9515-fc6aa074d5b4",
+      "index": 10,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 2,
+      "experience_id": "exp-3370902f-706a-42ad-b914-762b82d3e2fe",
+      "index": 11,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 2,
+      "experience_id": "exp-91197da6-20c6-46da-a243-d86e2debbe5b",
+      "index": 12,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 3,
+      "experience_id": "exp-2248e75a-072e-4e39-a608-217e268d8b3b",
+      "index": 13,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 3,
+      "experience_id": "exp-1795c648-2769-4dea-9af7-9737046015c3",
+      "index": 14,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 3,
+      "experience_id": "exp-07535fc3-85b6-422e-bd19-0aa593f63e4f",
+      "index": 15,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 3,
+      "experience_id": "exp-8004707e-6263-4345-9db6-dd5ec71228ef",
+      "index": 16,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 3,
+      "experience_id": "exp-3c890310-b8f1-43d6-8db6-75dbf54b8ecd",
+      "index": 17,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 3,
+      "experience_id": "exp-535e8806-6d74-46a5-9d4b-c094c77ba892",
+      "index": 18,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 4,
+      "experience_id": "exp-81b6a8fc-5ec7-43f8-8d54-2175eeda2132",
+      "index": 19,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 4,
+      "experience_id": "exp-00137321-b585-4fac-8249-a165d7d29373",
+      "index": 20,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 4,
+      "experience_id": "exp-3945b0ac-5443-4554-a7d0-20f5dde1b96c",
+      "index": 21,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 4,
+      "experience_id": "exp-b812dee7-c377-46d0-98d7-2bee9396e353",
+      "index": 22,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 4,
+      "experience_id": "exp-bbb0d96e-5726-446f-8535-a978ec31ae59",
+      "index": 23,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 4,
+      "experience_id": "exp-49e5fb91-2f8a-4cf0-aad0-72093ce01e8a",
+      "index": 24,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 5,
+      "experience_id": "exp-1e2fe423-1684-409e-8d4d-33b28087d3dd",
+      "index": 25,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": false,
+      "task_kind": "updated_workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 5,
+      "experience_id": "exp-11c43024-c41f-4ced-b081-d22b30bbedda",
+      "index": 26,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "updated_workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 5,
+      "experience_id": "exp-497b4759-f21c-4a09-b38c-5797161cbf1e",
+      "index": 27,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "updated_workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 5,
+      "experience_id": "exp-e69fabbd-0165-421a-a7b8-dc29b0f33b09",
+      "index": 28,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 5,
+      "experience_id": "exp-785232f5-fe71-4d70-8609-53532564e08a",
+      "index": 29,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "reflection_memory",
+      "episode": 5,
+      "experience_id": "exp-c4e3a8ee-26cc-4ccf-9efc-30d6385b4b09",
+      "index": 30,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 1,
+      "experience_id": "exp-4f30d50e-127e-454d-83a8-90c3b86e5b98",
+      "index": 1,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 1,
+      "experience_id": "exp-31d834a9-0302-4e22-8d90-49a3c3077bc9",
+      "index": 2,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 1,
+      "experience_id": "exp-7372fd9b-db50-4f0d-9c11-0592fad6041c",
+      "index": 3,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 1,
+      "experience_id": "exp-0f1a2f71-008b-43bb-b7de-6f299a46fbf9",
+      "index": 4,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 1,
+      "experience_id": "exp-5ee1af85-6177-44e3-a65e-8c46f22cae81",
+      "index": 5,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 1,
+      "experience_id": "exp-61f49f64-36a0-4a54-8744-a10bf9556da3",
+      "index": 6,
+      "recovery_attempted": true,
+      "recovery_succeeded": false,
+      "repeated_failure": true,
+      "repeated_mistake": true,
+      "success": false,
+      "task_kind": "credential",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 2,
+      "experience_id": "exp-75c22dca-e284-49f2-96e4-17a891524094",
+      "index": 7,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 2,
+      "experience_id": "exp-7de37b2f-ed18-4082-b556-4a41097d504c",
+      "index": 8,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 2,
+      "experience_id": "exp-b687bb10-bfbd-4a51-b898-0a8f014cb2db",
+      "index": 9,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 2,
+      "experience_id": "exp-fc1f6087-db65-4cef-aeae-14b54d88b05f",
+      "index": 10,
+      "recovery_attempted": true,
+      "recovery_succeeded": true,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "credential",
+      "time_to_recovery_ms": 26
+    },
+    {
+      "arm": "hardknock",
+      "episode": 2,
+      "experience_id": "exp-3e3a22f3-ebc5-46d0-adf4-cc5d83d9d2d5",
+      "index": 11,
+      "recovery_attempted": true,
+      "recovery_succeeded": true,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "credential",
+      "time_to_recovery_ms": 26
+    },
+    {
+      "arm": "hardknock",
+      "episode": 2,
+      "experience_id": "exp-db0d6613-79a5-4bf5-8715-c3b90c01bd69",
+      "index": 12,
+      "recovery_attempted": true,
+      "recovery_succeeded": true,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "credential",
+      "time_to_recovery_ms": 25
+    },
+    {
+      "arm": "hardknock",
+      "episode": 3,
+      "experience_id": "exp-cb5f7067-d4a4-4768-b0a4-ace0137409f2",
+      "index": 13,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 3,
+      "experience_id": "exp-0dcc3623-9461-49fd-a1a3-7586d5f3a010",
+      "index": 14,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 3,
+      "experience_id": "exp-c71ebc6e-aa5f-48cc-8c39-5d5d741d02f9",
+      "index": 15,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 3,
+      "experience_id": "exp-a0e7527a-5744-42ef-85ab-205354fce514",
+      "index": 16,
+      "recovery_attempted": true,
+      "recovery_succeeded": true,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "credential",
+      "time_to_recovery_ms": 25
+    },
+    {
+      "arm": "hardknock",
+      "episode": 3,
+      "experience_id": "exp-86ef088e-8dda-4ad6-b7d9-bf697d899151",
+      "index": 17,
+      "recovery_attempted": true,
+      "recovery_succeeded": true,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "credential",
+      "time_to_recovery_ms": 24
+    },
+    {
+      "arm": "hardknock",
+      "episode": 3,
+      "experience_id": "exp-a5feec5d-7ab3-4f2c-a26b-a7d70c156679",
+      "index": 18,
+      "recovery_attempted": true,
+      "recovery_succeeded": true,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "credential",
+      "time_to_recovery_ms": 25
+    },
+    {
+      "arm": "hardknock",
+      "episode": 4,
+      "experience_id": "exp-7c72990c-4552-40cf-9cb8-cff7551032f0",
+      "index": 19,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 4,
+      "experience_id": "exp-2514d59e-7cf0-44f4-b049-48b036f9039d",
+      "index": 20,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 4,
+      "experience_id": "exp-c9b88fc7-1d65-4998-a83b-f30d4bc726b8",
+      "index": 21,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 4,
+      "experience_id": "exp-a0d88116-e766-43e4-b724-7cbf9fbdad84",
+      "index": 22,
+      "recovery_attempted": true,
+      "recovery_succeeded": true,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "credential",
+      "time_to_recovery_ms": 24
+    },
+    {
+      "arm": "hardknock",
+      "episode": 4,
+      "experience_id": "exp-e2b5eb6f-0301-429e-9bd5-f63c6ea01cca",
+      "index": 23,
+      "recovery_attempted": true,
+      "recovery_succeeded": true,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "credential",
+      "time_to_recovery_ms": 25
+    },
+    {
+      "arm": "hardknock",
+      "episode": 4,
+      "experience_id": "exp-e5fd2891-2b97-403d-931c-38caeb08fc90",
+      "index": 24,
+      "recovery_attempted": true,
+      "recovery_succeeded": true,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "credential",
+      "time_to_recovery_ms": 25
+    },
+    {
+      "arm": "hardknock",
+      "episode": 5,
+      "experience_id": "exp-bf373a29-52fc-4a1d-b08d-e153d697db27",
+      "index": 25,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": false,
+      "task_kind": "updated_workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 5,
+      "experience_id": "exp-7d40b6d1-1400-48a4-95be-cda33faa2e6c",
+      "index": 26,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "updated_workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 5,
+      "experience_id": "exp-72b6f554-f5fb-43ba-ac6e-46949db420f7",
+      "index": 27,
+      "recovery_attempted": false,
+      "recovery_succeeded": false,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "updated_workspace",
+      "time_to_recovery_ms": null
+    },
+    {
+      "arm": "hardknock",
+      "episode": 5,
+      "experience_id": "exp-da4f608e-4bb5-4842-8738-ff64976f34fa",
+      "index": 28,
+      "recovery_attempted": true,
+      "recovery_succeeded": true,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "credential",
+      "time_to_recovery_ms": 25
+    },
+    {
+      "arm": "hardknock",
+      "episode": 5,
+      "experience_id": "exp-e2067064-3de3-4395-9ae9-a881886c294b",
+      "index": 29,
+      "recovery_attempted": true,
+      "recovery_succeeded": true,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "credential",
+      "time_to_recovery_ms": 24
+    },
+    {
+      "arm": "hardknock",
+      "episode": 5,
+      "experience_id": "exp-b56ecc66-90e7-412f-a024-a40a6f505250",
+      "index": 30,
+      "recovery_attempted": true,
+      "recovery_succeeded": true,
+      "repeated_failure": false,
+      "repeated_mistake": false,
+      "success": true,
+      "task_kind": "credential",
+      "time_to_recovery_ms": 25
+    }
+  ],
+  "starting_state": "empty evidence stores",
+  "agent_versions": [
+    "fixture-agent-a-v1",
+    "fixture-agent-b-v1"
+  ]
+}
