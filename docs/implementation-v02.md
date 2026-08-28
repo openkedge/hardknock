@@ -14,7 +14,7 @@ Local verification: 2026-08-27, macOS arm64. Version: `0.2.0-dev.1`. No external
 | Tests | New `tests/resilience.rs`; migration expectations updated in `tests/learning.rs` and `tests/substrate.rs` |
 | Documentation | Updated README, architecture, experience model, experiments, retrieval, agent integration, CLI, roadmap; new chaos, operating-envelope, reflex, recovery guides and this report |
 
-Lottie/`mascot.png`, Apache-2.0 `LICENSE`, and `NOTICE` are preserved. No new dependency was added.
+The [mascot artwork](../hardknock-murph.png), Apache-2.0 `LICENSE`, and `NOTICE` are preserved. No new dependency was added.
 
 ## 2. Schema migration
 

@@ -11,10 +11,14 @@ Agent experience infrastructure for safe experimentation, empirical learning, an
 Claude Code, Codex, Hermes, OpenClaw, Kiro, and other agents decide what to do. Hardknock is being built to give them disposable environments to try it, record what actually happened, test what they think they learned, and carry validated experience into future work. It sits underneath your agent; it is not another agent.
 
 <p align="center">
-  <img src="mascot.png" alt="Lottie the Axolotl, the Hardknock mascot, holding a wrench and an experiment checklist" width="240">
+  <img src="hardknock-murph.png" alt="Murph, the Hardknock Axolotl, holding a wrench and an experiment checklist" width="240">
 </p>
 
-**Meet Lottie the Axolotl.** 🌸 She has broken this build 47 times in the Dojo so your production agent doesn't have to. Axolotls regenerate after injury; Lottie represents the same ambition for agents: recover, test alternatives, and retain what helped.
+**Meet Murph, the Hardknock Axolotl.** Axolotls regenerate after injury. She represents the same principle for autonomous agents: a failed attempt should leave the agent better prepared for the next one.
+
+Hardknock preserves evidence from each attempt, uses reflection to propose lessons, and tests those lessons before carrying them into future work. Murph symbolizes that accumulated experience.
+
+**Every knock leaves a lesson.**
 
 > **Pre-alpha · Local resilience loop implemented (V0.2).** Local failures produce immutable Experiences and scoped Lessons tested in fresh baseline/alternative Realities. Deterministic retrieval can advise a bounded retry or a distinct task. Observed successful transfer can promote a Lesson to `Validated`; contradictory evidence and retirement remain inspectable.
 
@@ -70,6 +74,8 @@ The Hardknock loop
 **Reflection → Hypothesis. Not Reflection → Truth.** Reflection proposes an explanation; an execution supplies evidence. Experiments test whether the explanation deserves to influence future work.
 
 Hardknock's purpose is to let agents **generate, validate, accumulate, revise, and eventually retire experience**. A failed trial remains useful evidence even when its proposed lesson turns out to be wrong.
+
+Failure should change the next attempt: evidence informs reflection, tested lessons guide adaptation, and the agent retries with a reason to act differently.
 
 ## Run the learning demo
 
@@ -170,11 +176,12 @@ Experience ≠ Skill
 
 An **Experience** is evidence from an actual execution. A reflection alone cannot create one. Higher-order artifacts—skills, lessons, reflexes, and recoveries—are derived from one or more experiences.
 
-| Artifact | Meaning |
+| Concept | Meaning |
 | --- | --- |
 | **Experience** | What actually happened: the execution record and its evidence. |
-| **Skill** | What has been observed to work under recorded conditions. |
-| **Lesson** | What tends to fail under particular conditions, the supported explanation, and what to try instead. |
+| **Skill** | A procedure describing what an agent can do, with evidence of where it has worked. |
+| **Reflection** | An interpretation of what happened and why; it proposes hypotheses for testing. |
+| **Lesson** | Durable, contextual knowledge proposed from Experience and revised as experiments support or contradict it. |
 | **Reflex** | A recognizable precursor to a known failure that can trigger warning, reconsideration, or replanning. Severe cases supported by strong evidence may justify blocking, but only with independent policy authorization. |
 | **Recovery** | A scoped restoration procedure with explicit candidate, support, and contradiction evidence. |
 | **Perturbation** | A deliberate experimental condition applied inside a Reality. |
@@ -227,7 +234,9 @@ Transitions need not visit every state. A changed dependency, model, or environm
 
 ## The Dojo
 
-**Dojo** is Hardknock's proposed controlled experimentation subsystem. It organizes disposable **Realities** in which an agent can execute alternative strategies.
+**Dojo** is Hardknock's controlled experimentation subsystem. It organizes disposable **Realities** where agents can encounter failures, inspect evidence, form reflections, test candidate lessons, and adapt their behavior.
+
+Repeated execution alone can lose the experience embedded in failed attempts. Dojos preserve that evidence so agents can acquire lessons from controlled failure modes before encountering similar failures in production. The current backend uses trusted local tasks and Git worktrees, subject to the shared-host limits below.
 
 ```text
 Sandbox:        Safety → prevent unsafe effects
