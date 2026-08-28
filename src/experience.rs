@@ -120,6 +120,9 @@ impl ExperienceContext {
                     | "pnpm-workspace-transfer"
                     | "pnpm-workspace-contradiction"
                     | "npm-ordinary"
+                    | "retry-resilience"
+                    | "stale-credential"
+                    | "config-drift"
             )
         {
             tags.push(format!("fixture-kind:{kind}"));
@@ -203,7 +206,13 @@ pub struct ReplaySpec {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Perturbation {
-    ReplaceCommand { from: String, to: String },
+    ReplaceCommand {
+        from: String,
+        to: String,
+    },
+    Local {
+        perturbation_id: crate::core::PerturbationId,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -257,6 +266,8 @@ pub struct Experience {
     pub observed_actions: Vec<crate::application::ObservedAction>,
     #[serde(default)]
     pub application_report_errors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resilience: Option<crate::resilience::ResilienceObservation>,
 }
 
 impl Experience {

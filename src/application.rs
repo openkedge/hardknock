@@ -26,11 +26,17 @@ pub enum ExperienceRelation {
     RetryOf(ExperienceId),
     CounterfactualOf(ExperienceId),
     TransferFrom(ExperienceId),
+    ChaosVariantOf(ExperienceId),
+    RecoveryOf(ExperienceId),
 }
 impl ExperienceRelation {
     pub fn target(&self) -> &ExperienceId {
         match self {
-            Self::RetryOf(id) | Self::CounterfactualOf(id) | Self::TransferFrom(id) => id,
+            Self::RetryOf(id)
+            | Self::CounterfactualOf(id)
+            | Self::TransferFrom(id)
+            | Self::ChaosVariantOf(id)
+            | Self::RecoveryOf(id) => id,
         }
     }
     pub fn kind(&self) -> &'static str {
@@ -38,6 +44,8 @@ impl ExperienceRelation {
             Self::RetryOf(_) => "retry_of",
             Self::CounterfactualOf(_) => "counterfactual_of",
             Self::TransferFrom(_) => "transfer_from",
+            Self::ChaosVariantOf(_) => "chaos_variant_of",
+            Self::RecoveryOf(_) => "recovery_of",
         }
     }
 }

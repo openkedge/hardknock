@@ -19,7 +19,7 @@ use rusqlite::{OptionalExtension, Transaction, params};
 
 impl Store {
     pub fn latest_influenced_experience(&self) -> Result<Experience> {
-        let influential:Option<String>=self.connection.query_row("SELECT e.data FROM experiences e WHERE EXISTS(SELECT 1 FROM lesson_applications a WHERE a.experience_id=e.id AND json_extract(a.data,'$.influence')='applied') ORDER BY e.created_at DESC,e.id DESC LIMIT 1",[],|r|r.get(0)).optional()?;
+        let influential:Option<String>=self.connection.query_row("SELECT e.data FROM experiences e WHERE EXISTS(SELECT 1 FROM lesson_applications a WHERE a.experience_id=e.id AND json_extract(a.data,'$.influence')='applied') OR EXISTS(SELECT 1 FROM reflex_matches m WHERE m.experience_id=e.id) ORDER BY e.created_at DESC,e.id DESC LIMIT 1",[],|r|r.get(0)).optional()?;
         let data = if let Some(data) = influential {
             Some(data)
         } else {
@@ -43,6 +43,13 @@ impl Store {
             "experiments",
             "lesson_applications",
             "repeated_mistakes",
+            "chaos_campaigns",
+            "chaos_trials",
+            "operating_envelopes",
+            "reflexes",
+            "recoveries",
+            "resilience_tests",
+            "skills",
         ] {
             let count: i64 =
                 self.connection
@@ -126,6 +133,31 @@ impl Store {
             {
                 return Err(Error::InvalidInput(
                     "Retry must preserve the original task and starting state".into(),
+                ));
+            }
+            if matches!(
+                relation,
+                ExperienceRelation::ChaosVariantOf(_) | ExperienceRelation::RecoveryOf(_)
+            ) && (exp.starting_state != target.starting_state
+                || exp.goal != target.goal
+                || exp.evaluation.spec != target.evaluation.spec
+                || exp.context.environment.fingerprint != target.context.environment.fingerprint)
+            {
+                return Err(Error::InvalidInput("Resilience lineage must preserve task, snapshot, environment policy and evaluator".into()));
+            }
+            if matches!(relation, ExperienceRelation::RecoveryOf(_))
+                && (!target
+                    .resilience
+                    .as_ref()
+                    .is_some_and(|r| r.outcome == crate::resilience::ChaosTrialOutcome::Fail)
+                    || !exp
+                        .resilience
+                        .as_ref()
+                        .is_some_and(|r| r.recovery_attempt.is_some()))
+            {
+                return Err(Error::InvalidInput(
+                    "Recovery lineage requires a failed trial and a recorded recovery observation"
+                        .into(),
                 ));
             }
             tx.execute("INSERT INTO experience_relations(source_experience_id,target_experience_id,relation_type) VALUES(?1,?2,?3)",params![exp.id.to_string(),relation.target().to_string(),relation.kind()])?;

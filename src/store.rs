@@ -20,6 +20,7 @@ use crate::{
 mod experiences;
 pub use experiences::{ExperienceQuery, ExperienceStore, ExperienceSummary};
 mod learning;
+mod resilience;
 mod transfer;
 pub use learning::{LessonQuery, LessonStore, LessonSummary};
 
@@ -42,6 +43,7 @@ impl Store {
                     "logs",
                     "locks",
                     "config.toml",
+                    "fixtures",
                 ]
                 .iter()
                 .any(|allowed| name == *allowed)
@@ -53,7 +55,7 @@ impl Store {
         fs::create_dir_all(home)?;
         let home = home.canonicalize()?;
         fs::set_permissions(&home, fs::Permissions::from_mode(0o700))?;
-        for child in ["artifacts", "realities", "logs", "locks"] {
+        for child in ["artifacts", "realities", "logs", "locks", "fixtures"] {
             if fs::symlink_metadata(home.join(child)).is_ok_and(|m| m.file_type().is_symlink()) {
                 return Err(Error::Intervention(
                     "Hardknock data subdirectories must not be symlinks.".into(),
@@ -78,7 +80,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 4 {
+        if version > 5 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -98,6 +100,10 @@ impl Store {
         if version < 4 {
             tx.execute_batch(include_str!("../migrations/004_transfer.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (4)", [])?;
+        }
+        if version < 5 {
+            tx.execute_batch(include_str!("../migrations/005_resilience.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (5)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

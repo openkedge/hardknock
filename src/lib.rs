@@ -19,6 +19,7 @@ pub mod lesson;
 pub mod perturbation;
 pub mod process;
 pub mod reflection;
+pub mod resilience;
 pub mod retrieval;
 pub mod store;
 pub mod validation;

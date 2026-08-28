@@ -56,6 +56,26 @@ pub async fn run_with_learning(
     learning: &RunLearningOptions,
     cancel: &Cancellation,
 ) -> Result<RunResult> {
+    run_configured(store, request, learning, None, cancel).await
+}
+
+pub async fn run_with_resilience(
+    store: &Store,
+    request: RunRequest,
+    learning: &RunLearningOptions,
+    resilience: &crate::resilience::runtime::RunResilienceOptions,
+    cancel: &Cancellation,
+) -> Result<RunResult> {
+    run_configured(store, request, learning, Some(resilience), cancel).await
+}
+
+async fn run_configured(
+    store: &Store,
+    request: RunRequest,
+    learning: &RunLearningOptions,
+    resilience: Option<&crate::resilience::runtime::RunResilienceOptions>,
+    cancel: &Cancellation,
+) -> Result<RunResult> {
     request.evaluation.validate()?;
     if cancel.is_cancelled() {
         return Err(Error::Intervention(
@@ -65,6 +85,8 @@ pub async fn run_with_learning(
     let provider = GitRealityProvider::new(store);
     let (mut reality, _lease) = provider.create_for_run(&request.state, request.keep)?;
     let mut started = false;
+    let keep = request.keep;
+    let mut perturbation_handles = crate::perturbation::AppliedPerturbations::default();
     let result = async {
         provider.verify_start(&reality)?;
         let context = ExperienceContext::capture(&request.state, &reality.root, request.command.environment)?;
@@ -78,8 +100,16 @@ pub async fn run_with_learning(
         let artifacts = store.home.join("artifacts").join(id.to_string());
         fs::create_dir(&artifacts)?;
         let advice=prepare_advice(store,&context,&request.goal,&reality.root,&artifacts,learning)?;
+        if let Some(options) = resilience { perturbation_handles = crate::resilience::runtime::apply(&reality, options)?; }
         started = true;
-        let (status, action) = ProcessRunner.run(&request.command, &reality.root, &artifacts.join("agent"), Duration::from_secs(request.timeout_secs), cancel.cancelled()).await?;
+        let mut runtime = if let Some(options) = resilience {
+            Some(crate::resilience::runtime::execute(&reality, &context, &request, &artifacts, cancel, options, &perturbation_handles).await?)
+        } else { None };
+        let (status, action) = if let Some(result) = &runtime {
+            (result.status, result.actions.last().cloned().ok_or_else(|| Error::InvalidInput("Runtime produced no actions".into()))?)
+        } else {
+            ProcessRunner.run(&request.command, &reality.root, &artifacts.join("agent"), Duration::from_secs(request.timeout_secs), cancel.cancelled()).await?
+        };
         let agent_diff = artifacts.join("agent.diff.patch");
         fs::write(&agent_diff, provider.diff(&reality)?)?;
         let execution = ExecutionRecord { id: ExecutionId::new(), reality_id: reality.id.clone(), starting_state: request.state.clone(), task: request.goal.clone(), agent: request.agent.clone(), status, action, diff: artifact(&agent_diff)?.with_kind(ArtifactKind::Diff) };
@@ -87,12 +117,12 @@ pub async fn run_with_learning(
         fs::write(&metadata, serde_json::to_vec_pretty(&execution)?)?;
         store.insert_execution(&execution)?;
         let observation=observe_application(advice,&execution,&id,&reality.root,&artifacts,learning)?;
-        let evaluator = CommandEvaluator { spec: request.evaluation, timeout: Duration::from_secs(request.timeout_secs), environment: request.command.environment };
+        let evaluator = CommandEvaluator { spec: request.evaluation, timeout: Duration::from_secs(request.timeout_secs), environment: request.command.environment, environment_overrides: runtime.as_ref().map(|r| r.environment.clone()).unwrap_or_else(|| request.command.environment_overrides.clone()) };
         let evaluation = evaluator.evaluate(&reality, &execution, &artifacts, cancel).await?;
         // Evaluators may modify files; retain their final diff separately from agent effects.
         let diff_path = artifacts.join("diff.patch");
         fs::write(&diff_path, provider.diff(&reality)?)?;
-        let mut actions = vec![execution.action.clone()];
+        let mut actions = runtime.as_ref().map(|r| r.actions.clone()).unwrap_or_else(|| vec![execution.action.clone()]);
         actions.extend(evaluation.checks.iter().filter_map(|c| c.action.clone()));
         let mut evidence: Vec<_> = actions.iter().flat_map(|a| [a.stdout.clone(), a.stderr.clone()]).collect();
         evidence.extend([execution.diff.clone(), artifact(&diff_path)?.with_kind(ArtifactKind::Diff), artifact(&metadata)?.with_kind(ArtifactKind::Metadata)]);
@@ -102,14 +132,22 @@ pub async fn run_with_learning(
             && let Some(action)=observation.actions.first().and_then(|a|a.action.shell_script()) {
                 replay=Some(ReplaySpec { script:action.into(),timeout_secs:request.timeout_secs });
             }
+        let mut signatures = failure_signatures(&evaluation, &execution.action)?;
+        if let Some(result) = &mut runtime {
+            crate::resilience::runtime::finish(result, &evaluation);
+            signatures.extend(result.signatures.clone());
+        }
+        let mut perturbations = request.perturbations;
+        if let Some(options) = resilience { perturbations.extend(options.perturbations.iter().map(|p| Perturbation::Local { perturbation_id: p.id.clone() })); }
         let experience = Experience {
             id, created_at: Utc::now(), goal: request.goal, tags: context.tags.clone(), context,
             starting_state: request.state, reality_id: reality.id.clone(), execution_id: execution.id.clone(), agent: request.agent,
-            actions, perturbations: request.perturbations, outcome: Outcome::from_evaluation(&evaluation),
-            failure_signatures: failure_signatures(&evaluation, &execution.action)?, evaluation,
+            actions, perturbations, outcome: Outcome::from_evaluation(&evaluation),
+            failure_signatures: signatures, evaluation,
             evidence: EvidenceBundle { artifacts: evidence }, replay,
             lesson_applications:observation.applications, relations:observation.relations, repeated_mistakes:observation.mistakes,
             observed_actions:observation.actions, application_report_errors:observation.errors,
+            resilience: runtime.map(|r|r.observation),
         };
         fs::write(artifacts.join("metadata.json"), serde_json::to_vec_pretty(&experience)?)?;
         ExperienceStore::insert(store, &experience)?;
@@ -117,8 +155,16 @@ pub async fn run_with_learning(
         store.update_reality(&reality)?;
         Ok((execution, experience))
     }.await;
-    let preserve = request.keep
-        || (started && result.is_err() && !matches!(&result, Err(Error::ProcessStart { .. })));
+    let result = match (result, perturbation_handles.remove()) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(primary), Err(cleanup)) => Err(Error::Cleanup {
+            primary: Box::new(primary),
+            cleanup: Box::new(cleanup),
+        }),
+        (Err(e), _) | (_, Err(e)) => Err(e),
+    };
+    let preserve =
+        keep || (started && result.is_err() && !matches!(&result, Err(Error::ProcessStart { .. })));
     let cleanup = if preserve {
         if result.is_err() {
             reality.status = RealityStatus::Failed;

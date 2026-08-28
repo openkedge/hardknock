@@ -40,6 +40,16 @@ pub struct Explanation {
     pub agent: AgentIdentity,
     pub lineage: Vec<ExperienceRelation>,
     pub repeated_mistakes: Vec<RepeatedMistakeObservation>,
+    pub resilience: Option<crate::resilience::ResilienceObservation>,
+    pub reflexes: Vec<ReflexExplanation>,
+}
+
+#[derive(Serialize)]
+pub struct ReflexExplanation {
+    pub matched: crate::resilience::ReflexMatch,
+    pub lessons: Vec<Lesson>,
+    pub source_trial: crate::resilience::ChaosTrial,
+    pub source_campaign: crate::core::ChaosCampaignId,
 }
 
 impl Store {
@@ -75,6 +85,22 @@ impl Store {
                 experiments,
             });
         }
+        let mut reflexes = Vec::new();
+        if let Some(observation) = &experience.resilience {
+            for matched in &observation.reflex_matches {
+                let source_trial = self.chaos_trial(&matched.source_trial)?;
+                reflexes.push(ReflexExplanation {
+                    matched: matched.clone(),
+                    lessons: matched
+                        .source_lessons
+                        .iter()
+                        .map(|id| self.lesson(id))
+                        .collect::<Result<_>>()?,
+                    source_campaign: source_trial.campaign_id.clone(),
+                    source_trial,
+                });
+            }
+        }
         Ok(Explanation {
             experience_id: experience.id,
             task: experience.goal,
@@ -83,6 +109,8 @@ impl Store {
             applications,
             lineage: experience.relations,
             repeated_mistakes: experience.repeated_mistakes,
+            resilience: experience.resilience,
+            reflexes,
         })
     }
 }

@@ -113,6 +113,7 @@ pub struct CommandEvaluator {
     pub spec: EvaluationSpec,
     pub timeout: Duration,
     pub environment: EnvironmentMode,
+    pub environment_overrides: std::collections::BTreeMap<String, String>,
 }
 
 impl Evaluator for CommandEvaluator {
@@ -138,9 +139,11 @@ impl Evaluator for CommandEvaluator {
             let (check_status, action) = if status != EvaluationStatus::Completed {
                 (CheckStatus::NotRun, None)
             } else {
+                let mut command = CommandSpec::shell(script, self.environment);
+                command.environment_overrides = self.environment_overrides.clone();
                 let (result, mut action) = ProcessRunner
                     .run(
-                        &CommandSpec::shell(script, self.environment),
+                        &command,
                         &reality.root,
                         &artifacts.join(format!("check-{index}")),
                         self.timeout,

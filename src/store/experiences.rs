@@ -61,6 +61,7 @@ impl ExperienceStore for Store {
             tx.execute("INSERT INTO experience_artifacts(experience_id,path,blake3,bytes,kind) VALUES(?1,?2,?3,?4,?5)", params![exp.id.to_string(), artifact.path.to_string_lossy(), artifact.blake3, i64::try_from(artifact.bytes).map_err(|_| Error::InvalidInput("Artifact exceeds SQLite size range".into()))?, serde_json::to_string(&artifact.kind)?])?;
         }
         self.insert_learning(&tx, exp)?;
+        self.insert_resilience(&tx, exp)?;
         tx.commit()?;
         Ok(())
     }

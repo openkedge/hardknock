@@ -8,6 +8,8 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
+mod resilience;
+use resilience::{ChaosCommand, EnvelopeCommand, RecoveryCommand, ReflexCommand, SkillCommand};
 
 use crate::{
     Error, Result,
@@ -81,6 +83,31 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Run controlled local adversity around a healthy strategy.
+    Chaos {
+        #[command(subcommand)]
+        command: ChaosCommand,
+    },
+    /// Inspect sparse, empirically tested operating conditions.
+    Envelope {
+        #[command(subcommand)]
+        command: EnvelopeCommand,
+    },
+    /// Test and explicitly activate scoped early-failure rules.
+    Reflex {
+        #[command(subcommand)]
+        command: ReflexCommand,
+    },
+    /// Test procedures after reproducing a failure.
+    Recovery {
+        #[command(subcommand)]
+        command: RecoveryCommand,
+    },
+    /// Manually register known-successful replayable procedures.
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
+    },
     /// Explain the latest recorded behavioral influence or a selected Experience.
     Why {
         #[arg(long)]
@@ -325,6 +352,9 @@ pub enum ExperienceCommand {
 #[derive(Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Resilience {
+        result: Box<resilience::ResilienceResponse>,
+    },
     LessonSearch {
         query: Box<QueryContext>,
         report: RetrievalReport,
@@ -393,6 +423,7 @@ pub enum Response {
 impl Response {
     pub fn exit_code(&self) -> u8 {
         match self {
+            Self::Resilience { result } => result.exit_code(),
             Self::RunCompleted {
                 execution,
                 experience,
@@ -433,6 +464,7 @@ impl Response {
             return Ok(());
         }
         match self {
+            Self::Resilience { result } => result.print(&mut stdout)?,
             Self::RunCompleted {
                 execution,
                 reality,
@@ -563,6 +595,34 @@ impl Response {
                     "Experience: {} · {:?}",
                     explanation.experience_id, explanation.outcome
                 )?;
+                for entry in &explanation.reflexes {
+                    let m = &entry.matched;
+                    writeln!(
+                        stdout,
+                        "Hardknock requested {:?} because {} matched ({}; confidence {:.2}).",
+                        m.response,
+                        m.reflex_id,
+                        if m.test_only { "test only" } else { "active" },
+                        f64::from(m.confidence)
+                    )?;
+                    writeln!(
+                        stdout,
+                        "  Consecutive failures: {}; no state change: {}; config changed: {}",
+                        m.observed.consecutive_failures,
+                        m.observed.no_state_change,
+                        m.observed.config_changed
+                    )?;
+                    writeln!(
+                        stdout,
+                        "  Source: {} / {} / {}",
+                        entry.source_campaign,
+                        entry.source_trial.id,
+                        entry.source_trial.experience_id
+                    )?;
+                    for lesson in &entry.lessons {
+                        writeln!(stdout, "  Lesson {}: {}", lesson.id, lesson.claim)?;
+                    }
+                }
                 for entry in &explanation.applications {
                     let a = &entry.application;
                     writeln!(
@@ -891,6 +951,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     let store = Store::open(&home)?;
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
+        Commands::Chaos { .. }
+        | Commands::Envelope { .. }
+        | Commands::Reflex { .. }
+        | Commands::Recovery { .. }
+        | Commands::Skill { .. } => resilience::execute(cli, &store, cancel).await,
         Commands::Why { experience } => Ok(Response::Why {
             explanation: Box::new(store.explain(experience.as_ref())?),
         }),

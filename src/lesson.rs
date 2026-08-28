@@ -118,6 +118,7 @@ pub enum EvidenceRelationship {
     Contradicts,
     Origin,
     Inconclusive,
+    Narrows,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
