@@ -357,18 +357,34 @@ impl Store {
             ],
         )?;
         tx.commit()?;
+        self.save_package_revision(p)?;
         Ok(())
     }
     pub(super) fn enrich_skill(
         &self,
         mut skill: crate::resilience::Skill,
     ) -> Result<crate::resilience::Skill> {
+        let revisions = self.skill_revisions(&skill.id)?;
+        if let Some(r) = revisions.last() {
+            skill.procedure = r.procedure.clone();
+            skill.context = r.context.clone();
+            skill.evidence = r.evidence.clone();
+            skill.source_experience = r.source_experience.clone();
+            if r.revision > 1 {
+                skill.maturity = crate::curriculum::SkillMaturity::Supported;
+            }
+        }
         let data:Option<String>=self.connection.query_row("SELECT data FROM experience_packages WHERE skill_id=?1 ORDER BY created_at DESC LIMIT 1",[skill.id.to_string()],|r|r.get(0)).optional()?;
         if let Some(data) = data {
             let p: ExperiencePackage = serde_json::from_str(&data)?;
-            skill.maturity = p.maturity;
-            skill.coverage = p.coverage;
-            skill.operating_envelope = p.operating_envelope;
+            if revisions
+                .last()
+                .is_none_or(|r| r.revision == 1 || p.generated_at >= r.created_at)
+            {
+                skill.maturity = p.maturity;
+                skill.coverage = p.coverage;
+                skill.operating_envelope = p.operating_envelope;
+            }
         }
         Ok(skill)
     }

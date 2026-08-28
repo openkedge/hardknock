@@ -81,6 +81,12 @@ identifier!(CurriculumId, "curriculum-");
 identifier!(CurriculumGoalId, "curriculum-goal-");
 identifier!(CurriculumTrialId, "curriculum-trial-");
 identifier!(TaskFamilyId, "task-family-");
+identifier!(ExperienceProfileId, "profile-");
+identifier!(ProfileSnapshotId, "profile-snapshot-");
+identifier!(DevelopmentEpisodeId, "episode-");
+identifier!(ExperiencePackageId, "package-");
+identifier!(RevalidationId, "revalidation-");
+identifier!(BenchmarkRunId, "benchmark-");
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateRef {

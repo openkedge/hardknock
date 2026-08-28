@@ -23,6 +23,7 @@ pub use experiences::{ExperienceQuery, ExperienceStore, ExperienceSummary};
 pub use experiments::ExperimentStore;
 mod bridge;
 mod curriculum;
+mod development;
 mod learning;
 mod resilience;
 mod transfer;
@@ -95,7 +96,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 8 {
+        if version > 9 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -131,6 +132,10 @@ impl Store {
         if version < 8 {
             tx.execute_batch(include_str!("../migrations/008_curriculum.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (8)", [])?;
+        }
+        if version < 9 {
+            tx.execute_batch(include_str!("../migrations/009_development.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (9)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");
