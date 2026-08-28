@@ -18,7 +18,9 @@ use crate::{
 };
 
 mod experiences;
+mod experiments;
 pub use experiences::{ExperienceQuery, ExperienceStore, ExperienceSummary};
+pub use experiments::ExperimentStore;
 mod bridge;
 mod learning;
 mod resilience;
@@ -91,7 +93,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 6 {
+        if version > 7 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -119,6 +121,10 @@ impl Store {
         if version < 6 {
             tx.execute_batch(include_str!("../migrations/006_bridge.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (6)", [])?;
+        }
+        if version < 7 {
+            tx.execute_batch(include_str!("../migrations/007_agent_experiments.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (7)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

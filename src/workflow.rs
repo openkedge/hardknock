@@ -20,6 +20,31 @@ use crate::{
 use chrono::Utc;
 use std::{fs, time::Duration};
 
+/// A leased Reality, verified at the orchestration barrier before any trial runs.
+pub struct PreparedTrial {
+    pub reality: Reality,
+    pub lease: fs::File,
+    pub experiment: Option<crate::experimentation::ExperimentEvidence>,
+    pub commands: Option<Vec<CommandSpec>>,
+}
+
+pub async fn run_prepared_trial(
+    store: &Store,
+    request: RunRequest,
+    prepared: PreparedTrial,
+    cancel: &Cancellation,
+) -> Result<RunResult> {
+    execute_prepared(
+        store,
+        request,
+        &RunLearningOptions::default(),
+        None,
+        cancel,
+        prepared,
+    )
+    .await
+}
+
 #[derive(Clone)]
 pub struct RunRequest {
     pub state: StateRef,
@@ -83,11 +108,60 @@ async fn run_configured(
         ));
     }
     let provider = GitRealityProvider::new(store);
-    let (mut reality, _lease) = provider.create_for_run(&request.state, request.keep)?;
+    let (reality, lease) = provider.create_for_run(&request.state, request.keep)?;
+    execute_prepared(
+        store,
+        request,
+        learning,
+        resilience,
+        cancel,
+        PreparedTrial {
+            reality,
+            lease,
+            experiment: None,
+            commands: None,
+        },
+    )
+    .await
+}
+
+async fn execute_prepared(
+    store: &Store,
+    request: RunRequest,
+    learning: &RunLearningOptions,
+    resilience: Option<&crate::resilience::runtime::RunResilienceOptions>,
+    cancel: &Cancellation,
+    prepared: PreparedTrial,
+) -> Result<RunResult> {
+    let provider = GitRealityProvider::new(store);
+    let PreparedTrial {
+        mut reality,
+        lease: _lease,
+        experiment,
+        commands,
+    } = prepared;
+    let experimental = experiment.is_some();
     let mut started = false;
     let keep = request.keep;
     let mut perturbation_handles = crate::perturbation::AppliedPerturbations::default();
     let result = async {
+        if !experimental {
+            if resilience.is_some() { reality.fork_reason = Some(crate::core::ForkReason::Chaos); }
+            for relation in &learning.relations {
+                let reason = match relation {
+                    crate::application::ExperienceRelation::CounterfactualOf(_) => Some(crate::core::ForkReason::Counterfactual),
+                    crate::application::ExperienceRelation::RetryOf(_) => Some(crate::core::ForkReason::Retry),
+                    crate::application::ExperienceRelation::ChaosVariantOf(_) => Some(crate::core::ForkReason::Chaos),
+                    _ => None,
+                };
+                if let Some(reason) = reason {
+                    reality.fork_reason = Some(reason);
+                    let source = store.experience(relation.target())?;
+                    if source.starting_state == request.state { reality.parent = Some(source.reality_id); }
+                    break;
+                }
+            }
+        }
         provider.verify_start(&reality)?;
         let context = ExperienceContext::capture(&request.state, &reality.root, request.command.environment)?;
         if request.expected_fingerprint.as_ref().is_some_and(|expected| *expected != context.environment.fingerprint) {
@@ -105,8 +179,18 @@ async fn run_configured(
         let mut runtime = if let Some(options) = resilience {
             Some(crate::resilience::runtime::execute(&reality, &context, &request, &artifacts, cancel, options, &perturbation_handles).await?)
         } else { None };
+        let mut trial_actions = Vec::new();
         let (status, action) = if let Some(result) = &runtime {
             (result.status, result.actions.last().cloned().ok_or_else(|| Error::InvalidInput("Runtime produced no actions".into()))?)
+        } else if let Some(commands) = &commands {
+            let mut last_status = crate::core::ProcessStatus::Succeeded;
+            for (i, command) in commands.iter().enumerate() {
+                let (status, action) = ProcessRunner.run(command, &reality.root, &artifacts.join(format!("agent-{i}")), Duration::from_secs(request.timeout_secs), cancel.cancelled()).await?;
+                trial_actions.push(action);
+                last_status = status;
+                if status != crate::core::ProcessStatus::Succeeded { break; }
+            }
+            (last_status, trial_actions.last().cloned().ok_or_else(|| Error::InvalidInput("Trial has no commands".into()))?)
         } else {
             ProcessRunner.run(&request.command, &reality.root, &artifacts.join("agent"), Duration::from_secs(request.timeout_secs), cancel.cancelled()).await?
         };
@@ -117,12 +201,15 @@ async fn run_configured(
         fs::write(&metadata, serde_json::to_vec_pretty(&execution)?)?;
         store.insert_execution(&execution)?;
         let observation=observe_application(advice,&execution,&id,&reality.root,&artifacts,learning)?;
-        let evaluator = CommandEvaluator { spec: request.evaluation, timeout: Duration::from_secs(request.timeout_secs), environment: request.command.environment, environment_overrides: runtime.as_ref().map(|r| r.environment.clone()).unwrap_or_else(|| request.command.environment_overrides.clone()) };
+        if let Some(link) = &experiment {
+            store.append_experiment_progress(&crate::experimentation::ExperimentProgress { experiment_id: link.experiment_id.clone(), candidate: Some(link.candidate_id.clone()), phase: crate::experimentation::ExperimentPhase::Evaluating, message: "Candidate execution finished; running identical configured checks".into(), created_at: Utc::now() })?;
+        }
+        let evaluator = CommandEvaluator { spec: request.evaluation, timeout: Duration::from_secs(request.timeout_secs), environment: if experimental { crate::core::EnvironmentMode::Controlled } else { request.command.environment }, environment_overrides: if experimental { Default::default() } else { runtime.as_ref().map(|r| r.environment.clone()).unwrap_or_else(|| request.command.environment_overrides.clone()) } };
         let evaluation = evaluator.evaluate(&reality, &execution, &artifacts, cancel).await?;
         // Evaluators may modify files; retain their final diff separately from agent effects.
         let diff_path = artifacts.join("diff.patch");
         fs::write(&diff_path, provider.diff(&reality)?)?;
-        let mut actions = runtime.as_ref().map(|r| r.actions.clone()).unwrap_or_else(|| vec![execution.action.clone()]);
+        let mut actions = runtime.as_ref().map(|r| r.actions.clone()).unwrap_or_else(|| if trial_actions.is_empty() { vec![execution.action.clone()] } else { trial_actions });
         actions.extend(evaluation.checks.iter().filter_map(|c| c.action.clone()));
         let mut evidence: Vec<_> = actions.iter().flat_map(|a| [a.stdout.clone(), a.stderr.clone()]).collect();
         evidence.extend([execution.diff.clone(), artifact(&diff_path)?.with_kind(ArtifactKind::Diff), artifact(&metadata)?.with_kind(ArtifactKind::Metadata)]);
@@ -140,6 +227,7 @@ async fn run_configured(
         let mut perturbations = request.perturbations;
         if let Some(options) = resilience { perturbations.extend(options.perturbations.iter().map(|p| Perturbation::Local { perturbation_id: p.id.clone() })); }
         let experience = Experience {
+            experiment,
             id, created_at: Utc::now(), goal: request.goal, tags: context.tags.clone(), context,
             starting_state: request.state, reality_id: reality.id.clone(), execution_id: execution.id.clone(), agent: request.agent,
             actions, perturbations, outcome: Outcome::from_evaluation(&evaluation),
@@ -163,8 +251,9 @@ async fn run_configured(
         }),
         (Err(e), _) | (_, Err(e)) => Err(e),
     };
-    let preserve =
-        keep || (started && result.is_err() && !matches!(&result, Err(Error::ProcessStart { .. })));
+    let preserve = !experimental
+        && (keep
+            || (started && result.is_err() && !matches!(&result, Err(Error::ProcessStart { .. }))));
     let cleanup = if preserve {
         if result.is_err() {
             reality.status = RealityStatus::Failed;

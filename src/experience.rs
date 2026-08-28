@@ -241,6 +241,8 @@ pub struct EvidenceBundle {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Experience {
     pub id: ExperienceId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experiment: Option<crate::experimentation::ExperimentEvidence>,
     pub created_at: DateTime<Utc>,
     pub goal: String,
     pub context: ExperienceContext,

@@ -188,6 +188,9 @@ pub fn record(
         ArtifactKind::Diff,
     )?;
     let reality = Reality {
+        fork_reason: None,
+        experiment_id: None,
+        candidate_id: None,
         id: RealityId::new(),
         parent: None,
         root: session.cwd.clone(),
@@ -362,6 +365,7 @@ pub fn record(
     }
     let failure_signatures = crate::experience::failure_signatures(&evaluation, &aggregate)?;
     let experience = Experience {
+        experiment: None,
         id,
         created_at: Utc::now(),
         goal: session.task.clone(),

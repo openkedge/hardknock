@@ -63,6 +63,8 @@ identifier!(ExecutionId, "exec-");
 identifier!(ExperienceId, "exp-");
 identifier!(LessonId, "lesson-");
 identifier!(ExperimentId, "experiment-");
+identifier!(ExperimentRequestId, "request-");
+identifier!(CandidateId, "candidate-");
 identifier!(HypothesisId, "hypothesis-");
 identifier!(TrialId, "trial-");
 identifier!(EvaluationId, "eval-");
@@ -99,6 +101,12 @@ pub enum RealityStatus {
 pub struct Reality {
     pub id: RealityId,
     pub parent: Option<RealityId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_reason: Option<ForkReason>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub experiment_id: Option<ExperimentId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_id: Option<CandidateId>,
     pub root: PathBuf,
     pub starting_state: StateRef,
     pub created_at: DateTime<Utc>,
@@ -106,6 +114,17 @@ pub struct Reality {
     /// Only automatic-run worktrees are eligible for orphan cleanup.
     pub ephemeral: bool,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ForkReason {
+    Counterfactual,
+    AgentExperiment,
+    Chaos,
+    Retry,
+}
+
+pub use crate::budget::ExperienceBudget;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CommandSpec {

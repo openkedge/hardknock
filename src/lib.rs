@@ -6,6 +6,7 @@
 pub mod agent;
 pub mod application;
 pub mod bridge;
+pub mod budget;
 pub mod cancellation;
 pub mod cli;
 pub mod core;
@@ -14,6 +15,7 @@ pub mod error;
 pub mod evaluation;
 pub mod experience;
 pub mod experiment;
+pub mod experimentation;
 pub mod explanation;
 pub mod integrations;
 pub mod learning_loop;
