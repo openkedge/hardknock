@@ -22,7 +22,7 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.3 integration preview.** The authenticated local Bridge and Claude/Codex/Hermes/OpenClaw adapters have deterministic coverage. Successful live acceptance with two different agents is still pending; see the [V0.3 report](docs/implementation-v03.md). Local failures produce immutable Experiences and scoped Lessons tested in fresh baseline/alternative Realities. Deterministic retrieval can advise a bounded retry or a distinct task. Observed successful transfer can promote a Lesson to `Validated`; contradictory evidence and retirement remain inspectable.
+> **Pre-alpha · V0.4 experience on demand.** Agents can request bounded strategy experiments through the local Bridge. Equivalent starting states, evaluator comparisons, progress, cancellation, replay, and immutable Experiences have deterministic coverage. Successful live acceptance with two different agents is still pending; see the [V0.3 report](docs/implementation-v03.md) and [V0.4 report](docs/implementation-v04.md). Recommendations never apply changes automatically.
 
 [Works With Your Agent](#works-with-your-agent) · [Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
 
@@ -47,7 +47,37 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
-**Next:** successful live integration acceptance, stronger environment controls, and broader transfer measurements. Native adapters and the Bridge are available as a preview; optional MCP and arbitrary agent-requested experiments are not implemented. See the [CLI reference](docs/cli.md), [retrieval policy](docs/retrieval.md), and [next phase](docs/roadmap.md).
+V0.4 adds `hardknock try`, structured agent requests, explicit budget enforcement, equivalent-state verification, bounded parallel candidates, comparison quality, replay/lineage, cancellation, and patch export. **Next:** skill hardening and autonomous curriculum, alongside live integration acceptance and stronger environment controls. See the [CLI reference](docs/cli.md), [agent experiments](docs/agent-experiments.md), and [next phase](docs/roadmap.md).
+
+## Stop Guessing. Try It.
+
+Most agent systems spend more inference when they are uncertain. Hardknock can spend a bounded experience budget instead: fork disposable realities, try competing strategies, evaluate the results, and return evidence.
+
+```text
+Agent:       "I have two plausible migration strategies."
+Hardknock:   "Try both."
+
+                 same starting state
+                    /         \
+              strategy A   strategy B
+                 FAIL         PASS
+                    \         /
+                      evidence
+                         ↓
+                   agent decides
+```
+
+**Hardknock turns uncertainty into controlled experimentation.** After initializing the offline [strategy-choice fixture](docs/agent-experiments.md#run-the-deterministic-demo):
+
+```bash
+hardknock try --agent test-agent \
+  --candidate 'direct=direct-upgrade' \
+  --candidate 'staged=staged-upgrade' --check './test.sh'
+```
+
+The fixture returns direct **FAIL**, staged **PASS**, quality **CONTROLLED**, a staged recommendation, two Experiences, and one Candidate Lesson. The source repository is unchanged and trial worktrees are discarded. Export a saved patch with `reality export`; there is no automatic commit. If both candidates pass, there is no invented winner. If agent and strategy both change, the result is **CONFOUNDED**, not a causal lesson.
+
+An integrated agent uses the same command with `--session` or the structured Bridge request. Session/process snapshots are not available: the reply explicitly identifies the recorded-commit fallback. See [budgets](docs/experience-budget.md) and [quality guarantees](docs/experiment-quality.md).
 
 ## The problem
 
@@ -346,14 +376,15 @@ Chaos trials should specify the perturbation, control run, success checks, safet
 
 **Stop guessing. Try it.** When uncertainty is high, spend a bounded experimentation budget on alternatives in disposable Realities instead of spending unlimited tokens imagining outcomes.
 
-Proposed syntax:
+Implemented syntax (inside an initialized strategy fixture):
 
 ```bash
-hardknock try --trials 3 "find the safest migration strategy"
-hardknock run --agent codex --experience-budget 5 "repair the failing build"
+hardknock try --agent test-agent --budget-realities 3 --budget-duration 5m \
+  --candidate 'direct=direct-upgrade' --candidate 'staged=staged-upgrade' \
+  --check './test.sh'
 ```
 
-The intent is a cap on trial executions, with additional limits on tokens, tool calls, elapsed time, and cost. A budget must cover validation and retries, not just successful runs. The implemented `run --experience-budget N` caps additional paired trials and retries; token/cost accounting and native requested-experiment execution remain future work. Experimentation complements inference-time reasoning: reasoning chooses useful experiments; experiments provide observations that reasoning alone cannot.
+Budgets cap requested Realities, agent runs, and experiment duration. Optional command ceilings cover explicit shell entries and evaluator processes; opaque native tool-call caps are rejected as unenforceable. Over-budget comparisons are rejected before creating Realities. The existing `run --experience-budget N` still caps additional paired trials/retries. Token and financial cost accounting remain future work. [Budget semantics](docs/experience-budget.md) distinguish hard scheduling caps from advisory Git-provider capabilities.
 
 ## Works With Your Agent
 
@@ -408,7 +439,7 @@ Configure workspace evaluators before expecting successful task evidence. Instal
 | Experience aware | Context files for generic agents; concise context through native hooks/Bridge |
 | Lifecycle integrated | Session, action, result and completion normalization with asynchronous recording |
 | Reflex integrated | Cached advice; Codex can pause only at native approval requests, not every item notification |
-| Native experimentation | Existing explicit Dojo CLI; arbitrary Bridge experiment execution and skill-validation tools remain deferred |
+| Native experimentation | Explicit structured Bridge requests and shared `try --session` helper; fake Claude/Codex request → progress → result tested; live experiments and skill-validation tools remain unverified/deferred |
 
 Learning advice never grants extra permissions or becomes a policy denial. No adapter requests hidden reasoning. Each adapter guide lists exactly what it observes, stores, influences, and cannot see.
 
@@ -566,7 +597,8 @@ The broader release goals below include work beyond the implemented local loop. 
 | **V0.1 — Controlled coding experiments** | Runner adapters, disposable coding trials, typed evidence, counterfactual lesson validation, retrieval, and retry |
 | **V0.2 — Local resilience** | Deterministic chaos, observed operating envelopes, scoped reflexes, false positives, and recovery |
 | **V0.3 — External-agent integration** | Authenticated Bridge, lifecycle adapters, cached advice, provenance; live acceptance still pending |
-| **V0.4 — Agent-Native Experimentation** | Bounded requested experiments after Claude/Codex common-layer acceptance |
+| **V0.4 — Agent-Native Experimentation** | Implemented for trusted local alternatives; bounded requests, quality, evidence, replay and cancellation |
+| **V0.5 — Skill Hardening and Autonomous Curriculum** | Next: controlled trials for unexperienced conditions, weak-spot discovery and deliberate practice |
 | **Later — External-effect virtualization** | Explore explicit semantics for selected external systems, without claiming universal rollback |
 
 ## Project status

@@ -1,5 +1,7 @@
 # Agent integrations (V0.3 preview)
 
+V0.4 adds the shared [experiment request/progress/result helper](agent-experiments.md#during-an-integrated-session) to native context. Fake Claude/Codex sessions exercise that contract through authenticated Unix JSONL; this does not change the live-host acceptance status below or imply live model experimentation has been verified.
+
 **Models change. Experience survives.**
 
 The common local Bridge is implemented. Four native adapters have deterministic fixture coverage; successful live demonstrations with two different agents are **not yet complete**. The installed Codex 0.149.1 passed schema detection/initialization, and a live task exercised native approval cancellation and recorded a non-success outcome. Claude, Hermes and OpenClaw were unavailable for live host testing in this pass. See [the implementation report](implementation-v03.md).

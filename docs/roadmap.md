@@ -12,6 +12,7 @@ The local passive learning and active resilience loops are implemented. Evidence
 | 11 — Reflexes | Implemented locally | Scoped precursor matching, paired response tests, false positives, separate activation and historical explanations |
 | 12 — Recovery | Implemented locally | Failure reproduction/precheck, typed steps, paired Experiences, support/contradiction and metrics |
 | 13 — External-agent integration | Preview; live acceptance pending | Common Bridge, native adapters, deterministic cross-agent transfer |
+| 14 — Agent-native experimentation | Implemented locally in V0.4 | Explicit bounded requests, equivalent starts, parallel candidates, quality, replay/cancel/lineage and patch export |
 
 ## Verified acceptance boundaries
 
@@ -21,13 +22,13 @@ See [the V0.2 report](implementation-v02.md), [transfer report](implementation-t
 
 ## Exact next-phase plan
 
-**Finish V0.3 live acceptance before V0.4:**
+**V0.5 — Skill Hardening and Autonomous Curriculum**, with remaining integration acceptance tracked separately. V0.4 proceeded under the updated implementation request; it does not retroactively complete the V0.3 live acceptance checks.
 
 1. Run installed Claude and Codex through the common layer with the user's native permissions intact. Demonstrate context delivery, action advice, evaluated completion, and observed transfer on distinct disposable repositories.
 2. Load the Hermes/OpenClaw plugins in real hosts, verify their SDK/version compatibility, and exercise the documented missing-ID and timeout behavior.
 3. Add a native user-approval callback for the noninteractive Codex client; never auto-approve from experience.
 4. Harden sustained usage: session retention, crash reconciliation, bounded artifact/Git capture, host-specific strict availability policy, and automatic environment-version revalidation.
-5. Only then begin **V0.4 — Agent-Native Experimentation**: explicitly requested budgeted Realities, structured hypotheses, skill validation, and evidence-returning tools. The current Bridge experiment-request endpoint is reserved and rejects execution; the explicit controlled experiment CLI remains usable.
+5. Extend V0.4's shared trial surface into deliberate skill hardening: identify unexperienced conditions, generate controlled trials, map sparse weak spots, and propose a curriculum. Keep initiation explicit until curriculum permissions and budgets have their own tested policy; do not infer untested operating envelopes or broaden Lesson confidence from repetition alone.
 
 MCP may later be an optional facade over the same Bridge; it is not the architecture. Hosted services, multi-user authentication, remote sharing/sync, marketplaces, privileged/cloud/network chaos, financial effects, arbitrary transaction virtualization, VM/WASM backends, tournaments, and GUI remain out of scope.
 

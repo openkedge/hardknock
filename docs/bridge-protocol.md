@@ -40,7 +40,9 @@ Replies echo `protocol_version` and `request_id`, with `ok` and either `payload`
 | `run_completed` | Session ID, stable per-turn `run_id`, optional claimed success, duration, and optional `termination` (`completed`, `interrupted`, `timed_out`; default `completed`). Full final messages and arbitrary external metadata are discarded. Returns a queued run record with a preallocated Experience ID. |
 | `session_ended` | Ends registration; not evidence that the task succeeded. |
 | `lesson_rejected` | Delivered lesson ID, reason enum, optional bounded detail. Multiple distinct session rejections or an environment-change rejection flag validated lessons for review; no automatic retirement. |
-| `experiment_requested` | Session, lesson ID, bounded trial/run/duration request. **Reserved and explicitly rejected in this pass**. Use the existing controlled `experiment` CLI. Arbitrary agent-native experimentation is not enabled. |
+| `experiment_requested` | Explicit structured alternatives, checks, request ID, budget and capabilities. Returns `experiment_accepted` or `experiment_rejected` with an experiment ID and effective budget. Execution runs asynchronously outside the action/learning queues. |
+| `experiment_progress` | Session ID, experiment ID and exclusive `after` cursor. Returns progress rows, partial candidate summaries, status and a compact final result when available. |
+| `experiment_cancelled` | Session and experiment ID: requests cancellation. The acknowledgment is not cleanup completion; poll progress for terminal `experiment_cancelled`. |
 
 Administrative payloads: `status`, `sessions`, `inspect` (session ID), `run_status` (session and run IDs), `events` (exclusive `after` cursor), `refresh_cache`, `shutdown`. All require authentication. `inspect` shows the most recent 50 action summaries, not conversations. `events` returns at most 100 telemetry rows; it is not the Experience repository.
 
@@ -62,7 +64,7 @@ Default mapping: eligible Lesson → advise; Supported Reflex → warn; Active R
 
 ## Completion and durability
 
-A background writer/evaluator handles completion separately from action matching. Graceful daemon shutdown cancels running checks, reaps their process groups, and flushes remaining telemetry. Checks are configured by canonical workspace path in local `config.toml`; a wire message cannot supply an executable check. Agent claims of success are stored separately from evaluator outcomes. No checks means `inconclusive`. Explicit interrupted/timed-out runs skip successful evaluation; a started observation with no completion remains incomplete. An intercepted proposal that was abandoned after advice is not itself a failed execution.
+A background writer/evaluator handles completion separately from action matching. Graceful daemon shutdown cancels running checks and experiment candidates, reaps ordinary process groups, and flushes remaining telemetry. Ordinary `run_completed` checks are configured by canonical workspace path in local `config.toml`; that lifecycle message cannot override them. V0.4's separately permitted, explicit experiment requests supply their own checks, which run only in disposable Realities. Agent claims of success are stored separately from evaluator outcomes. No checks means `inconclusive`. Explicit interrupted/timed-out runs skip successful evaluation; a started observation with no completion remains incomplete. An intercepted proposal that was abandoned after advice is not itself a failed execution.
 
 The Bridge captures a redacted, bounded tracked Git diff relative to the registration baseline; it does not attribute every changed byte to the agent. Untracked file contents and binary data are not included. External workspaces are recorded as `RealityStatus::Observed`, never owned or deleted by the Dojo. A synthetic `bridge-observation` execution links the existing Experience schema to the normalized action artifact; it does not claim that an aggregate shell command ran.
 
@@ -79,3 +81,55 @@ No full prompts, outputs, conversations, reasoning, or inherited environment-var
 See [the agent contract](agent-experience-contract.md) and [integration security tables](integrations.md).
 
 Native agents maintain their own logs, account state and conversation retention under their own settings. Hardknock does not control that storage.
+
+## V0.4 experiment contract
+
+The protocol identifier remains `hardknock.bridge.v1`; the **previously reserved and nonexecuting** lesson-ID request is replaced with this structured contract. Old reserved payloads are rejected as malformed, not interpreted as permission to run arbitrary trials. Other lifecycle events remain compatible. No MCP transport has been added.
+
+Example payload, inside the normal authenticated envelope:
+
+```json
+{
+  "event": "experiment_requested",
+  "data": {
+    "hardknock_session_id": "hk-s-from-session-start",
+    "request_id": "request-00000000-0000-4000-8000-000000000001",
+    "question": "Which upgrade preserves compatibility?",
+    "candidates": [
+      {
+        "id": "candidate-00000000-0000-4000-8000-000000000002",
+        "name": "direct",
+        "execution": {"kind": "shell", "commands": ["./agent-script.sh direct-upgrade"]}
+      },
+      {
+        "id": "candidate-00000000-0000-4000-8000-000000000003",
+        "name": "staged",
+        "execution": {"kind": "shell", "commands": ["./agent-script.sh staged-upgrade"]}
+      }
+    ],
+    "evaluator": {"checks": ["./test.sh"]},
+    "budget": {"max_realities": 2, "max_agent_runs": 2, "max_duration_ms": 60000},
+    "criteria": {"require_success": true},
+    "intent": "compare_strategies",
+    "capabilities": {"allow_network": false, "allow_external_mutations": false}
+  }
+}
+```
+
+`AgentTask` uses `{"kind":"agent_task","prompt":"...","agent":{"kind":"test-agent","executable":"ignored-on-wire","version":null,"model":null}}`. The executable is resolved from trusted local configuration or a built-in, never selected by an arbitrary wire path. Omitting `agent` selects the requesting session's agent. The Bridge supplies the origin, requester identity and recorded-commit fallback; clients do not select another workspace or claim a live process snapshot.
+
+`request_id` is stable across delivery retries. Identical requests return the original experiment; conflicting reuse fails. Accepted requests are persisted before queue admission, so the ID is inspectable. New candidate executions are not replayed on daemon restart. The action handler stays independent of the bounded experiment worker. Per-session reservations prevent repeated requests from bypassing Reality/agent-run ceilings. See [budget limits](experience-budget.md).
+
+Progress query:
+
+```json
+{"event":"experiment_progress","data":{"hardknock_session_id":"hk-s-from-session-start","experiment_id":"experiment-00000000-0000-4000-8000-000000000004","after":0}}
+```
+
+The reply payload contains `event`, `experiment_id`, `status`, `progress: [[sequence, progress], ...]`, `completed_candidates`, `result`, and optional `reason`. Progress phases are `preparing`, `executing`, `evaluating`, `comparing`, `learning`, `completed`, and `cancelled`. Each row has a timestamp and optional candidate ID. Advance `after` to the largest sequence consumed; at most 128 rows are returned. Polling is the streaming mechanism on this one-request-per-connection transport.
+
+Terminal events are `experiment_completed`, `experiment_cancelled`, or `experiment_rejected` (including infrastructure failure, distinguished by `status: failed`). Results contain candidate execution/evaluation outcomes, check statuses, diff statistics, starting fingerprints, quality, comparison reasons, recommendation, generated Experience/Lesson IDs, and usage. They omit raw output, raw commands, and candidate task prompts. Full trusted local artifacts remain available through CLI inspection.
+
+The same bounded context document delivered to Claude and Codex now describes `hardknock try --session`. It is a suggestion to request deliberate experience, not an instruction to initiate automatically. Session end cancels pending/running agent requests unless configured otherwise. Network isolation is advisory; external mutation declarations are rejected. Obvious external-effect commands and exact locally blocked/approval-required commands are rejected, but this is not a shell security parser.
+
+**Experiment privacy differs from opaque lifecycle observation:** candidate prompts, commands, evaluator specifications and resulting diffs are explicit operational inputs persisted for replay. Do not submit secrets or entire conversations. The ordinary adapter rule against collecting hidden reasoning/full transcripts remains unchanged.

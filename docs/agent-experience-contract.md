@@ -4,7 +4,15 @@
 
 Experience belongs to Hardknock. Vendor adapters translate observable decisions and events; they do not define lesson truth, directly read SQLite, or request hidden chain of thought.
 
-An agent receives its task and current context, compact relevant experience, evidence summaries, and optional reflex/recovery advice. An agent can report observable actions, lesson usage or disagreement, explicit hypotheses, recovery attempts, and run outcomes. Not every output has a callable Bridge endpoint in this pass: arbitrary hypotheses, recovery tools, skill-validation requests, and experiment execution remain future extensions. The implemented input/output boundary is listed in [Bridge v1](bridge-protocol.md).
+An agent receives its task and current context, compact relevant experience, evidence summaries, and optional reflex/recovery advice. An agent can report observable actions, lesson usage or disagreement, and run outcomes, and can explicitly request bounded strategy experiments. Recovery tools and skill-validation requests remain future extensions. The implemented input/output boundary is listed in [Bridge v1](bridge-protocol.md).
+
+## Experience on demand (V0.4)
+
+The shared `hardknock try --session <id>` helper and `experiment_requested` event accept explicit candidates, evaluator, budget, criteria, and capability declarations. The Bridge supplies the registered requester and recorded repository starting commit, returns acceptance/rejection, and exposes cursor-based progress and a compact structured result. Claude hook-injected context and Codex turn context describe this same contract; no MCP server is required.
+
+The agent remains the decision-maker. Hardknock does not start experiments automatically, grant native approvals, adopt a winning Reality, or commit changes. Results identify which candidate performed better under the specified checks, including ties and uncertainty. Confounded comparisons are not causal lessons. Controlled comparisons may propose Candidate Lessons, but never promote them automatically.
+
+The current provider cannot fork a running session or enforce host/network isolation. Acceptance discloses the recorded-commit fallback, excludes dirty/ignored inputs and process state, and warns that commands must be trusted. Session end cancels active agent requests by default. Operational candidate prompts/commands are explicit reproducibility data and are persisted; do not submit secrets or private conversation transcripts. See [agent experiments](agent-experiments.md), [quality](experiment-quality.md), and [budgets](experience-budget.md).
 
 ## Experience injection
 

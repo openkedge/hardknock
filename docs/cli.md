@@ -1,5 +1,13 @@
 # CLI reference
 
+## V0.4 strategy experiments
+
+`hardknock try [QUESTION] --candidate NAME=STRATEGY --candidate NAME=STRATEGY --check COMMAND` runs shell alternatives; `--agent NAME` interprets them as task prompts. `--session ID` uses the active native Bridge contract. Budget flags are `--budget-realities`, `--budget-agent-runs`, `--budget-duration` (`500ms`, `30s`, `5m`), and shell-only `--max-commands-per-reality`. Optional tie breakers are `--minimize-diff-size` and `--minimize-duration`; `--allow-network` declares advisory intent, not isolation.
+
+Inspection adds `experiment list --agent`, `experiment show`, `why --experiment`, `experiment replay [--all | --candidate NAME]`, `experiment fork --candidate NAME=STRATEGY`, `experiment cancel`, `reality tree`, and `reality export ID --patch PATH`. Export refuses overwrite and never applies changes. No `reality commit`/adopt command is provided.
+
+New experiment responses use `event: experimentation` and a tagged `result`. A completed experiment exits 0 even if candidates fail or tie; inspect each evaluator outcome. Rejected/failed experiments exit 2, cancelled experiments 5. `experiment list` retains legacy `experiments` and adds `strategy_experiments`; legacy `show` JSON is preserved. Human progress goes to stderr; JSON output remains one final result. See [the runnable guide](agent-experiments.md) for examples, configuration, and safety boundaries.
+
 The first empirical transfer loop is implemented for Linux/macOS. Build from source with stable Rust, Git, and a C compiler:
 
 ```bash

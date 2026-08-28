@@ -1,5 +1,39 @@
 # Architecture
 
+## V0.4 experience on demand
+
+```text
+                         AGENT
+                           |
+              +------------+------------+
+              |                         |
+          known path                uncertainty
+              |                         |
+            action              ExperimentRequest
+              |                         |
+              |                 budget + capacity
+              |                         |
+              |              equivalent-start barrier
+              |                   /           \
+              |               Reality A    Reality B
+              |                   |           |
+              |               candidate A  candidate B
+              |                   |           |
+              |                   +-----+-----+
+              |                         |
+              |                  evaluate + compare
+              |                         |
+              +------ agent decides <---+ evidence
+```
+
+`budget` holds the shared resource model and strict admission policy. `experimentation::{model,config,orchestrator,comparison}` adds strategy requests without replacing the existing lesson or chaos semantics. The orchestrator uses the existing Git provider and `workflow::run_prepared_trial`; original runs, counterfactuals, chaos, and strategy candidates share execution, evaluation, artifact capture and immutable Experience insertion. The concrete borrowed Store/provider design is retained because the SQLite connection is not Sync and the existing async traits are not object-safe.
+
+All candidate Realities acquire provider/Reality leases and pass verification before any starts. Bounded worker threads each own a SQLite connection and current-thread Tokio runtime. The Bridge's bounded experiment queue is separate from its cached action handler and recording worker. Progress is durable cursor-based data. Cancellation is sticky and joins launched workers rather than dropping their futures; pending candidates are discarded without claiming execution.
+
+The new `ExperimentStore` trait persists requests, queryable candidate results, variables, lineage and progress. Candidate Experiences include immutable experiment/candidate/fingerprint provenance. Comparison is evaluator-first, with optional explicit secondary metrics and qualitative evidence weighting. Reflection can propose a Candidate Lesson only for a completed controlled failing/passing pair; it cannot promote the Lesson. See [quality](experiment-quality.md).
+
+This phase does not add MCP, Docker, external-effect rollback, live process snapshots, automatic adoption, or a second vendor-specific experiment engine. Native context teaches the shared helper and discloses recorded-commit fallback. The [agent experiment guide](agent-experiments.md) specifies the measured equivalence and safety boundaries.
+
 ## V0.3 integration boundary
 
 Four thin adapters communicate through one authenticated [local JSONL Bridge](bridge-protocol.md). Native code does not access SQLite or domain repositories. The existing modular crate is retained; `bridge::{protocol,transport,engine,cache,recording,privacy,config}` separates the public contract, session state, action decisions, and asynchronous evidence work. `integrations::{claude,codex,install}` and the Python/TypeScript plugin packages translate host events.
@@ -63,6 +97,8 @@ One modular Rust crate runs the local empirical loop. Reflection proposes a hypo
 | `reflection` | `ReflectionProvider`, deterministic fixture rule, manual hypotheses |
 | `lesson` | Scope and action matching, evidence relationships, guarded lifecycle, confidence policy |
 | `experiment` | Explicit replay plan, fresh baseline/alternative runs, comparison policy |
+| `budget`, `experimentation` | Structured on-demand requests, strict caps, common-start proofs, bounded candidates, comparison quality and lineage |
+| `bridge::experiments`, `cli::experimentation` | Shared native request/progress/result service and `try`/replay/cancel/export UX |
 | `retrieval` | Stable QueryContext, hard scope gates, deterministic scoring and thresholds |
 | `application` | Advice files, optional progress observer, fixture traces, opaque usage reports, repeated mistakes |
 | `learning_loop` | Opt-in retry budget, fresh original state, immutable retry lineage |
@@ -110,6 +146,8 @@ The adapter API remains compatible: context preparation wraps command execution 
 | `003_learning.sql` | Hypotheses, Lessons, immutable revisions, Experiments, Trials, evidence and artifact links |
 | `004_transfer.sql` | Immutable applications/artifact links, Experience relations, repeated mistakes, validation decisions |
 | `005_resilience.sql` | Perturbations, campaigns/trials, envelopes, Skills, Reflex/Recovery revisions, matches/attempts, paired tests and provenance |
+| `006_bridge.sql` | Native sessions, telemetry, completed runs, feedback and revalidation flags |
+| `007_agent_experiments.sql` | Immutable structured requests, candidates/results, variables, relations, progress and candidate-Experience uniqueness |
 
 Foreign keys represent Lesson → source Experience/Hypothesis, Experiment → Lesson/Hypothesis/source, Trial → Experiment/Reality/Execution/Evaluation/Experience, and Trial → artifacts. Store validation checks the structured records agree with these links. Triggers reject updates/deletes of immutable history. Terminal experiments cannot be rewritten. Lessons use checked versions; updates preserve creation time and existing evidence. Changing the tested claim, scope, or commands requires a new hypothesis; a rationale can be revised through the store API.
 
@@ -119,7 +157,7 @@ Migrations are transactional and applied once. Migration 005 rebuilds the relati
 
 A shared cancellation token stays set throughout the command. SIGINT/SIGTERM stops the active process group; pending checks/trials/retries are skipped. Ordinary background descendants are also stopped when the parent exits. The runner uses SIGKILL, not graceful shutdown hooks. Processes that establish new sessions/process groups may escape.
 
-Normal success, check failure, timeout, and cancellation retain evidence and discard trial worktrees. Capture/storage failures preserve the affected worktree and report its path so uncaptured changes are not destroyed. Earlier trial evidence remains queryable. Pre-execution verification failures clean up without starting a child.
+Normal success, check failure, timeout, and cancellation retain evidence and discard trial worktrees. The older run/counterfactual paths preserve the affected worktree after capture/storage failures and report its path. V0.4 disposable strategy trials attempt cleanup even after capture failures, retain available raw artifacts/executions, and refuse a valid comparison if an Experience cannot be completed. Earlier trial evidence remains queryable. Pre-execution verification failures clean up without starting a child.
 
 `reality cleanup` only removes unlocked automatic-run worktrees. It leaves manual/kept/capture-failure Realities alone, and rechecks paths after taking a lease. It never prunes arbitrary Git worktrees. Stop abandoned processes before cleanup: a released lease is not proof that all descendants stopped.
 

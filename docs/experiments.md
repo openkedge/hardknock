@@ -1,5 +1,7 @@
 # Controlled counterfactual experiments
 
+For V0.4 strategy alternatives, start with [`hardknock try`](agent-experiments.md). It shares the trial/evaluation/Experience lifecycle described here, adds an all-candidates starting-state barrier and bounded parallelism, and has separate [budget](experience-budget.md) and [quality](experiment-quality.md) policies. The lesson-driven counterfactual engine below remains available and retains its existing promotion rules. A `try` recommendation never automatically promotes a Lesson or applies candidate changes.
+
 An **Experience** is an immutable observation. A **Hypothesis** is a proposed explanation. A **Lesson** is a scoped, revisable interpretation. An **Experiment** compares explicit baseline and alternative scripts from equivalent recorded starting conditions.
 
 Counterfactual support means changing the suspected variable changed the measured outcome in this comparison. **Counterfactual support is not universal causal proof.** A command replacement can alter many internal actions, and an evaluator only measures its configured checks.
