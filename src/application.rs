@@ -164,7 +164,11 @@ pub fn prepare_advice(
                     LessonStatus::CounterfactuallySupported | LessonStatus::Validated
                 )
         })
-        .take(20)
+        .take(
+            crate::bridge::config::Config::load(&store.home)?
+                .development
+                .max_lessons,
+        )
         .collect();
     let delivered = selected.iter().map(|r| r.lesson.id.clone()).collect();
     let mut saved = Vec::new();

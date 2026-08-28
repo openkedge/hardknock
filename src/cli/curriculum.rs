@@ -145,8 +145,10 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
             if !cli.quiet && !cli.json {eprintln!("{}Hardening {name} · {} · {} selected trials",if cli.no_emoji {""} else {"🌸 "},c.id,c.trials.len());}
             response(store,engine.run(&c.id,cancel).await?)?
         },
-        Commands::Skill {command:super::resilience::SkillCommand::Package {name,profile}}=>{
+        Commands::Skill {command:super::resilience::SkillCommand::Package {name,profile,..}}=>{
+            let name=name.as_deref().ok_or_else(||Error::InvalidInput("Specify a Skill name or package subcommand".into()))?;
             let package=skill_package(store,name,profile,&config.curriculum)?;
+            store.save_skill_package(&package)?;
             let mut skill=store.skill(name)?;skill.maturity=package.maturity;skill.coverage=package.coverage.clone();
             CurriculumResponse::Package {skill:Box::new(skill),package:Box::new(package)}
         },

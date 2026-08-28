@@ -550,6 +550,25 @@ fn cache_reflex_mapping_scope_and_thousand_rule_latency() {
         updated_at: chrono::Utc::now(),
     };
     r.b().cache.write().unwrap().reflexes = vec![reflex.clone()];
+    // Synthetic in-memory rules must carry the same freshness metadata as loaded rules.
+    let basis = hardknock::development::FreshnessBasis {
+        origin_context: None,
+        last_supported_at: chrono::Utc::now(),
+        context: context.clone(),
+        agent: hardknock::core::AgentIdentity {
+            kind: "benchmark".into(),
+            executable: "none".into(),
+            version: None,
+            model: None,
+        },
+        contradicted: false,
+    };
+    r.b()
+        .cache
+        .write()
+        .unwrap()
+        .reflex_freshness
+        .insert(reflex.id.clone(), basis.clone());
     assert_eq!(
         r.b().handle(propose(&id, "supported", action(&f))).unwrap()["decision"],
         "warn"
@@ -602,6 +621,14 @@ fn cache_reflex_mapping_scope_and_thousand_rule_latency() {
         })
         .collect();
     let mut timings = Vec::new();
+    {
+        let mut cache = r.b().cache.write().unwrap();
+        cache.freshness = cache
+            .lessons
+            .iter()
+            .map(|l| (l.id.clone(), basis.clone()))
+            .collect();
+    }
     for index in 0..200 {
         let started = Instant::now();
         let decision = r

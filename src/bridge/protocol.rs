@@ -386,6 +386,8 @@ pub struct SessionStartResponse {
     pub hardknock_session_id: String,
     pub relevant_experience: Vec<ExperienceBrief>,
     pub context_document: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub development_context: Option<serde_json::Value>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AdapterCompatibility {

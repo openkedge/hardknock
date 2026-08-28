@@ -54,13 +54,23 @@ pub enum RecoveryCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum SkillCommand {
+    History {
+        name: String,
+    },
+    Revise {
+        name: String,
+        #[arg(long)]
+        experience: ExperienceId,
+    },
     Harden {
         name: String,
         #[command(flatten)]
         limits: super::curriculum::HardenArgs,
     },
     Package {
-        name: String,
+        name: Option<String>,
+        #[command(subcommand)]
+        command: Option<super::development::PackageCommand>,
         #[arg(long, default_value = "resilience-basic")]
         profile: String,
     },
@@ -497,7 +507,10 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
                     skill: Box::new(store.register_skill(name, experience)?),
                     package: None,
                 },
-                SkillCommand::Harden { .. } | SkillCommand::Package { .. } => {
+                SkillCommand::Harden { .. }
+                | SkillCommand::Package { .. }
+                | SkillCommand::History { .. }
+                | SkillCommand::Revise { .. } => {
                     return Err(Error::InvalidInput("Curriculum dispatch failed".into()));
                 }
             },

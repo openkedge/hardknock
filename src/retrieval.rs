@@ -5,7 +5,7 @@ use crate::{
     core::LessonId,
     experience::{EnvironmentContext, ExperienceContext, RepositoryContext},
     lesson::{ActionPattern, Lesson, LessonStatus},
-    store::{LessonQuery, LessonStore, Store},
+    store::Store,
 };
 use serde::{Deserialize, Serialize};
 
@@ -135,6 +135,28 @@ pub trait RelevancePolicy {
     -> (RelevanceScore, Vec<ContextMatch>);
 }
 pub struct DeterministicRelevance;
+/// Shared by cold retrieval and the pre-tool in-memory cache. Never reads the store.
+pub fn freshness_score(
+    lesson: &Lesson,
+    context: &QueryContext,
+    basis: Option<&crate::development::FreshnessBasis>,
+    config: &crate::development::DevelopmentConfig,
+    now: chrono::DateTime<chrono::Utc>,
+) -> (RelevanceScore, Vec<ContextMatch>) {
+    let (base, mut matched) = DeterministicRelevance.score(lesson, context);
+    let Some(basis) = basis else {
+        return (RelevanceScore(0.0), matched);
+    };
+    let health = crate::development::assess_freshness(basis, context, None, now, config);
+    if health.multiplier < 1.0 {
+        matched.push(ContextMatch {
+            signal: "freshness".into(),
+            value: format!("{:?}: {}", health.state, health.reasons.join("; ")),
+            weight: 0.0,
+        });
+    }
+    (RelevanceScore(base.0 * health.multiplier), matched)
+}
 impl RelevancePolicy for DeterministicRelevance {
     fn score(
         &self,
@@ -204,20 +226,22 @@ impl LessonRetriever for DeterministicRetriever<'_> {
     fn retrieve(&self, context: &QueryContext) -> Result<RetrievalReport> {
         self.options.validate()?;
         let mut report = RetrievalReport::default();
-        for summary in LessonStore::list(
-            self.store,
-            LessonQuery {
-                status: None,
-                include_retired: true,
-            },
-        )? {
-            let lesson = self.store.lesson(&summary.id)?;
+        let config = crate::bridge::config::Config::load(&self.store.home)?.development;
+        let lessons = self.store.all_lessons()?;
+        let bases = self.store.lesson_freshness_bases(&lessons)?;
+        for lesson in lessons {
             let eligible = matches!(
                 lesson.status,
                 LessonStatus::CounterfactuallySupported | LessonStatus::Validated
             ) || (self.options.include_candidates
                 && lesson.status == LessonStatus::Candidate);
-            let (relevance, matched_context) = DeterministicRelevance.score(&lesson, context);
+            let (relevance, matched_context) = freshness_score(
+                &lesson,
+                context,
+                bases.get(&lesson.id),
+                &config,
+                chrono::Utc::now(),
+            );
             let reason = if !eligible {
                 Some(format!("Lesson state {:?} is not eligible", lesson.status))
             } else if !lesson.context_match.matches(&context.experience_context()) {

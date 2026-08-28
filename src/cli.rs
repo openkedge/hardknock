@@ -9,6 +9,7 @@ use std::{
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 pub mod curriculum;
+mod development;
 mod experimentation;
 pub mod integrations;
 mod resilience;
@@ -86,6 +87,29 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Inspect reconstructable, scoped development profiles.
+    Profile {
+        #[command(subcommand)]
+        command: development::ProfileCommand,
+    },
+    /// Compare recorded, comparable profile windows.
+    Growth(development::SubjectArgs),
+    /// Inspect append-only evidence and revision events.
+    Timeline(development::TimelineArgs),
+    Revalidation {
+        #[command(subcommand)]
+        command: development::RevalidationCommand,
+    },
+    Episode {
+        #[command(subcommand)]
+        command: development::EpisodeCommand,
+    },
+    Benchmark {
+        #[command(subcommand)]
+        command: development::BenchmarkCommand,
+    },
+    /// Local database and experience health; never runs experiments.
+    Doctor,
     /// Plan and explicitly run bounded experience curricula.
     Curriculum {
         #[command(subcommand)]
@@ -303,6 +327,9 @@ impl RunArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum LessonCommand {
+    History {
+        id: LessonId,
+    },
     List {
         #[arg(long)]
         include_retired: bool,
@@ -411,6 +438,8 @@ pub enum ExecutionCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum ExperienceCommand {
+    Health(development::SubjectArgs),
+    Maintain(development::SubjectArgs),
     List,
     Show { id: ExperienceId },
 }
@@ -418,6 +447,9 @@ pub enum ExperienceCommand {
 #[derive(Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Development {
+        result: serde_json::Value,
+    },
     Curriculum {
         result: Box<curriculum::CurriculumResponse>,
     },
@@ -549,6 +581,7 @@ impl Response {
         }
         match self {
             Self::Curriculum { result } => result.print(&mut stdout)?,
+            Self::Development { result } => development::print(result, &mut stdout)?,
             Self::Experimentation { result } => result.print(&mut stdout)?,
             Self::Integration { .. } => {}
             Self::Resilience { result } => result.print(&mut stdout)?,
@@ -1068,6 +1101,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if development::handles(&cli.command) {
+        return Ok(Response::Development {
+            result: development::execute(cli, &store, cancel).await?,
+        });
+    }
     if let Commands::Experiment {
         command: ExperimentCommand::List { agent },
     } = &cli.command
@@ -1097,6 +1135,13 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
+        Commands::Profile { .. }
+        | Commands::Growth(_)
+        | Commands::Timeline(_)
+        | Commands::Revalidation { .. }
+        | Commands::Episode { .. }
+        | Commands::Benchmark { .. }
+        | Commands::Doctor => Err(Error::InvalidInput("Development dispatch failed".into())),
         Commands::Curriculum { .. }
         | Commands::TaskFamily { .. }
         | Commands::Skill {
@@ -1211,6 +1256,9 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             })
         }
         Commands::Lesson { command } => match command {
+            LessonCommand::History { .. } => {
+                Err(Error::InvalidInput("Development dispatch failed".into()))
+            }
             LessonCommand::List { include_retired } => Ok(Response::Lessons {
                 lessons: LessonStore::list(
                     &store,
@@ -1333,6 +1381,9 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             _ => Err(Error::InvalidInput("Experiment dispatch failed".into())),
         },
         Commands::Experience { command } => match command {
+            ExperienceCommand::Health(_) | ExperienceCommand::Maintain(_) => {
+                Err(Error::InvalidInput("Development dispatch failed".into()))
+            }
             ExperienceCommand::List => Ok(Response::Experiences {
                 experiences: ExperienceStore::list(&store, ExperienceQuery::default())?,
             }),

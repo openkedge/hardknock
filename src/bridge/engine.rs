@@ -310,7 +310,7 @@ impl Bridge {
                 self.refresh()?;
                 let cwd = self.with_session(&request.hardknock_session_id, |s| Ok(s.cwd.clone()))?;
                 let (starting_state, context, clean_start) = super::recording::capture_context(&cwd, &EnvironmentSummary::default())?;
-                self.with_session(&request.hardknock_session_id, |s| {
+                let (response,context,agent)=self.with_session(&request.hardknock_session_id, |s| {
                     if s.actions.len() == s.next_action_start {
                         s.starting_state = starting_state; s.context = context; s.clean_start = clean_start;
                     }
@@ -320,8 +320,9 @@ impl Bridge {
                     s.delivered = lessons.into_iter().filter(|l|response.relevant_experience.iter().any(|b|b.id == l.lesson.id.to_string())).collect();
                     s.revision += 1;
                     self.enqueue(&s.id,"experience_injected",json!({"count":s.delivered.len()}))?;
-                    Ok(serde_json::to_value(response)?)
-                })
+                    Ok((response,s.context.clone(),s.agent.clone()))
+                })?;
+                Ok(serde_json::to_value(self.development_response(response,&context,&agent)?)?)
             }
             AgentEvent::ActionProposed(mut proposed) => {
                 valid_id(&proposed.action_id)?; validate_action(&proposed.action)?;
@@ -440,6 +441,36 @@ impl Bridge {
         }
         Ok(config)
     }
+    fn development_response(
+        &self,
+        mut response: SessionStartResponse,
+        context: &ExperienceContext,
+        agent: &AgentIdentity,
+    ) -> Result<SessionStartResponse> {
+        if !self.config.development.bridge_context {
+            return Ok(response);
+        }
+        let identity = crate::core::AgentIdentity {
+            kind: agent.name.clone(),
+            executable: agent.name.clone(),
+            version: agent.version.clone(),
+            model: agent.model.clone(),
+        };
+        let bundle = crate::development::context_bundle(
+            &Store::open(&self.home)?,
+            context,
+            &identity,
+            &self.config.development,
+        )?;
+        // Only bounded summaries/IDs cross the Bridge, never full Lessons or raw artifacts.
+        let mut value = json!({"relevant":{"lessons":response.relevant_experience.iter().map(|b|&b.id).collect::<Vec<_>>(),"reflexes":bundle.relevant.reflexes,"recoveries":bundle.relevant.recoveries},"known_unknowns":bundle.known_unknowns.iter().take(8).map(|s|redact(s,256)).collect::<Vec<_>>(),"stale_items":bundle.stale_items,"contradictions":bundle.contradictions,"recommendations":bundle.recommendations.iter().take(3).map(|s|redact(s,256)).collect::<Vec<_>>(),"auto_run":false});
+        redact_value(&mut value);
+        response.development_context = Some(value);
+        if serde_json::to_vec(&response)?.len() > self.config.bridge.max_context_bytes {
+            response.development_context = None;
+        }
+        Ok(response)
+    }
     fn start(&self, mut start: SessionStarted) -> Result<Value> {
         valid_id(&start.session_id)?;
         valid_id(&start.agent.name)?;
@@ -469,11 +500,13 @@ impl Bridge {
             self.experiments.resume_session(&id);
             session.revision += 1;
             self.enqueue(&id, "session_resumed", json!({"agent":session.agent.name}))?;
-            return Ok(serde_json::to_value(context_response(
-                &id,
-                &session.delivered,
-                &config,
-            ))?);
+            let response = context_response(&id, &session.delivered, &config);
+            let context = session.context.clone();
+            let agent = session.agent.clone();
+            drop(sessions);
+            return Ok(serde_json::to_value(
+                self.development_response(response, &context, &agent)?,
+            )?);
         }
         if sessions.len() >= self.config.bridge.max_sessions {
             return Err(invalid("Bridge session budget exhausted"));
@@ -490,7 +523,11 @@ impl Bridge {
             .read()
             .expect("cache lock")
             .retrieve(&context, &task, vec![]);
-        let response = context_response(&id, &lessons, &config);
+        let response = self.development_response(
+            context_response(&id, &lessons, &config),
+            &context,
+            &start.agent,
+        )?;
         let delivered = lessons
             .into_iter()
             .filter(|l| {
@@ -530,11 +567,13 @@ impl Bridge {
                     "Session identity/cwd changed; register a new external session id",
                 ));
             }
-            return Ok(serde_json::to_value(context_response(
-                &id,
-                &existing.delivered,
-                &config,
-            ))?);
+            let response = context_response(&id, &existing.delivered, &config);
+            let context = existing.context.clone();
+            let agent = existing.agent.clone();
+            drop(sessions);
+            return Ok(serde_json::to_value(
+                self.development_response(response, &context, &agent)?,
+            )?);
         }
         sessions.insert(id.clone(), session);
         self.enqueue(&id, "session_started", json!({}))?;

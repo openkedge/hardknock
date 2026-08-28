@@ -5,23 +5,24 @@ use crate::{
     experience::ExperienceContext,
     lesson::{ActionPattern, Lesson, LessonStatus},
     resilience::{Reflex, ReflexStatus},
-    retrieval::{
-        DeterministicRelevance, QueryContext, Recommendation, RelevancePolicy, RetrievedLesson,
-    },
-    store::{LessonQuery, LessonStore, Store},
+    retrieval::{QueryContext, Recommendation, RetrievedLesson, freshness_score},
+    store::Store,
 };
 
 #[derive(Clone, Default)]
 pub struct ExperienceHotCache {
     pub lessons: Vec<Lesson>,
     pub reflexes: Vec<Reflex>,
+    pub freshness:
+        std::collections::HashMap<crate::core::LessonId, crate::development::FreshnessBasis>,
+    pub development: crate::development::DevelopmentConfig,
+    pub reflex_freshness:
+        std::collections::HashMap<crate::core::ReflexId, crate::development::FreshnessBasis>,
 }
 impl ExperienceHotCache {
     pub fn load(store: &Store) -> Result<Self> {
-        let lessons = LessonStore::list(store, LessonQuery::default())?
-            .into_iter()
-            .map(|l| store.lesson(&l.id))
-            .collect::<Result<Vec<_>>>()?
+        let lessons: Vec<_> = store
+            .all_lessons()?
             .into_iter()
             .filter(|l| {
                 matches!(
@@ -30,9 +31,53 @@ impl ExperienceHotCache {
                 )
             })
             .collect();
+        let reflexes = store.reflexes()?;
+        let observations: std::collections::HashMap<_, _> = store
+            .reflex_freshness_observations()?
+            .into_iter()
+            .map(|e| (e.id.clone(), e))
+            .collect();
+        let mut reflex_freshness = std::collections::HashMap::new();
+        for r in &reflexes {
+            let source = store.chaos_trial(&r.source_trial)?.experience_id;
+            if let Some(origin) = observations.get(&source) {
+                let supports = crate::development::support_ids(&r.evidence);
+                let latest = supports
+                    .iter()
+                    .filter_map(|id| observations.get(id))
+                    .filter(|e| e.outcome == crate::experience::Outcome::Success)
+                    .max_by_key(|e| e.created_at)
+                    .unwrap_or(origin);
+                let contradicted = r.evidence.iter().any(|e| {
+                    matches!(
+                        e,
+                        crate::lesson::EvidenceRef::Experience {
+                            relationship: crate::lesson::EvidenceRelationship::Contradicts,
+                            ..
+                        } | crate::lesson::EvidenceRef::Trial {
+                            relationship: crate::lesson::EvidenceRelationship::Contradicts,
+                            ..
+                        }
+                    )
+                });
+                reflex_freshness.insert(
+                    r.id.clone(),
+                    crate::development::FreshnessBasis {
+                        origin_context: Some(origin.context.clone()),
+                        last_supported_at: latest.created_at,
+                        context: latest.context.clone(),
+                        agent: latest.agent.clone(),
+                        contradicted,
+                    },
+                );
+            }
+        }
         Ok(Self {
+            freshness: store.lesson_freshness_bases(&lessons)?,
+            development: super::config::Config::load(&store.home)?.development,
             lessons,
-            reflexes: store.reflexes()?,
+            reflexes,
+            reflex_freshness,
         })
     }
     pub fn retrieve(
@@ -46,7 +91,28 @@ impl ExperienceHotCache {
             .lessons
             .iter()
             .filter_map(|lesson| {
-                let (relevance, matched_context) = DeterministicRelevance.score(lesson, &query);
+                let basis = self.freshness.get(&lesson.id)?;
+                if !matches!(
+                    crate::development::assess_freshness(
+                        basis,
+                        &query,
+                        None,
+                        chrono::Utc::now(),
+                        &self.development
+                    )
+                    .state,
+                    crate::development::EvidenceState::Fresh
+                        | crate::development::EvidenceState::Aging
+                ) {
+                    return None;
+                }
+                let (relevance, matched_context) = freshness_score(
+                    lesson,
+                    &query,
+                    self.freshness.get(&lesson.id),
+                    &self.development,
+                    chrono::Utc::now(),
+                );
                 if !lesson.context_match.matches(context) || f64::from(relevance) < 0.4 {
                     return None;
                 }
@@ -67,6 +133,7 @@ impl ExperienceHotCache {
                 .total_cmp(&f64::from(a.relevance))
                 .then_with(|| a.lesson.id.to_string().cmp(&b.lesson.id.to_string()))
         });
+        matches.truncate(self.development.max_lessons);
         matches
     }
     pub fn evaluate(
@@ -107,7 +174,27 @@ impl ExperienceHotCache {
         }
         let action = ActionPattern::shell(command);
         let mut supported = None;
+        let mut activated = 0;
         for reflex in &self.reflexes {
+            if activated >= self.development.max_reflexes {
+                break;
+            }
+            let Some(basis) = self.reflex_freshness.get(&reflex.id) else {
+                continue;
+            };
+            let health = crate::development::assess_freshness(
+                basis,
+                &QueryContext::new(context, "", vec![]),
+                None,
+                chrono::Utc::now(),
+                &self.development,
+            );
+            if !matches!(
+                health.state,
+                crate::development::EvidenceState::Fresh | crate::development::EvidenceState::Aging
+            ) {
+                continue;
+            }
             let t = &reflex.trigger;
             if !matches!(
                 reflex.status,
@@ -120,6 +207,7 @@ impl ExperienceHotCache {
             {
                 continue;
             }
+            activated += 1;
             let evidence = vec![EvidenceRef {
                 id: reflex.id.to_string(),
                 kind: "reflex".into(),
@@ -239,6 +327,7 @@ pub fn context_response(
         }
     }
     SessionStartResponse {
+        development_context: None,
         hardknock_session_id: id.into(),
         context_document: (experiments || !briefs.is_empty()).then_some(document),
         relevant_experience: briefs,
