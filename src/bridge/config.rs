@@ -70,6 +70,7 @@ pub struct Config {
     pub integrations: BTreeMap<String, IntegrationConfig>,
     pub experiments: crate::experimentation::ExperimentsConfig,
     pub experience_budget: crate::experimentation::ExperienceBudgetConfig,
+    pub curriculum: crate::curriculum::CurriculumConfig,
 }
 impl Config {
     pub fn load(home: &Path) -> Result<Self> {
@@ -91,6 +92,7 @@ impl Config {
         };
         let b = &config.bridge;
         config.experiments.validate(&config.experience_budget)?;
+        config.curriculum.validate()?;
         if !(1024..=32768).contains(&b.max_context_bytes)
             || !(1..=5).contains(&b.max_context_lessons)
             || !(1..=10000).contains(&b.max_actions)

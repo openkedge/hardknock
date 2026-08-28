@@ -15,6 +15,8 @@ pub enum FixtureKind {
     RetryResilience,
     StaleCredential,
     ConfigDrift,
+    SkillHardening,
+    SkillHardeningTransfer,
 }
 impl FixtureKind {
     pub fn name(self) -> &'static str {
@@ -22,6 +24,8 @@ impl FixtureKind {
             Self::RetryResilience => "retry-resilience",
             Self::StaleCredential => "stale-credential",
             Self::ConfigDrift => "config-drift",
+            Self::SkillHardening => "skill-hardening",
+            Self::SkillHardeningTransfer => "skill-hardening-transfer",
         }
     }
 }
@@ -307,6 +311,10 @@ pub struct Skill {
     pub status: SkillStatus,
     pub operating_envelope: Option<OperatingEnvelopeId>,
     pub source_experience: ExperienceId,
+    #[serde(default)]
+    pub maturity: crate::curriculum::SkillMaturity,
+    #[serde(default)]
+    pub coverage: crate::curriculum::SkillCoverage,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -315,6 +323,7 @@ pub enum ResilienceTestStatus {
     Supported,
     Contradicted,
     FalsePositive,
+    NegativeControlPassed,
     Inconclusive,
     Failed,
 }

@@ -10,6 +10,7 @@ use crate::{
     workflow::run_with_resilience,
 };
 use chrono::Utc;
+type TestObserver<'a> = dyn Fn(&ResilienceTest) -> Result<()> + 'a;
 
 pub async fn test_reflex(
     store: &Store,
@@ -23,7 +24,30 @@ pub async fn test_reflex(
             "Retired Reflex cannot be tested".into(),
         ));
     }
-    test(store, Some(reflex), None, conditions, cancel).await
+    test(store, Some(reflex), None, conditions, false, cancel, None).await
+}
+pub async fn test_reflex_negative(
+    store: &Store,
+    id: &ReflexId,
+    conditions: Vec<Perturbation>,
+    cancel: &Cancellation,
+) -> Result<ResilienceTest> {
+    let reflex = store.reflex(id)?;
+    if reflex.status == ReflexStatus::Retired {
+        return Err(Error::Intervention(
+            "Retired Reflex cannot be tested".into(),
+        ));
+    }
+    test(
+        store,
+        Some(reflex),
+        None,
+        Some(conditions),
+        true,
+        cancel,
+        None,
+    )
+    .await
 }
 pub async fn test_recovery(
     store: &Store,
@@ -36,14 +60,37 @@ pub async fn test_recovery(
             "Retired Recovery cannot be tested".into(),
         ));
     }
-    test(store, None, Some(recovery), None, cancel).await
+    test(store, None, Some(recovery), None, false, cancel, None).await
 }
-async fn test(
+pub async fn curriculum_test(
     store: &Store,
     reflex: Option<Reflex>,
     recovery: Option<Recovery>,
     conditions: Option<Vec<Perturbation>>,
     cancel: &Cancellation,
+    observer: &TestObserver<'_>,
+) -> Result<ResilienceTest> {
+    let negative = reflex.is_some();
+    test(
+        store,
+        reflex,
+        recovery,
+        conditions,
+        negative,
+        cancel,
+        Some(observer),
+    )
+    .await
+}
+#[allow(clippy::too_many_arguments)]
+async fn test(
+    store: &Store,
+    reflex: Option<Reflex>,
+    recovery: Option<Recovery>,
+    conditions: Option<Vec<Perturbation>>,
+    negative_control: bool,
+    cancel: &Cancellation,
+    observer: Option<&TestObserver<'_>>,
 ) -> Result<ResilienceTest> {
     let source_trial = reflex
         .as_ref()
@@ -72,6 +119,9 @@ async fn test(
     }
     store.register_perturbations(&test.perturbations)?;
     store.save_resilience_test(&test, true)?;
+    if let Some(observer) = observer {
+        observer(&test)?;
+    }
     let result:Result<()> = async {
         let options=RunResilienceOptions{perturbations:test.perturbations.clone(),fixture:campaign.plan.fixture,baseline:campaign.control.as_ref().map(|c|c.metrics.clone()),..Default::default()};
         let learning=RunLearningOptions{relations:vec![ExperienceRelation::CounterfactualOf(trial.experience_id.clone())],..Default::default()};
@@ -95,6 +145,10 @@ async fn test(
             test.false_positive=fired.then_some(false_positive);
             test.status=if false_positive{ResilienceTestStatus::FalsePositive}else if fired && b.outcome==ChaosTrialOutcome::Fail && matches!(a.outcome,ChaosTrialOutcome::Pass|ChaosTrialOutcome::Degraded){ResilienceTestStatus::Supported}else if fired && matches!(b.outcome,ChaosTrialOutcome::Pass|ChaosTrialOutcome::Degraded) && a.outcome==ChaosTrialOutcome::Fail{ResilienceTestStatus::Contradicted}else{ResilienceTestStatus::Inconclusive};
             test.reason=match test.status{ResilienceTestStatus::Supported=>"Without Reflex failed; with matched Reflex replanned and passed",ResilienceTestStatus::FalsePositive=>"Reflex fired, but the next original action under the same observed prefix succeeded without it",ResilienceTestStatus::Contradicted=>"Reflex response failed where the original behavior succeeded",_=>"Paired evidence did not establish useful Reflex influence"}.into();
+            if negative_control && !fired && matches!(b.outcome,ChaosTrialOutcome::Pass|ChaosTrialOutcome::Degraded) && matches!(a.outcome,ChaosTrialOutcome::Pass|ChaosTrialOutcome::Degraded) {
+                test.status=ResilienceTestStatus::NegativeControlPassed;
+                test.reason="Curriculum negative control passed: healthy original behavior remained healthy and the Reflex did not fire; this does not validate positive influence".into();
+            }
         } else {
             let recovered=a.recovery_attempt.as_ref().is_some_and(|r|r.reproduced_failure&&r.attempted&&r.succeeded);
             let contradicted=a.recovery_attempt.as_ref().is_some_and(|r|r.reproduced_failure&&r.attempted&&!r.succeeded) && a.outcome==ChaosTrialOutcome::Fail;

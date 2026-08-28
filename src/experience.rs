@@ -123,9 +123,16 @@ impl ExperienceContext {
                     | "retry-resilience"
                     | "stale-credential"
                     | "config-drift"
+                    | "skill-hardening"
+                    | "skill-hardening-transfer"
             )
         {
             tags.push(format!("fixture-kind:{kind}"));
+            if matches!(kind, "skill-hardening" | "skill-hardening-transfer")
+                && fixture["version"] == 1
+            {
+                tags.push("fixture-family:skill-hardening-v1".into());
+            }
             if fixture["version"] == 2
                 && matches!(
                     kind,

@@ -291,6 +291,27 @@ pub struct ExperimentRequested {
     deny_unknown_fields
 )]
 pub enum AgentEvent {
+    CurriculumRequested(CurriculumRequested),
+    CurriculumStarted {
+        hardknock_session_id: String,
+        curriculum_id: crate::core::CurriculumId,
+    },
+    CurriculumProgress {
+        hardknock_session_id: String,
+        curriculum_id: crate::core::CurriculumId,
+        #[serde(default)]
+        after: u64,
+    },
+    CurriculumCancelled {
+        hardknock_session_id: String,
+        curriculum_id: crate::core::CurriculumId,
+    },
+    SkillPackageRequested {
+        hardknock_session_id: String,
+        skill: String,
+        #[serde(default = "curriculum_profile")]
+        profile: String,
+    },
     SessionStarted(SessionStarted),
     ContextRequested(ContextRequested),
     ActionProposed(ActionProposed),
@@ -325,6 +346,30 @@ pub enum AgentEvent {
     },
     RefreshCache,
     Shutdown,
+}
+fn curriculum_profile() -> String {
+    "resilience-basic".into()
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CurriculumRequested {
+    pub hardknock_session_id: String,
+    pub request_id: crate::core::CurriculumId,
+    pub target: CurriculumRequestTarget,
+    #[serde(default = "curriculum_profile")]
+    pub profile: String,
+    pub budget: CurriculumRequestBudget,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum CurriculumRequestTarget {
+    Skill { skill: String },
+    TaskFamily { task_family: String },
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CurriculumRequestBudget {
+    pub max_trials: usize,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExperienceBrief {

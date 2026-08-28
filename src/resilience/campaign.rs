@@ -333,6 +333,7 @@ fn derive_candidates(store: &Store, trial: &ChaosTrial, fixture: FixtureKind) ->
                 | "stale_credential"
                 | "configuration_stale"
                 | "transient_command_failure"
+                | "stale_input"
         )
     });
     let Some(signature) = signature else {
@@ -340,6 +341,15 @@ fn derive_candidates(store: &Store, trial: &ChaosTrial, fixture: FixtureKind) ->
     };
     let mut scope = ContextSelector::from_context(&exp.context);
     scope.tags = vec![format!("fixture-kind:{}", fixture.name())];
+    let hardening = matches!(
+        fixture,
+        FixtureKind::SkillHardening | FixtureKind::SkillHardeningTransfer
+    );
+    if hardening {
+        // A narrow, explicit bundled fixture contract, tested on the separate transfer fixture.
+        scope.repository = None;
+        scope.tags = vec!["fixture-family:skill-hardening-v1".into()];
+    }
     let now = Utc::now();
     let hypothesis=CandidateHypothesis { id:HypothesisId::new(),source_experience:exp.id.clone(),created_at:now,claim:format!("In {} under the recorded local conditions {}, {} occurred; the fixture recovery may help",fixture.name(),serde_json::to_string(&trial.perturbations)?,signature.signature),rationale:"One induced failure proposes a scoped hypothesis, not a general prohibition. Test a paired response before promotion.".into(),context_match:scope.clone(),avoid:ActionPattern::shell("/bin/sh ./operation.sh"),prefer:ActionPattern::shell("/bin/sh ./replan.sh"),generated_by:AgentIdentity{kind:"local-chaos-reflection".into(),executable:"hardknock".into(),version:Some(super::fixture::RUNTIME_VERSION.into()),model:None} };
     store.insert_hypothesis(&hypothesis)?;
@@ -350,10 +360,12 @@ fn derive_candidates(store: &Store, trial: &ChaosTrial, fixture: FixtureKind) ->
         experience_id: exp.id.clone(),
         relationship: EvidenceRelationship::Origin,
     }];
-    if matches!(
-        fixture,
-        FixtureKind::RetryResilience | FixtureKind::ConfigDrift
-    ) {
+    if (hardening && signature.signature == "configuration_stale")
+        || matches!(
+            fixture,
+            FixtureKind::RetryResilience | FixtureKind::ConfigDrift
+        )
+    {
         let reflex = Reflex {
             id: ReflexId::new(),
             version: 1,
@@ -362,13 +374,13 @@ fn derive_candidates(store: &Store, trial: &ChaosTrial, fixture: FixtureKind) ->
             trigger: TriggerPattern {
                 context: scope.clone(),
                 proposed_action: super::reflex::fixture_action(),
-                repeated_failures: if fixture == FixtureKind::ConfigDrift {
+                repeated_failures: if fixture == FixtureKind::ConfigDrift || hardening {
                     None
                 } else {
                     Some(3)
                 },
-                no_state_change: fixture != FixtureKind::ConfigDrift,
-                config_changed: fixture == FixtureKind::ConfigDrift,
+                no_state_change: fixture != FixtureKind::ConfigDrift && !hardening,
+                config_changed: fixture == FixtureKind::ConfigDrift || hardening,
             },
             response: ReflexResponse::Replan,
             confidence: 0.58.try_into()?,
@@ -394,6 +406,20 @@ fn derive_candidates(store: &Store, trial: &ChaosTrial, fixture: FixtureKind) ->
             shell("/bin/sh ./read-state.sh"),
             RecoveryStep::Replan,
         ],
+        FixtureKind::SkillHardening | FixtureKind::SkillHardeningTransfer => {
+            if signature.signature == "stale_credential" {
+                vec![
+                    shell("/bin/sh ./refresh-token.sh"),
+                    RecoveryStep::SetEnvironmentVariable {
+                        key: "HK_TOKEN_STATE".into(),
+                        value: "VALID_TOKEN".into(),
+                    },
+                    RecoveryStep::Replan,
+                ]
+            } else {
+                vec![shell("/bin/sh ./read-state.sh"), RecoveryStep::Replan]
+            }
+        }
     };
     let recovery = Recovery {
         id: RecoveryId::new(),

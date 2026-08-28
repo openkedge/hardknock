@@ -86,6 +86,7 @@ impl ExperienceBudgetConfig {
             max_agent_runs: self.max_agent_runs,
             max_duration_ms: Some(self.max_duration_seconds.saturating_mul(1000)),
             max_commands_per_reality: self.max_commands_per_reality,
+            ..Default::default()
         }
     }
 }

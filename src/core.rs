@@ -77,6 +77,10 @@ identifier!(ChaosTrialId, "chaos-trial-");
 identifier!(OperatingEnvelopeId, "envelope-");
 identifier!(SkillId, "skill-");
 identifier!(ResilienceTestId, "resilience-test-");
+identifier!(CurriculumId, "curriculum-");
+identifier!(CurriculumGoalId, "curriculum-goal-");
+identifier!(CurriculumTrialId, "curriculum-trial-");
+identifier!(TaskFamilyId, "task-family-");
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateRef {

@@ -91,6 +91,7 @@ pub async fn run_with_resilience(
     resilience: &crate::resilience::runtime::RunResilienceOptions,
     cancel: &Cancellation,
 ) -> Result<RunResult> {
+    store.register_perturbations(&resilience.perturbations)?;
     run_configured(store, request, learning, Some(resilience), cancel).await
 }
 

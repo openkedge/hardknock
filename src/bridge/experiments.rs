@@ -4,7 +4,7 @@ use super::{config::Config, engine::Session, protocol::ExperimentRequested};
 use crate::{
     Error, Result,
     cancellation::Cancellation,
-    core::ExperimentId,
+    core::{CurriculumId, ExperimentId},
     experimentation::*,
     store::{ExperimentStore, Store},
 };
@@ -26,24 +26,231 @@ struct Pending {
 #[derive(Default)]
 struct State {
     pending: HashMap<ExperimentId, Pending>,
+    curricula: HashMap<CurriculumId, Pending>,
     ended: HashSet<String>,
+}
+enum Work {
+    Experiment(ExperimentId),
+    Curriculum(CurriculumId),
 }
 pub struct ExperimentService {
     home: PathBuf,
     state: Arc<Mutex<State>>,
-    sender: Option<SyncSender<ExperimentId>>,
+    sender: Option<SyncSender<Work>>,
     worker: Option<JoinHandle<()>>,
 }
 
 impl ExperimentService {
+    pub fn request_curriculum(
+        &self,
+        wire: super::protocol::CurriculumRequested,
+        session: &Session,
+        config: &Config,
+    ) -> Result<Value> {
+        use crate::{curriculum::*, store::CurriculumStore};
+        let state = self.state.lock().expect("experiment service lock");
+        if !config.curriculum.agent_requests || session.ended || state.ended.contains(&session.id) {
+            return Err(Error::Intervention(
+                "Agent curricula require explicit configuration and an active session".into(),
+            ));
+        }
+        let store = Store::open(&self.home)?;
+        let target = match &wire.target {
+            super::protocol::CurriculumRequestTarget::Skill { skill } => {
+                CurriculumTarget::Skill(store.skill(skill)?.id)
+            }
+            super::protocol::CurriculumRequestTarget::TaskFamily { task_family } => {
+                CurriculumTarget::TaskFamily(store.task_family(task_family)?.id)
+            }
+        };
+        if let Some(existing) = CurriculumStore::get(&store, &wire.request_id)? {
+            if existing.session_id.as_deref() != Some(&session.id)
+                || serde_json::to_value(&existing.target)? != serde_json::to_value(&target)?
+                || existing.profile != wire.profile
+                || existing.budget.max_curriculum_trials != Some(wire.budget.max_trials)
+            {
+                return Err(Error::InvalidInput(
+                    "Curriculum request ID conflict or foreign session".into(),
+                ));
+            }
+            return Ok(
+                json!({"event":"curriculum_planned","curriculum_id":existing.id,"status":existing.status,"trials":existing.trials.len(),"budget":existing.budget}),
+            );
+        }
+        let prior = CurriculumStore::list(
+            &store,
+            CurriculumQuery {
+                session_id: Some(session.id.clone()),
+            },
+        )?;
+        let reserved = prior
+            .iter()
+            .map(|c| c.budget.max_curriculum_trials.unwrap_or(0))
+            .sum::<usize>();
+        if reserved.saturating_add(wire.budget.max_trials)
+            > config.curriculum.max_agent_session_trials
+        {
+            return Err(Error::Intervention("Cumulative session curriculum budget exceeded; planned, completed and cancelled reservations count".into()));
+        }
+        let context = inventory(&store, &target, &wire.profile, &config.curriculum)?;
+        for skill in &context.skills {
+            let source = store.experience(&skill.source_experience)?;
+            if source.starting_state.repo_path != session.starting_state.repo_path
+                || !matches!(
+                    fixture_kind(&source),
+                    Some(
+                        crate::resilience::FixtureKind::SkillHardening
+                            | crate::resilience::FixtureKind::SkillHardeningTransfer
+                    )
+                )
+            {
+                return Err(Error::Intervention("Agent curricula currently require a bundled hardening Skill in the requesting session repository; Git worktrees cannot sandbox arbitrary skill code".into()));
+            }
+            crate::curriculum::CurriculumExecutor {
+                store: &store,
+                config,
+            }
+            .verify_fixture(
+                &crate::curriculum::skill_state(&store, skill)?,
+                fixture_kind(&source)
+                    .ok_or_else(|| Error::InvalidInput("Missing fixture kind".into()))?,
+            )?;
+            if source
+                .replay
+                .as_ref()
+                .is_none_or(|r| r.script != "/bin/sh ./operation.sh")
+                || source.evaluation.spec.checks != vec!["/bin/sh ./test.sh".to_string()]
+            {
+                return Err(Error::Intervention(
+                    "Agent hardening requires the bundled procedure and evaluator".into(),
+                ));
+            }
+        }
+        let budget = config.curriculum.budget(wire.budget.max_trials)?;
+        let mut c = DeterministicCurriculumPlanner.plan(&target, &context, &budget)?;
+        c.id = wire.request_id;
+        c.session_id = Some(session.id.clone());
+        crate::curriculum::CurriculumExecutor {
+            store: &store,
+            config,
+        }
+        .validate(&c)?;
+        // Agent plans must never acquire an unrelated contradiction context or opaque executor.
+        for t in &c.trials {
+            if let TrialExecution::Experiment { request } = &t.execution
+                && (request.starting_state.state_ref.repo_path!=session.starting_state.repo_path || request.candidates.iter().any(|c|!matches!(&c.execution,crate::experimentation::CandidateExecution::Shell {commands} if commands==&vec!["/bin/sh ./operation.sh".to_string()])) || request.evaluator.checks!=vec!["/bin/sh ./test.sh".to_string()]) {return Err(Error::Intervention("Agent curriculum cannot execute unverified or cross-repository recipes".into()));}
+        }
+        CurriculumStore::insert(&store, &c)?;
+        store.bridge_event(
+            &session.id,
+            "curriculum_planned",
+            &json!({"curriculum_id":c.id,"trials":c.trials.len()}),
+        )?;
+        Ok(
+            json!({"event":"curriculum_planned","curriculum_id":c.id,"status":c.status,"trials":c.trials.len(),"budget":c.budget,"requires_start":true,"gaps":c.goals.iter().take(32).map(|g|json!({"kind":g.kind,"dimension":g.evidence_gap.dimension,"decision":g.decision})).collect::<Vec<_>>()}),
+        )
+    }
+    pub fn start_curriculum(
+        &self,
+        session: &Session,
+        id: &CurriculumId,
+        config: &Config,
+    ) -> Result<Value> {
+        let mut state = self.state.lock().expect("experiment service lock");
+        if !config.curriculum.agent_requests || session.ended || state.ended.contains(&session.id) {
+            return Err(Error::Intervention(
+                "Curriculum start requires an active enabled session".into(),
+            ));
+        }
+        let store = Store::open(&self.home)?;
+        let c = store.curriculum(id)?;
+        if c.session_id.as_deref() != Some(&session.id) {
+            return Err(Error::InvalidInput(
+                "Curriculum belongs to another session".into(),
+            ));
+        }
+        if !c.status.terminal() && !state.curricula.contains_key(id) {
+            state.curricula.insert(
+                id.clone(),
+                Pending {
+                    session: session.id.clone(),
+                    cancel: Cancellation::default(),
+                },
+            );
+            if self
+                .sender
+                .as_ref()
+                .is_none_or(|s| s.try_send(Work::Curriculum(id.clone())).is_err())
+            {
+                state.curricula.remove(id);
+                return Err(Error::Intervention(
+                    "Experiment/curriculum queue is full or stopping".into(),
+                ));
+            }
+        }
+        Ok(
+            json!({"event":"curriculum_started","curriculum_id":id,"status":c.status,"queued":!c.status.terminal()}),
+        )
+    }
+    pub fn poll_curriculum(&self, session: &str, id: &CurriculumId, after: u64) -> Result<Value> {
+        let store = Store::open(&self.home)?;
+        let c = store.curriculum(id)?;
+        if c.session_id.as_deref() != Some(session) {
+            return Err(Error::InvalidInput(
+                "Curriculum belongs to another session".into(),
+            ));
+        }
+        Ok(
+            json!({"event":if c.status.terminal() {"curriculum_completed"} else {"curriculum_progress"},"curriculum_id":id,"status":c.status,"progress":store.curriculum_events(id,after)?.into_iter().take(16).collect::<Vec<_>>(),"result":compact_curriculum_result(&c)}),
+        )
+    }
+    pub fn cancel_curriculum(&self, session: &str, id: &CurriculumId) -> Result<Value> {
+        let store = Store::open(&self.home)?;
+        if store.curriculum(id)?.session_id.as_deref() != Some(session) {
+            return Err(Error::InvalidInput(
+                "Curriculum belongs to another session".into(),
+            ));
+        }
+        let requested = store.cancel_curriculum(id)?;
+        if let Some(p) = self
+            .state
+            .lock()
+            .expect("experiment service lock")
+            .curricula
+            .get(id)
+        {
+            p.cancel.cancel();
+        }
+        Ok(
+            json!({"curriculum_id":id,"cancellation_requested":requested,"cleanup":"Poll for terminal confirmation"}),
+        )
+    }
     pub fn open(home: &Path, config: &Config) -> Result<Self> {
-        let (sender, receiver) = mpsc::sync_channel::<ExperimentId>(16);
+        let (sender, receiver) = mpsc::sync_channel::<Work>(16);
         let state = Arc::new(Mutex::new(State::default()));
         let shared = state.clone();
         let root = home.to_owned();
         let settings = config.clone();
         let worker = std::thread::Builder::new().name("hardknock-experiments".into()).spawn(move || {
-            for id in receiver {
+            for work in receiver {
+                if let Work::Curriculum(id)=work {
+                    let cancel=shared.lock().expect("experiment service lock").curricula.get(&id).map(|p|p.cancel.clone()).unwrap_or_default();
+                    let result=(||->Result<()> {
+                        let store=Store::open(&root)?;
+                        let runtime=tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+                        let c=runtime.block_on(crate::curriculum::CurriculumExecutor {store:&store,config:&settings}.run(&id,&cancel))?;
+                        store.bridge_event(c.session_id.as_deref().unwrap_or_default(),"curriculum_completed",&compact_curriculum_result(&c))?;Ok(())
+                    })();
+                    if let Err(error)=result {
+                        tracing::error!(%error,%id,"Curriculum service failed");
+                        if let Ok(store)=Store::open(&root) && let Ok(mut c)=store.curriculum(&id) && !c.status.terminal() {
+                            c.status=crate::curriculum::CurriculumStatus::PartiallyCompleted;c.stop_reason=Some(error.to_string());c.revision+=1;c.updated_at=chrono::Utc::now();let _=crate::store::CurriculumStore::update(&store,&c);
+                        }
+                    }
+                    shared.lock().expect("experiment service lock").curricula.remove(&id);
+                    continue;
+                }
+                let Work::Experiment(id)=work else {unreachable!()};
                 let cancel = shared.lock().expect("experiment service lock").pending.get(&id).map(|p| p.cancel.clone()).unwrap_or_default();
                 let result = (|| -> Result<()> {
                     let store = Store::open(&root)?;
@@ -150,11 +357,11 @@ impl ExperimentService {
                         cancel: Cancellation::default(),
                     },
                 );
-                if self
-                    .sender
-                    .as_ref()
-                    .is_none_or(|sender| sender.try_send(experiment.id.clone()).is_err())
-                {
+                if self.sender.as_ref().is_none_or(|sender| {
+                    sender
+                        .try_send(Work::Experiment(experiment.id.clone()))
+                        .is_err()
+                }) {
                     state.pending.remove(&experiment.id);
                     experiment.status = ExperimentStatus::Rejected;
                     experiment.failure = Some("Experiment queue is full or stopping".into());
@@ -221,6 +428,28 @@ impl ExperimentService {
                 pending.cancel.cancel();
             }
         }
+        for pending in state.curricula.values().filter(|p| p.session == id) {
+            pending.cancel.cancel();
+        }
+        // Also retire persisted plans that were never enqueued. Leaving them
+        // Planned would suppress equivalent evidence gathering in later sessions.
+        let cancelled = (|| -> Result<()> {
+            let store = Store::open(&self.home)?;
+            for c in crate::store::CurriculumStore::list(
+                &store,
+                crate::curriculum::CurriculumQuery {
+                    session_id: Some(id.into()),
+                },
+            )? {
+                if !c.status.terminal() {
+                    store.cancel_curriculum(&c.id)?;
+                }
+            }
+            Ok(())
+        })();
+        if let Err(error) = cancelled {
+            tracing::error!(%error, "Could not persist session curriculum cancellation");
+        }
     }
     pub fn resume_session(&self, id: &str) {
         self.state
@@ -230,6 +459,15 @@ impl ExperimentService {
             .remove(id);
     }
     pub fn cancel_all(&self) {
+        for pending in self
+            .state
+            .lock()
+            .expect("experiment service lock")
+            .curricula
+            .values()
+        {
+            pending.cancel.cancel();
+        }
         for pending in self
             .state
             .lock()
@@ -260,6 +498,36 @@ fn terminal_event(status: ExperimentStatus) -> &'static str {
         ExperimentStatus::Rejected | ExperimentStatus::Failed => "experiment_rejected",
         _ => "experiment_progress",
     }
+}
+
+fn compact_curriculum_result(c: &crate::curriculum::Curriculum) -> Value {
+    let mut value = crate::cli::curriculum::report(c);
+    if let Some(coverage) = value["coverage"].as_array_mut() {
+        coverage.truncate(8);
+        for p in coverage {
+            for key in ["remaining_unknown", "recovery_gaps", "reflex_check_gaps"] {
+                if let Some(values) = p[key].as_array_mut() {
+                    values.truncate(16);
+                }
+            }
+        }
+    }
+    for key in [
+        "new_experiences",
+        "new_lessons",
+        "new_reflexes",
+        "new_recoveries",
+    ] {
+        if let Some(values) = value[key].as_array_mut() {
+            values.truncate(64);
+        }
+    }
+    if let Some(reason) = c.stop_reason.as_deref() {
+        value["stop_reason"] = json!(super::privacy::redact(reason, 512));
+    }
+    value["details"] =
+        json!("Local curriculum show/report retains all evidence; Bridge lists are capped");
+    value
 }
 
 /// Return evaluator evidence without transcripts, native prompts, or raw artifacts.

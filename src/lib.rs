@@ -10,6 +10,7 @@ pub mod budget;
 pub mod cancellation;
 pub mod cli;
 pub mod core;
+pub mod curriculum;
 pub mod dojo;
 pub mod error;
 pub mod evaluation;

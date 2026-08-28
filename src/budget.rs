@@ -12,6 +12,8 @@ pub struct ExperienceBudget {
     pub max_agent_runs: usize,
     pub max_duration_ms: Option<u64>,
     pub max_commands_per_reality: Option<usize>,
+    pub max_curriculum_trials: Option<usize>,
+    pub max_parallel_trials: Option<usize>,
 }
 
 impl Default for ExperienceBudget {
@@ -21,6 +23,8 @@ impl Default for ExperienceBudget {
             max_agent_runs: 3,
             max_duration_ms: Some(300_000),
             max_commands_per_reality: None,
+            max_curriculum_trials: None,
+            max_parallel_trials: None,
         }
     }
 }

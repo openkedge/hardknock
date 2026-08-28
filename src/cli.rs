@@ -8,6 +8,7 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
+pub mod curriculum;
 mod experimentation;
 pub mod integrations;
 mod resilience;
@@ -85,6 +86,16 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Plan and explicitly run bounded experience curricula.
+    Curriculum {
+        #[command(subcommand)]
+        command: curriculum::CurriculumCommand,
+    },
+    /// Group task contexts using explicit examples.
+    TaskFamily {
+        #[command(subcommand)]
+        command: curriculum::TaskFamilyCommand,
+    },
     /// Manage the authenticated local lifecycle Bridge.
     Bridge {
         #[command(subcommand)]
@@ -407,6 +418,9 @@ pub enum ExperienceCommand {
 #[derive(Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Curriculum {
+        result: Box<curriculum::CurriculumResponse>,
+    },
     Experimentation {
         result: Box<experimentation::ExperimentResponse>,
     },
@@ -486,6 +500,7 @@ pub enum Response {
 impl Response {
     pub fn exit_code(&self) -> u8 {
         match self {
+            Self::Curriculum { result } => result.exit_code(),
             Self::Experimentation { result } => result.exit_code(),
             Self::Resilience { result } => result.exit_code(),
             Self::RunCompleted {
@@ -533,6 +548,7 @@ impl Response {
             return Ok(());
         }
         match self {
+            Self::Curriculum { result } => result.print(&mut stdout)?,
             Self::Experimentation { result } => result.print(&mut stdout)?,
             Self::Integration { .. } => {}
             Self::Resilience { result } => result.print(&mut stdout)?,
@@ -1081,6 +1097,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
+        Commands::Curriculum { .. }
+        | Commands::TaskFamily { .. }
+        | Commands::Skill {
+            command: SkillCommand::Harden { .. } | SkillCommand::Package { .. },
+        } => curriculum::execute(cli, &store, cancel).await,
         Commands::Bridge { .. }
         | Commands::Integrate { .. }
         | Commands::IntegrationEvent { .. }
@@ -1149,6 +1170,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                             max_agent_runs: n as usize,
                             max_duration_ms: None,
                             max_commands_per_reality: None,
+                            ..Default::default()
                         }
                     }),
                     learning: RunLearningOptions {

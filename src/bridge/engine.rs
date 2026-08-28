@@ -273,6 +273,27 @@ impl Bridge {
             return Err(invalid("Bridge stopping"));
         }
         match event {
+            AgentEvent::CurriculumRequested(request)=>{
+                let session=self.with_session(&request.hardknock_session_id,|s|Ok(s.clone()))?;self.context_config(&session.agent.name)?;
+                self.experiments.request_curriculum(request,&session,&self.config)
+            },
+            AgentEvent::CurriculumStarted {hardknock_session_id,curriculum_id}=>{
+                let session=self.with_session(&hardknock_session_id,|s|Ok(s.clone()))?;self.context_config(&session.agent.name)?;
+                self.experiments.start_curriculum(&session,&curriculum_id,&self.config)
+            },
+            AgentEvent::CurriculumProgress {hardknock_session_id,curriculum_id,after}=>{
+                self.with_session(&hardknock_session_id,|_|Ok(()))?;self.experiments.poll_curriculum(&hardknock_session_id,&curriculum_id,after)
+            },
+            AgentEvent::CurriculumCancelled {hardknock_session_id,curriculum_id}=>{
+                self.with_session(&hardknock_session_id,|_|Ok(()))?;self.experiments.cancel_curriculum(&hardknock_session_id,&curriculum_id)
+            },
+            AgentEvent::SkillPackageRequested {hardknock_session_id,skill,profile}=>{
+                let session=self.with_session(&hardknock_session_id,|s|Ok(s.clone()))?;
+                let store=Store::open(&self.home)?;let s=store.skill(&skill)?;
+                if store.experience(&s.source_experience)?.starting_state.repo_path!=session.starting_state.repo_path {return Err(invalid("Skill belongs to another repository"));}
+                let p=crate::curriculum::skill_package(&store,&skill,&profile,&self.config.curriculum)?;
+                Ok(json!({"skill":p.skill,"maturity":p.maturity,"profile_coverage":{"profile":p.coverage.profile,"tested_conditions":p.coverage.tested_conditions,"configured_conditions":p.coverage.configured_conditions,"profile_coverage":p.coverage.profile_coverage,"dimensions":p.coverage.dimensions.iter().take(32).map(|d|json!({"name":d.name,"unknown":d.unknown.iter().take(16).collect::<Vec<_>>(),"latest_observations":d.tested.iter().rev().take(3).collect::<Vec<_>>()})).collect::<Vec<_>>()},"lessons":p.lessons.iter().take(32).collect::<Vec<_>>(),"reflexes":p.reflexes.iter().take(32).collect::<Vec<_>>(),"recoveries":p.recoveries.iter().take(32).collect::<Vec<_>>(),"provenance":"Inspect local skill package for complete versioned evidence"}))
+            },
             AgentEvent::SessionStarted(start) => self.start(start),
             AgentEvent::Status => {
                 let sessions = self.sessions.lock().expect("session lock");

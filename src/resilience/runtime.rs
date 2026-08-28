@@ -73,8 +73,12 @@ fn state_hash(root: &Path) -> Result<String> {
     Ok(blake3::hash(&bytes).to_hex().to_string())
 }
 fn config_changed(root: &Path, fixture: FixtureKind) -> Result<bool> {
-    Ok(fixture == FixtureKind::ConfigDrift
-        && read_small(root, "generation")? != read_small(root, "plan-generation")?)
+    Ok(matches!(
+        fixture,
+        FixtureKind::ConfigDrift
+            | FixtureKind::SkillHardening
+            | FixtureKind::SkillHardeningTransfer
+    ) && read_small(root, "generation")? != read_small(root, "plan-generation")?)
 }
 fn signature(action: &ActionRecord) -> Result<Option<String>> {
     let mut bytes = Vec::new();
@@ -89,6 +93,7 @@ fn signature(action: &ActionRecord) -> Result<Option<String>> {
                     "stale_credential",
                     "configuration_stale",
                     "transient_command_failure",
+                    "stale_input",
                 ]
                 .contains(s)
             })

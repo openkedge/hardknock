@@ -54,6 +54,16 @@ pub enum RecoveryCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum SkillCommand {
+    Harden {
+        name: String,
+        #[command(flatten)]
+        limits: super::curriculum::HardenArgs,
+    },
+    Package {
+        name: String,
+        #[arg(long, default_value = "resilience-basic")]
+        profile: String,
+    },
     List,
     Show {
         name: String,
@@ -200,6 +210,8 @@ fn detect_fixture(root: &std::path::Path) -> Result<FixtureKind> {
         Some("retry-resilience") => Ok(FixtureKind::RetryResilience),
         Some("stale-credential") => Ok(FixtureKind::StaleCredential),
         Some("config-drift") => Ok(FixtureKind::ConfigDrift),
+        Some("skill-hardening") => Ok(FixtureKind::SkillHardening),
+        Some("skill-hardening-transfer") => Ok(FixtureKind::SkillHardeningTransfer),
         _ => Err(Error::InvalidInput(
             "test-agent requires an initialized V0.2 resilience fixture".into(),
         )),
@@ -380,6 +392,7 @@ pub enum ResilienceResponse {
     },
     Skill {
         skill: Box<Skill>,
+        package: Option<Box<crate::curriculum::ExperiencePackage>>,
     },
     Skills {
         skills: Vec<Skill>,
@@ -473,10 +486,20 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
                 },
                 SkillCommand::Show { name } => ResilienceResponse::Skill {
                     skill: Box::new(store.skill(name)?),
+                    package: Some(Box::new(crate::curriculum::skill_package(
+                        store,
+                        name,
+                        "resilience-basic",
+                        &crate::bridge::config::Config::load(&store.home)?.curriculum,
+                    )?)),
                 },
                 SkillCommand::Register { name, experience } => ResilienceResponse::Skill {
                     skill: Box::new(store.register_skill(name, experience)?),
+                    package: None,
                 },
+                SkillCommand::Harden { .. } | SkillCommand::Package { .. } => {
+                    return Err(Error::InvalidInput("Curriculum dispatch failed".into()));
+                }
             },
             _ => return Err(Error::InvalidInput("Not a resilience command".into())),
         };
@@ -535,6 +558,7 @@ impl ResilienceResponse {
             },
             Self::Test { test } => match test.status {
                 ResilienceTestStatus::Supported
+                | ResilienceTestStatus::NegativeControlPassed
                 | ResilienceTestStatus::FalsePositive
                 | ResilienceTestStatus::Contradicted => 0,
                 ResilienceTestStatus::Failed => 2,
@@ -670,7 +694,14 @@ impl ResilienceResponse {
                     writeln!(out, "{} · {} · {:?}", s.id, s.name, s.status)?;
                 }
             }
-            Self::Skill { skill } => writeln!(
+            Self::Skill {
+                skill,
+                package: Some(package),
+            } => super::curriculum::print_package(out, skill, package)?,
+            Self::Skill {
+                skill,
+                package: None,
+            } => writeln!(
                 out,
                 "{} · {} · {:?}\nProcedure: {:?}",
                 skill.id, skill.name, skill.status, skill.procedure

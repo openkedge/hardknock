@@ -36,6 +36,12 @@ pub fn materialize(store: &Store, kind: FixtureKind) -> Result<StateRef> {
         .iter()
         .map(|(p, b)| ((*p).into(), (*b).into()))
         .collect();
+    if matches!(
+        kind,
+        FixtureKind::SkillHardening | FixtureKind::SkillHardeningTransfer
+    ) {
+        files = hardening_files(kind);
+    }
     files.push(("fixture-kind".into(), format!("{}\n", kind.name())));
     files.push((
         "hardknock-fixture.json".into(),
@@ -122,4 +128,42 @@ pub fn materialize(store: &Store, kind: FixtureKind) -> Result<StateRef> {
         }
     }
     capture_state(&root)
+}
+
+pub fn hardening_files(kind: FixtureKind) -> Vec<(String, String)> {
+    let generation = if kind == FixtureKind::SkillHardeningTransfer {
+        "7\n"
+    } else {
+        "1\n"
+    };
+    [
+        (
+            "operation.sh",
+            include_str!("../../fixtures/skill-hardening/operation.sh"),
+        ),
+        (
+            "replan.sh",
+            include_str!("../../fixtures/skill-hardening/replan.sh"),
+        ),
+        (
+            "test.sh",
+            include_str!("../../fixtures/skill-hardening/test.sh"),
+        ),
+        (
+            "refresh-token.sh",
+            include_str!("../../fixtures/skill-hardening/refresh-token.sh"),
+        ),
+        (
+            "read-state.sh",
+            include_str!("../../fixtures/skill-hardening/read-state.sh"),
+        ),
+        ("generation", generation),
+        ("plan-generation", generation),
+        ("input-generation", generation),
+        ("dependency", "up\n"),
+        ("token", "VALID_TOKEN\n"),
+    ]
+    .iter()
+    .map(|(p, b)| ((*p).into(), (*b).into()))
+    .collect()
 }
