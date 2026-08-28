@@ -75,6 +75,7 @@ impl ProcessRunner {
         if spec.environment == EnvironmentMode::Controlled {
             command.env_clear().envs(controlled_environment(cwd));
         }
+        command.envs(&spec.environment_overrides);
         let mut child = command
             .args(&spec.args)
             .current_dir(cwd)

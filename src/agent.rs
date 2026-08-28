@@ -49,6 +49,7 @@ impl AgentAdapter for GenericShellAdapter {
         }
         Ok(CommandSpec {
             environment: Default::default(),
+            environment_overrides: Default::default(),
             program: self.program.clone(),
             args: self
                 .args

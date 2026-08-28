@@ -16,6 +16,7 @@ pub mod experiment;
 pub mod explanation;
 pub mod learning_loop;
 pub mod lesson;
+pub mod perturbation;
 pub mod process;
 pub mod reflection;
 pub mod retrieval;

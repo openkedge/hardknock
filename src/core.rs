@@ -69,6 +69,12 @@ identifier!(EvaluationId, "eval-");
 identifier!(ApplicationId, "application-");
 identifier!(ReflexId, "reflex-");
 identifier!(RecoveryId, "recovery-");
+identifier!(PerturbationId, "perturb-");
+identifier!(ChaosCampaignId, "chaos-");
+identifier!(ChaosTrialId, "chaos-trial-");
+identifier!(OperatingEnvelopeId, "envelope-");
+identifier!(SkillId, "skill-");
+identifier!(ResilienceTestId, "resilience-test-");
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateRef {
@@ -105,6 +111,8 @@ pub struct CommandSpec {
     pub args: Vec<String>,
     #[serde(default)]
     pub environment: EnvironmentMode,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub environment_overrides: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,6 +129,7 @@ impl CommandSpec {
             program: "/bin/sh".into(),
             args: vec!["-c".into(), script.into()],
             environment,
+            environment_overrides: Default::default(),
         }
     }
 }
