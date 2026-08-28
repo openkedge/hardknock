@@ -103,3 +103,13 @@ Temporal observations contain attempt number, consecutive failures, state-change
 New explicit tables preserve Envelope → Campaign → Trial → Experience, Reflex → source Lesson/Trial, Recovery → source Trial/Experiences, and version-specific match/step/attempt relationships. Experience/trial/observation history is immutable. Reflexes and Recoveries have immutable revisions and evidence rows; terminal tests and campaigns cannot be rewritten. Envelopes are emitted per campaign with revision records rather than aggregating sparse results into inferred intervals. Skills are manually registered immutable procedures with a successful unperturbed source Experience.
 
 A first chaos failure creates only candidates. Supported Reflex/Recovery is a different evidence policy from a Validated Lesson; none may borrow the other's status. See the [V0.2 report](implementation-v02.md) for the implemented semantics and remaining limits.
+
+## V0.3 native observations
+
+The portable Bridge DTOs do not expose this Rust/domain schema. Native actions are retained in a hashed, redacted `actions.json` artifact. A `bridge-observation` aggregate links them to an execution; it is not a command that Hardknock ran. External workspaces use `RealityStatus::Observed`. Configured evaluation determines outcome, not an agent's success claim. A timed-out/interrupted run cannot be promoted to success; abandoned intercepted proposals are not treated as executions.
+
+Normalized shell observations can establish application only with a completed action, matching workspace, delivered lesson, and clean recorded Git baseline. The evidence hash is checked before native observations contribute to transfer. This trusts the local adapter's reporting; it does not independently prove remote effects. The source Experience remains immutable when the subsequent controlled reconstruction or transfer updates a Lesson.
+
+`AgentEvidenceContribution` carries identity, Experience ID, relationship and role. Cross-agent replication is metadata, not assumed epistemic independence. `LessonInfluence::Rejected` and structured feedback are preserved separately. Repeated distinct-session rejection or an explicit environment-change rejection flags validated lessons for revalidation without retiring them. Automatic dependency-version diff detection is not implemented.
+
+Schema migration 6 adds sessions, events, run records, feedback and review flags. Runtime telemetry remains separate from empirical Experience. Native artifacts are redacted and bounded; historical generic-run artifacts retain their existing capture behavior. See [privacy and durability](bridge-protocol.md).

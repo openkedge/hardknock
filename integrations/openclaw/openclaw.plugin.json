@@ -1,0 +1,13 @@
+{
+  "id": "hardknock",
+  "name": "Hardknock Experience",
+  "description": "Local empirical experience through the Hardknock Bridge",
+  "configSchema": {
+    "type": "object", "additionalProperties": false,
+    "properties": {
+      "home": { "type": "string" },
+      "policyRequired": { "type": "boolean", "default": false },
+      "autostart": { "type": "boolean", "default": true }
+    }
+  }
+}

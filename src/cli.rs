@@ -8,6 +8,7 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
+pub mod integrations;
 mod resilience;
 use resilience::{ChaosCommand, EnvelopeCommand, RecoveryCommand, ReflexCommand, SkillCommand};
 
@@ -83,6 +84,29 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Manage the authenticated local lifecycle Bridge.
+    Bridge {
+        #[command(subcommand)]
+        command: integrations::BridgeCommand,
+    },
+    /// Install and diagnose native adapters.
+    Integrate {
+        #[command(subcommand)]
+        command: integrations::IntegrationCommand,
+    },
+    /// Native hook entry point; bounded JSON is read from stdin.
+    IntegrationEvent {
+        #[arg(long, value_enum)]
+        agent: integrations::HookAgent,
+    },
+    Agent {
+        #[command(subcommand)]
+        command: integrations::AgentCommand,
+    },
+    Events {
+        #[command(subcommand)]
+        command: integrations::EventsCommand,
+    },
     /// Run controlled local adversity around a healthy strategy.
     Chaos {
         #[command(subcommand)]
@@ -147,6 +171,8 @@ pub enum Commands {
 #[derive(Debug, Args)]
 #[command(group(clap::ArgGroup::new("runner").required(true).args(["agent_command", "agent", "script"])))]
 pub struct RunArgs {
+    #[arg(long, help = "Maximum additional executions shared by controlled trials and retries", value_parser = clap::value_parser!(u32).range(0..=100))]
+    pub experience_budget: Option<u32>,
     #[arg(
         long,
         help = "Command template with exactly one complete {task} argument; no implicit shell"
@@ -352,6 +378,9 @@ pub enum ExperienceCommand {
 #[derive(Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Integration {
+        result: serde_json::Value,
+    },
     Resilience {
         result: Box<resilience::ResilienceResponse>,
     },
@@ -376,6 +405,7 @@ pub enum Response {
         interrupted: bool,
     },
     Lesson {
+        provenance: serde_json::Value,
         lesson: Box<Lesson>,
         hypothesis: Box<CandidateHypothesis>,
     },
@@ -454,6 +484,11 @@ impl Response {
     }
 
     pub fn print(&self, cli: &Cli) -> Result<()> {
+        if let Self::Integration { result } = self {
+            serde_json::to_writer(&mut io::stdout().lock(), result)?;
+            println!();
+            return Ok(());
+        }
         if cli.quiet {
             return Ok(());
         }
@@ -464,6 +499,7 @@ impl Response {
             return Ok(());
         }
         match self {
+            Self::Integration { .. } => {}
             Self::Resilience { result } => result.print(&mut stdout)?,
             Self::RunCompleted {
                 execution,
@@ -695,7 +731,11 @@ impl Response {
                     writeln!(stdout, "No lessons recorded.")?;
                 }
             }
-            Self::Lesson { lesson, hypothesis } => {
+            Self::Lesson {
+                lesson,
+                hypothesis,
+                provenance,
+            } => {
                 writeln!(
                     stdout,
                     "{} · {:?} · confidence {:.2} · revision {}",
@@ -713,6 +753,12 @@ impl Response {
                     hypothesis.id,
                     hypothesis.generated_by.kind
                 )?;
+                writeln!(
+                    stdout,
+                    "Agent evidence (cross-agent replication does not imply independence):"
+                )?;
+                serde_json::to_writer_pretty(&mut stdout, provenance)?;
+                writeln!(stdout)?;
                 serde_json::to_writer_pretty(&mut stdout, lesson)?;
                 writeln!(stdout)?;
             }
@@ -900,6 +946,18 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             Error::Intervention("Set HARDKNOCK_HOME or --home; HOME is unavailable.".into())
         })?;
     let home = resolve_home(&raw_home)?;
+    if matches!(
+        cli.command,
+        Commands::Bridge { .. }
+            | Commands::Integrate { .. }
+            | Commands::IntegrationEvent { .. }
+            | Commands::Agent { .. }
+            | Commands::Events { .. }
+    ) {
+        return Ok(Response::Integration {
+            result: integrations::execute(cli, &home, cancel).await?,
+        });
+    }
     // Validate input before creating a database or touching a repository.
     let state = if matches!(
         cli.command,
@@ -951,6 +1009,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     let store = Store::open(&home)?;
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
+        Commands::Bridge { .. }
+        | Commands::Integrate { .. }
+        | Commands::IntegrationEvent { .. }
+        | Commands::Agent { .. }
+        | Commands::Events { .. } => Err(Error::InvalidInput("Integration dispatch failed".into())),
         Commands::Chaos { .. }
         | Commands::Envelope { .. }
         | Commands::Reflex { .. }
@@ -1008,6 +1071,13 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                     expected_fingerprint: None,
                 },
                 LearningRunOptions {
+                    experience_budget: args.experience_budget.map(|n| {
+                        crate::bridge::protocol::ExperienceBudget {
+                            max_trials: n as usize,
+                            max_agent_runs: n as usize,
+                            max_duration_ms: None,
+                        }
+                    }),
                     learning: RunLearningOptions {
                         enabled: !args.no_experience
                             && (args.agent.is_some()
@@ -1089,6 +1159,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             LessonCommand::Retire { id, reason } => {
                 let lesson = store.retire_lesson(id, reason.clone())?;
                 Ok(Response::Lesson {
+                    provenance: store.lesson_agent_provenance(&lesson.id)?,
                     hypothesis: Box::new(store.hypothesis(&lesson.hypothesis_id)?),
                     lesson: Box::new(lesson),
                 })
@@ -1122,6 +1193,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             LessonCommand::Show { id } => {
                 let lesson = store.lesson(id)?;
                 Ok(Response::Lesson {
+                    provenance: store.lesson_agent_provenance(&lesson.id)?,
                     hypothesis: Box::new(store.hypothesis(&lesson.hypothesis_id)?),
                     lesson: Box::new(lesson),
                 })
@@ -1146,6 +1218,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                 let lesson = Lesson::candidate(&h, &HeuristicConfidence);
                 LessonStore::insert(&store, &lesson)?;
                 Ok(Response::Lesson {
+                    provenance: store.lesson_agent_provenance(&lesson.id)?,
                     lesson: Box::new(lesson),
                     hypothesis: Box::new(h),
                 })

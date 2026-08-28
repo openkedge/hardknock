@@ -68,6 +68,9 @@ pub struct TrialResult {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CounterfactualPlan {
+    /// Paired controlled reconstruction of a native observation, not a replay of its inherited environment.
+    #[serde(default)]
+    pub external_reconstruction: bool,
     pub starting_state: StateRef,
     pub environment_fingerprint: String,
     pub timeout_secs: u64,
@@ -95,6 +98,9 @@ impl CounterfactualPlan {
         }
         if matches!(lesson.status, LessonStatus::Retired) {
             return Err(invalid("Lesson is not active for V0.1 experiments"));
+        }
+        if source.tags.iter().any(|t| t == "bridge-clean-start-v1") {
+            return Self::from_observed_action(source, lesson);
         }
         let replay = source.replay.as_ref().ok_or_else(|| {
             invalid("source used an opaque agent; use run --script for explicit replay")
@@ -125,6 +131,7 @@ impl CounterfactualPlan {
             ));
         }
         Ok(Self {
+            external_reconstruction: false,
             starting_state: source.starting_state.clone(),
             environment_fingerprint: source.context.environment.fingerprint.clone(),
             timeout_secs: replay.timeout_secs,
@@ -148,6 +155,69 @@ impl CounterfactualPlan {
                 },
             ],
             retest: None,
+        })
+    }
+
+    fn from_observed_action(source: &Experience, lesson: &Lesson) -> Result<Self> {
+        let baseline = lesson
+            .avoid
+            .as_ref()
+            .and_then(|a| a.shell_script())
+            .ok_or_else(|| {
+                Error::InvalidInput("Observed reconstruction requires a shell baseline".into())
+            })?;
+        let alternative = lesson
+            .prefer
+            .as_ref()
+            .and_then(|a| a.shell_script())
+            .ok_or_else(|| {
+                Error::InvalidInput("Observed reconstruction requires a shell alternative".into())
+            })?;
+        if baseline == alternative
+            || alternative.trim().is_empty()
+            || alternative.contains('\0')
+            || source.evaluation.spec.checks.is_empty()
+            || source.starting_state.git_commit == "unversioned"
+            || std::iter::once(baseline)
+                .chain(std::iter::once(alternative))
+                .chain(source.evaluation.spec.checks.iter().map(String::as_str))
+                .any(|text| text.contains("[REDACTED]") || text.contains("…[truncated]"))
+            || !source
+                .observed_actions
+                .iter()
+                .any(|a| a.observer == "bridge-lifecycle-v1" && a.action.matches_shell(baseline))
+        {
+            return Err(Error::Intervention("Controlled reconstruction needs a clean recorded Git start, observed baseline, distinct alternative and configured evaluator".into()));
+        }
+        let environment = EnvironmentContext::capture(
+            &source.context.environment.cwd,
+            EnvironmentMode::Controlled,
+        )?;
+        Ok(Self {
+            external_reconstruction: true,
+            starting_state: source.starting_state.clone(),
+            environment_fingerprint: environment.fingerprint,
+            timeout_secs: 30,
+            retest: None,
+            trials: vec![
+                TrialSpec {
+                    id: TrialId::new(),
+                    name: "baseline".into(),
+                    command: baseline.into(),
+                    mutations: vec![],
+                    evaluation: source.evaluation.spec.clone(),
+                },
+                TrialSpec {
+                    id: TrialId::new(),
+                    name: "alternative".into(),
+                    command: alternative.into(),
+                    mutations: vec![TrialMutation::ReplaceCommand {
+                        from: baseline.into(),
+                        to: alternative.into(),
+                    }],
+                    evaluation: source.evaluation.spec.clone(),
+                },
+            ],
         })
     }
 

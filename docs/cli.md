@@ -30,7 +30,7 @@ Initialize the fixture as described in [experiments.md](experiments.md#run-the-o
 
 `--agent-command` uses shell quoting only to split argv. Exactly one complete argument must be `{task}`; substitution occurs afterward. No implicit shell expansion takes place. An explicit template such as `sh -c '{task}'` intentionally treats the task as shell code. Generic agents inherit the environment and cannot be replayed automatically.
 
-`--script` and checks use `/bin/sh -c`. The script is executed verbatim; the task string is a recorded goal, **not** substituted into the script. Scripted runs use the controlled environment documented in [experiments.md](experiments.md#equivalence-and-limits). All adapters are noninteractive with stdin closed. Named Claude/Codex/Hermes adapters are not implemented.
+`--script` and checks use `/bin/sh -c`. The script is executed verbatim; the task string is a recorded goal, **not** substituted into the script. Scripted runs use the controlled environment documented in [experiments.md](experiments.md#equivalence-and-limits). All adapters are noninteractive with stdin closed. Native adapters use the separate integration commands below; `run --agent claude` is not a supported shorthand.
 
 | Flag | Behavior |
 | --- | --- |
@@ -43,6 +43,7 @@ Initialize the fixture as described in [experiments.md](experiments.md#run-the-o
 | `--with-experience` | Opt generic/script adapters into context-file advice |
 | `--no-experience` | Disable advice, fixture reflection and retries; audit matches measure repeated mistakes |
 | `--retry-with-experience` | Opt into fresh-state retries with applicable supported Lessons |
+| `--experience-budget N` | Cap additional paired experiment trials plus retries; initial task is outside this budget |
 | `--max-retries N` | Budget 0–10, default 1; only active with the retry flag |
 | `--action SCRIPT` | Proposed action for relevance; repeatable |
 | `--min-relevance N` | Retrieval minimum, default 0.50 |
@@ -175,7 +176,7 @@ On partial experiment runtime failure, inspect `experiment list/show` and `exper
 
 Each original run and trial has its own Experience artifact directory. Existing `exec-<uuid>` directories remain readable. Hash references retain the fields `blake3`/`bytes` and add `kind`. The final diff includes check effects; the agent diff does not. The Experience mirror is not self-hashed.
 
-The data directory is owner-only and SQLite is owner read/write; WAL/SHM sidecars may appear. `logs/` is reserved and tracing currently goes to stderr. General redaction, artifact quotas/garbage collection, and TOML configuration are not implemented. Tasks, scripts, and logs can contain secrets; review before sharing.
+The data directory is owner-only and SQLite is owner read/write; WAL/SHM sidecars may appear. `logs/` is reserved and tracing currently goes to stderr. Bridge/native capture adds bounded redaction and `config.toml`; generic runner logs are not retroactively sanitized. Artifact quotas/garbage collection remain deferred. Tasks, scripts, and logs can contain secrets; review before sharing.
 
 ## Exit codes and cancellation
 
@@ -193,7 +194,7 @@ Cancellation terminates the active process group, records available evidence, an
 
 ## Deferred commands
 
-`try`, benchmark CLI, autonomous skill synthesis, arbitrary action interception, and named vendor adapters remain deferred. V0.2 implements the local resilience commands below. The generic adapter has a tested context-file contract; see [agent integration](agent-integration.md). See [the next-phase plan](roadmap.md#exact-next-phase-plan).
+`try`, benchmark CLI, autonomous skill synthesis and arbitrary action interception remain deferred. Native integration commands are available as a V0.3 preview. V0.2 implements the local resilience commands below. The generic adapter has a tested context-file contract; see [agent integration](agent-integration.md). See [the next-phase plan](roadmap.md#exact-next-phase-plan).
 
 ## V0.2 resilience commands
 
@@ -212,3 +213,27 @@ skill list | show NAME_OR_ID | register NAME --experience ID
 Kinds: `retry-resilience`, `stale-credential`, `config-drift`. Profiles: `latency`, `command-failure`, `config-drift`, `credential`. Conditions: `delay:100ms`, `command-failure:once|N|always`, `env:KEY=VALUE`, `file:relative-path=content`. Repeat `--perturb` for separate campaign trials; in `reflex test`, repeated values form one compound paired condition. Read [the chaos guide](chaos.md) for defaults, limits, exact behavior, JSON events, and exit semantics. Bundle mode uses a managed fixture source, not `--repo`.
 
 `why` additionally explains historical Reflex match → Lesson → chaos Trial → source Experience, including scope, precursor, confidence, and test-only/active status. `status` includes new resource counts. Resilience commands emit `event: resilience` with a typed `result`; campaign progress is NDJSON on stderr, leaving stdout as one final object. Fixture action logs are in `agent-N/`, rather than the single-process `agent/` directory.
+
+## V0.3 Bridge and integrations
+
+```bash
+hardknock bridge start [--foreground] [--tcp PORT]
+hardknock bridge status
+hardknock bridge sessions
+hardknock bridge inspect hk-s-<id>
+hardknock bridge stop
+hardknock integrate list
+hardknock integrate doctor
+hardknock agent capabilities
+hardknock events tail [--follow] [--after SEQUENCE]
+hardknock integrate claude install [--config /absolute/settings.json]
+hardknock integrate claude uninstall
+hardknock integrate hermes install [--config /absolute/plugin-directory]
+hardknock integrate openclaw install [--config /absolute/plugin-directory]
+hardknock integrate codex check [--executable /path/to/codex] [--allow-untested]
+hardknock --repo /path/to/project integrate codex run [--resume THREAD] 'task'
+```
+
+Brackets indicate optional arguments. Integration commands return JSON even without `--json`. `doctor` verifies managed files, Bridge reachability, local configuration, and Codex version/schema/initialization if installed; it does not claim native plugin enablement. Codex run returns a queued recording ID; task evaluation completes asynchronously. Poll `run_status` with `bridge call` or inspect event telemetry. Successful submission is not successful evaluation.
+
+`integration-event --agent claude` consumes one native hook payload on stdin. `bridge call` consumes one authenticated-transport payload without credentials in input. `hardknock-test-adapter` accepts JSONL events with `HARDKNOCK_HOME` set; all session/action/run IDs remain explicit. See the [integration guide](integrations.md) for configuration, privacy and exact capability limits.

@@ -1,6 +1,6 @@
 # Contributing
 
-Hardknock implements the local V0.1 execution and empirical evidence loop. Retrieval, retry, and Validated promotion are deferred. Read the [architecture](docs/architecture.md) and [milestone plan](docs/roadmap.md) before extending the interfaces.
+Hardknock implements local learning/resilience loops and a V0.3 native integration preview. Live cross-agent acceptance is still pending. Read the [architecture](docs/architecture.md) and [milestone plan](docs/roadmap.md) before extending the interfaces.
 
 ## Development
 
@@ -13,7 +13,7 @@ cargo clippy --locked --all-targets --all-features -- -D warnings
 cargo test --locked --all-targets
 ```
 
-Tests create temporary Git repositories and private data directories. They exercise real processes, SQLite, worktrees, process failure, deadlines, and signal cleanup. They do not require an LLM, paid API, external database, Node, npm, or pnpm. Dependency downloads are needed for the first Cargo build; the tests themselves are offline.
+Tests create temporary Git repositories and private data directories. They exercise real processes, SQLite, worktrees, process failure, deadlines, and signal cleanup. Native adapter tests also require Python 3.11+ and Node.js 20+. They do not require an LLM, paid API, external database, npm, pnpm, or an installed external agent. Dependency downloads are needed for the first Cargo build; the tests themselves are offline.
 
 ## Changes and evidence
 

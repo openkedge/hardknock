@@ -1,5 +1,15 @@
 # Architecture
 
+## V0.3 integration boundary
+
+Four thin adapters communicate through one authenticated [local JSONL Bridge](bridge-protocol.md). Native code does not access SQLite or domain repositories. The existing modular crate is retained; `bridge::{protocol,transport,engine,cache,recording,privacy,config}` separates the public contract, session state, action decisions, and asynchronous evidence work. `integrations::{claude,codex,install}` and the Python/TypeScript plugin packages translate host events.
+
+The action path uses an in-memory lesson/reflex snapshot, exact scoped matches, and a bounded persistence queue. The learning worker captures normalized history and tracked diffs, runs locally configured checks, and commits observed Reality, execution, Experience, applications, and the completed run atomically. Acknowledged telemetry is queued, not fsynced. No model call, reflection, or experiment runs in a pre-tool callback.
+
+Native workspaces are `Observed` Realities, never owned/deleted by Hardknock. Only the existing Git `RealityProvider` creates/disposes controlled experiment worktrees. A clean native Git baseline and completed action can support an explicit paired controlled reconstruction, labeled separately from replay of an inherited environment. See [provenance and validation](agent-experience-contract.md).
+
+Learning decisions are advisory. Only explicit local policy may block or require native approval. Codex item-start notifications cannot intercept execution. Every adapter has a documented visibility boundary; successful live demonstrations with two agents remain pending in the [phase report](implementation-v03.md).
+
 ## Implemented: empirical transfer and local resilience
 
 One modular Rust crate runs the local empirical loop. Reflection proposes a hypothesis; recorded trials supply counterfactual evidence. Scoped retrieval can advise a future run, and observed successful application in a distinct repository tree can validate a supported Lesson.
@@ -121,12 +131,12 @@ SIGKILL or power loss can leave a running Experiment and an orphan worktree. `ex
 
 Use trusted scripts on disposable tasks. Warnings appear before execution and are not hidden by quiet mode. Arguments, tasks, diffs, and logs can contain secrets; there is no general redaction or disk quota. Raw environment secrets are not copied into records. Data directories are private to the current OS user, not authenticated storage or an enforcement policy.
 
-Linux and macOS are supported targets; Windows, containers, remote workers, and vendor-specific adapters remain deferred.
+Linux and macOS are supported targets; Windows, containers, and remote workers remain deferred. Native vendor adapter status is documented in [integrations](integrations.md).
 
 ## V0.2 resilience layer
 
 The shared workflow verifies a fresh Reality, captures context, applies scoped perturbation handles, runs the deterministic lifecycle (or top-level shell Command), evaluates, and commits immutable Experience evidence. It captures diffs before reversing perturbations and disposing of the Reality. Every fixture operation has a real ActionRecord and hashed logs. Runtime environment overrides are explicit in commands and perturbation records, not hidden host mutations.
 
-Campaigns require a healthy unperturbed control. Trial rows commit with Experiences; inspection reconstructs partial trial lists from those rows. Finished campaigns create immutable sparse envelopes. Candidate Lessons remain unpromoted by chaos alone. Reflex and Recovery tests produce paired Experiences and commit the test conclusion plus the latest object revision in an immediate transaction. Concurrent tests retain all evidence. Reflex matching is limited to local fixture hooks; generic agents are unaffected.
+Campaigns require a healthy unperturbed control. Trial rows commit with Experiences; inspection reconstructs partial trial lists from those rows. Finished campaigns create immutable sparse envelopes. Candidate Lessons remain unpromoted by chaos alone. Reflex and Recovery tests produce paired Experiences and commit the test conclusion plus the latest object revision in an immediate transaction. Concurrent tests retain all evidence. This resilience runtime matches at fixture hooks. V0.3 also matches supported/active rules through the Bridge; opaque generic runners remain unaffected.
 
 See [chaos](chaos.md) for limits/JSON/budgets, [operating envelopes](operating-envelopes.md) for point semantics, [reflexes](reflexes.md) for activation/false positives, and [recovery](recovery.md) for failure-state reproduction. Host crashes may leave running campaigns/tests; automatic reconciliation and resumption remain deferred.

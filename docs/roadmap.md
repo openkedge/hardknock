@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-The local passive learning and active resilience loops are implemented. Evidence remains limited to trusted local fixtures and explicit scripts. The older generic context contract has one historical Codex CLI smoke test; V0.2 adds no new real-agent integration.
+The local passive learning and active resilience loops are implemented. Evidence remains limited to trusted local fixtures and explicit scripts. V0.3 adds a local authenticated Bridge and native lifecycle adapters with deterministic cross-agent transfer coverage. Two-agent successful live acceptance is not complete.
 
 | Milestone | Status | Deliverable |
 | --- | --- | --- |
@@ -11,7 +11,7 @@ The local passive learning and active resilience loops are implemented. Evidence
 | 10 — Operating envelopes and Skills | Implemented locally | Explicit tested points, unknown untested space, manual supported procedure registration |
 | 11 — Reflexes | Implemented locally | Scoped precursor matching, paired response tests, false positives, separate activation and historical explanations |
 | 12 — Recovery | Implemented locally | Failure reproduction/precheck, typed steps, paired Experiences, support/contradiction and metrics |
-| 13 — External-agent integration | Next | Stable integration contracts, adapters/hooks, cross-agent validation |
+| 13 — External-agent integration | Preview; live acceptance pending | Common Bridge, native adapters, deterministic cross-agent transfer |
 
 ## Verified acceptance boundaries
 
@@ -21,12 +21,14 @@ See [the V0.2 report](implementation-v02.md), [transfer report](implementation-t
 
 ## Exact next-phase plan
 
-**Stable real-agent integration surfaces**, building on the deterministic local loop:
+**Finish V0.3 live acceptance before V0.4:**
 
-1. Specify versioned portable contracts for Experience Query, Experiment Request, Reflex Evaluation, and Evidence Reporting, preserving scope, agent identity, immutable artifacts, and observed/self-reported distinctions.
-2. Expose an explicitly permissioned MCP/API layer and adapter capability negotiation. Do not imply a query grants permission to execute, block, or access credentials.
-3. Add opt-in lifecycle hooks for selected real agents (Claude, Codex, Hermes, OpenClaw), with clear observation boundaries and explicit integration tests. No vendor should gain confidence merely from its identity.
-4. Validate influence on related tasks across different agents, retain disabled controls and contradictory evidence, and account for tokens, retries, and experiment costs.
-5. Strengthen artifact verification, crash reconciliation, environment manifests, and isolation before broadening the adversity model or making stronger causal claims.
+1. Run installed Claude and Codex through the common layer with the user's native permissions intact. Demonstrate context delivery, action advice, evaluated completion, and observed transfer on distinct disposable repositories.
+2. Load the Hermes/OpenClaw plugins in real hosts, verify their SDK/version compatibility, and exercise the documented missing-ID and timeout behavior.
+3. Add a native user-approval callback for the noninteractive Codex client; never auto-approve from experience.
+4. Harden sustained usage: session retention, crash reconciliation, bounded artifact/Git capture, host-specific strict availability policy, and automatic environment-version revalidation.
+5. Only then begin **V0.4 — Agent-Native Experimentation**: explicitly requested budgeted Realities, structured hypotheses, skill validation, and evidence-returning tools. The current Bridge experiment-request endpoint is reserved and rejects execution; the explicit controlled experiment CLI remains usable.
 
-These integrations have not begun in V0.2. Keep real network/privileged/cloud chaos, external financial effects, arbitrary credential interception, browser transaction isolation, WASM, tournaments, GUI, hosted services, organization-wide sharing, and automatic blocking out of this local release.
+MCP may later be an optional facade over the same Bridge; it is not the architecture. Hosted services, multi-user authentication, remote sharing/sync, marketplaces, privileged/cloud/network chaos, financial effects, arbitrary transaction virtualization, VM/WASM backends, tournaments, and GUI remain out of scope.
+
+See [the V0.3 report](implementation-v03.md) for remaining acceptance work and measured results.

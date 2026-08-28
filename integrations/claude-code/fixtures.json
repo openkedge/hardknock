@@ -1,0 +1,8 @@
+[
+  {"hook_event_name":"SessionStart","session_id":"claude-fixture","cwd":"/fixture","source":"startup"},
+  {"hook_event_name":"PreToolUse","session_id":"claude-fixture","cwd":"/fixture","tool_name":"Bash","tool_use_id":"bash-1","tool_input":{"command":"./agent-script.sh alternative"}},
+  {"hook_event_name":"PreToolUse","session_id":"claude-fixture","cwd":"/fixture","tool_name":"Write","tool_use_id":"write-1","tool_input":{"file_path":"/fixture/notes.txt","content":"not retained"}},
+  {"hook_event_name":"PostToolUse","session_id":"claude-fixture","cwd":"/fixture","tool_name":"Bash","tool_use_id":"bash-1","tool_input":{"command":"./agent-script.sh alternative"},"tool_response":{"stdout":"done","exit_code":0}},
+  {"hook_event_name":"PostToolUseFailure","session_id":"claude-fixture","cwd":"/fixture","tool_name":"Bash","tool_use_id":"bash-2","tool_input":{"command":"false"},"error":"command failed"},
+  {"hook_event_name":"Stop","session_id":"claude-fixture","cwd":"/fixture","stop_hook_active":false,"last_assistant_message":"completed"}
+]

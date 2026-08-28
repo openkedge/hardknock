@@ -1,0 +1,7 @@
+{
+  "name": "@hardknock/openclaw",
+  "version": "0.3.0",
+  "type": "module",
+  "private": true,
+  "openclaw": { "extensions": ["./index.ts"] }
+}

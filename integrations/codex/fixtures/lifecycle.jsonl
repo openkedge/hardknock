@@ -1,0 +1,11 @@
+{"id":1,"result":{"userAgent":"codex-cli/0.149.1","platformFamily":"unix","platformOs":"macos","codexHome":"/sanitized/codex"}}
+{"id":2,"result":{"thread":{"id":"thread-fixture"}}}
+{"method":"thread/started","params":{"thread":{"id":"thread-fixture"}}}
+{"id":3,"result":{"turn":{"id":"turn-fixture","status":"inProgress","items":[]}}}
+{"method":"item/started","params":{"threadId":"thread-fixture","turnId":"turn-fixture","item":{"type":"commandExecution","id":"tool-1","command":"./agent-script.sh baseline","cwd":"/fixture","status":"inProgress","commandActions":[]}}}
+{"id":900,"method":"item/commandExecution/requestApproval","params":{"threadId":"thread-fixture","turnId":"turn-fixture","itemId":"tool-1","command":"./agent-script.sh baseline","cwd":"/fixture","reason":"Needs user permission"}}
+{"method":"item/completed","params":{"threadId":"thread-fixture","turnId":"turn-fixture","item":{"type":"commandExecution","id":"tool-1","command":"./agent-script.sh baseline","cwd":"/fixture","status":"completed","commandActions":[],"exitCode":0,"durationMs":10,"aggregatedOutput":"simulated package manager workflow"}}}
+{"method":"item/completed","params":{"threadId":"thread-fixture","turnId":"turn-fixture","item":{"type":"agentMessage","id":"msg-1","text":"Done"}}}
+{"method":"turn/diff/updated","params":{"threadId":"thread-fixture","turnId":"turn-fixture","diff":"sanitized diff"}}
+{"method":"future/notification","params":{"unknown":"ignored"}}
+{"method":"turn/completed","params":{"threadId":"thread-fixture","turn":{"id":"turn-fixture","status":"completed","items":[],"error":null}}}

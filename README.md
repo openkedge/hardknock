@@ -8,6 +8,8 @@ Agent experience infrastructure for safe experimentation, empirical learning, an
 
 **Agents reason. Hardknock gives them experience.**
 
+**Models change. Experience survives.**
+
 Claude Code, Codex, Hermes, OpenClaw, Kiro, and other agents decide what to do. Hardknock is being built to give them disposable environments to try it, record what actually happened, test what they think they learned, and carry validated experience into future work. It sits underneath your agent; it is not another agent.
 
 <p align="center">
@@ -20,13 +22,13 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · Local resilience loop implemented (V0.2).** Local failures produce immutable Experiences and scoped Lessons tested in fresh baseline/alternative Realities. Deterministic retrieval can advise a bounded retry or a distinct task. Observed successful transfer can promote a Lesson to `Validated`; contradictory evidence and retirement remain inspectable.
+> **Pre-alpha · V0.3 integration preview.** The authenticated local Bridge and Claude/Codex/Hermes/OpenClaw adapters have deterministic coverage. Successful live acceptance with two different agents is still pending; see the [V0.3 report](docs/implementation-v03.md). Local failures produce immutable Experiences and scoped Lessons tested in fresh baseline/alternative Realities. Deterministic retrieval can advise a bounded retry or a distinct task. Observed successful transfer can promote a Lesson to `Validated`; contradictory evidence and retirement remain inspectable.
 
-[Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
+[Works With Your Agent](#works-with-your-agent) · [Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
 
 ## Run the current prototype
 
-**Implemented:** a Rust CLI, detached Git Realities, generic and scripted execution, required checks, immutable Experiences, scoped Lessons, controlled experiments, deterministic retrieval, application provenance, bounded retries, transfer validation, hashed artifacts, SQLite, JSON output, deadlines, and cleanup on Ctrl-C. V0.2 adds local chaos campaigns, four perturbation types, sparse operating envelopes, scoped reflex tests, explicit activation, recovery experiments, and manual Skill registration. Linux and macOS are the current targets. Build with stable Rust, Git, and a C compiler:
+**Implemented:** a Rust CLI, detached Git Realities, generic and scripted execution, required checks, immutable Experiences, scoped Lessons, controlled experiments, deterministic retrieval, application provenance, bounded retries, transfer validation, hashed artifacts, SQLite, JSON output, deadlines, and cleanup on Ctrl-C. V0.2 adds local chaos campaigns, four perturbation types, sparse operating envelopes, scoped reflex tests, explicit activation, recovery experiments, and manual Skill registration. V0.3 adds a versioned local Bridge, native lifecycle adapters, asynchronous evaluation, redaction, and cross-agent evidence provenance. Linux and macOS are the current targets. Build with stable Rust, Git, and a C compiler:
 
 ```bash
 cargo build --locked
@@ -45,7 +47,7 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
-**Planned:** stable real-agent integration surfaces, stronger environment controls, broader transfer measurements, and named vendor adapters. See the [CLI reference](docs/cli.md), [retrieval policy](docs/retrieval.md), and [next phase](docs/roadmap.md).
+**Next:** successful live integration acceptance, stronger environment controls, and broader transfer measurements. Native adapters and the Bridge are available as a preview; optional MCP and arbitrary agent-requested experiments are not implemented. See the [CLI reference](docs/cli.md), [retrieval policy](docs/retrieval.md), and [next phase](docs/roadmap.md).
 
 ## The problem
 
@@ -351,56 +353,64 @@ hardknock try --trials 3 "find the safest migration strategy"
 hardknock run --agent codex --experience-budget 5 "repair the failing build"
 ```
 
-The intent is a cap on trial executions, with additional limits on tokens, tool calls, elapsed time, and cost. A budget must cover validation and retries, not just successful runs. Exact accounting is not yet specified. Experimentation complements inference-time reasoning: reasoning chooses useful experiments; experiments provide observations that reasoning alone cannot.
+The intent is a cap on trial executions, with additional limits on tokens, tool calls, elapsed time, and cost. A budget must cover validation and retries, not just successful runs. The implemented `run --experience-budget N` caps additional paired trials and retries; token/cost accounting and native requested-experiment execution remain future work. Experimentation complements inference-time reasoning: reasoning chooses useful experiments; experiments provide observations that reasoning alone cannot.
 
-## Works with your agent
-
-The integration model is **Claude + Hardknock, Codex + Hardknock, Hermes + Hardknock, OpenClaw + Hardknock**. Named adapters remain planned. The generic adapter can launch a noninteractive CLI through `--agent-command` and deliver experience with `--with-experience`. A local Codex CLI smoke test passed; this is not a compatibility guarantee for every vendor, version, or configuration. See [agent integration](docs/agent-integration.md).
+## Works With Your Agent
 
 ```text
-                        USER
-                         │
-                         ▼
-       ┌───────────────────────────────────┐
-       │               AGENT               │
-       │  Claude Code │ Codex │ Hermes     │
-       │  OpenClaw │ Kiro │ future agents  │
-       └─────────────────┬─────────────────┘
-                         │
-                         ▼
-       ┌───────────────────────────────────┐
-       │             HARDKNOCK             │
-       │                                   │
-       │  Experience Engine                │
-       │  Lessons / Skills / Reflexes      │
-       │  Recovery / Evidence              │
-       │                                   │
-       │  Dojo                             │
-       │  Reality / Fork / Chaos           │
-       │  Replay / Counterfactuals         │
-       └─────────────────┬─────────────────┘
-                         │
-                         ▼
-               EXECUTION ENVIRONMENT
+Claude Code + Hardknock    native lifecycle hooks
+Codex       + Hardknock    App Server structured events
+Hermes      + Hardknock    Python plugin hooks
+OpenClaw    + Hardknock    typed plugin hooks
 ```
 
-| Integration stage | Contract |
-| --- | --- |
-| **Runner compatible** | Hardknock launches an existing CLI in an isolated environment. No agent modifications are required for this level; the adapter handles invocation and capture. |
-| **Experience aware** | Implemented through `.hardknock/context.md` and `context.json`; API/MCP access and other artifact types remain planned. |
-| **Experimental** | The agent explicitly requests forks, multiple trials, counterfactual experiments, or chaos experiments. |
-| **Reflex integrated** | Before consequential actions, relevant reflexes can return `continue`, `advise`, `warn`, `replan`, or `stage as experiment`; `block` requires independent policy authorization. |
-| **Native** | Deeper integration with agent hooks, tools, skills, session state, and execution lifecycle. |
+Hardknock does not replace the agent. It provides controlled experience, lessons supported by evidence, reflexes, recovery knowledge, and a place to experiment within the [documented safety limits](#run-the-current-prototype). A lesson recorded from Codex can be retrieved for Claude: empirical experience is stored independently of the reasoning engine that produced it.
 
-V0.1 is intended to start with the Runner model, initially targeting Claude Code and Codex, with Hermes where practical. Other CLI agents would follow through adapters. Illustrative runner shorthand:
+```text
+                     AGENTS
+
+       Claude      Codex      Hermes      OpenClaw
+          │          │           │           │
+          └──────────┴───────────┴───────────┘
+                         │
+                   Agent Adapters
+                         │
+                  Hardknock Bridge
+                         │
+          ┌──────────────┼──────────────┐
+          ↓              ↓              ↓
+      Experience       Reflex          Dojo
+        Engine          Engine         Engine
+          └──────────────┼──────────────┘
+                         ↓
+                     Evidence
+```
 
 ```bash
-hardknock run claude
-hardknock run codex
-hardknock run hermes
+hardknock bridge start
+hardknock integrate claude install
+hardknock integrate codex check
+hardknock integrate hermes install
+hardknock integrate openclaw install
+hardknock integrate doctor
+hardknock agent capabilities
+hardknock events tail --follow
+hardknock bridge stop
 ```
 
-Launching a CLI does not imply support for its internal reasoning, session hooks, or reflex interception. Those require additional integration and explicit permissions.
+Configure workspace evaluators before expecting successful task evidence. Installers preserve unrelated settings; Hermes/OpenClaw host enablement and trust remain native user decisions. See the [integration guide and capability matrix](docs/integrations.md), [Bridge protocol](docs/bridge-protocol.md), and [portable contract](docs/agent-experience-contract.md).
+
+**Verification boundary:** offline Codex-shaped failure → controlled experiment → Claude-shaped successful transfer is tested. Real Codex 0.149.1 passes schema/initialization checks; a live model smoke exercised approval cancellation and recorded a non-success outcome. Claude, Hermes, and OpenClaw were not installed for live testing. This is not yet a completed two-agent live demonstration.
+
+| Integration stage | Current support |
+| --- | --- |
+| Runner | Existing `run --agent-command`, `--script`, and fixture adapters; plugins are optional |
+| Experience aware | Context files for generic agents; concise context through native hooks/Bridge |
+| Lifecycle integrated | Session, action, result and completion normalization with asynchronous recording |
+| Reflex integrated | Cached advice; Codex can pause only at native approval requests, not every item notification |
+| Native experimentation | Existing explicit Dojo CLI; arbitrary Bridge experiment execution and skill-validation tools remain deferred |
+
+Learning advice never grants extra permissions or becomes a policy denial. No adapter requests hidden reasoning. Each adapter guide lists exactly what it observes, stores, influences, and cannot see.
 
 ## Experience survives the agent
 
@@ -506,7 +516,7 @@ These are conceptual boundaries, not a commitment to separate services. The impl
 - Deterministic scoped retrieval, context injection, observable application and retry lineage.
 - Bounded opt-in retry and a distinct transfer fixture with an experience-disabled control.
 
-**V0.2 also implemented:** manually registered supported Skills, healthy-control campaigns, reversible local perturbations, observed operating points, Candidate/Supported/Active Reflexes, false-positive detection, and bounded recovery tests. See [the resilience report](docs/implementation-v02.md). **Next:** stable real-agent integrations; no MCP server or new vendor adapters are included in this phase.
+**V0.2 also implemented:** manually registered supported Skills, healthy-control campaigns, reversible local perturbations, observed operating points, Candidate/Supported/Active Reflexes, false-positive detection, and bounded recovery tests. See [the resilience report](docs/implementation-v02.md). **V0.3 preview:** the common Bridge and four native adapters are implemented with fixture coverage; [live acceptance remains pending](docs/implementation-v03.md). No MCP server is included.
 
 ### Out of scope initially
 
@@ -555,8 +565,8 @@ The broader release goals below include work beyond the implemented local loop. 
 | --- | --- |
 | **V0.1 — Controlled coding experiments** | Runner adapters, disposable coding trials, typed evidence, counterfactual lesson validation, retrieval, and retry |
 | **V0.2 — Local resilience** | Deterministic chaos, observed operating envelopes, scoped reflexes, false positives, and recovery |
-| **V0.3 — External-agent integration** | Stable query/experiment/reflex/evidence contracts, MCP/API surfaces, lifecycle hooks, and cross-agent validation |
-| **V0.4 — Deeper agent hooks** | Lifecycle integration and policy-authorized reflex responses before consequential actions |
+| **V0.3 — External-agent integration** | Authenticated Bridge, lifecycle adapters, cached advice, provenance; live acceptance still pending |
+| **V0.4 — Agent-Native Experimentation** | Bounded requested experiments after Claude/Codex common-layer acceptance |
 | **Later — External-effect virtualization** | Explore explicit semantics for selected external systems, without claiming universal rollback |
 
 ## Project status

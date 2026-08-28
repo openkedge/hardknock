@@ -86,6 +86,8 @@ pub struct StateRef {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RealityStatus {
+    /// An external workspace observed by the Bridge, never owned or cleaned up by the Dojo.
+    Observed,
     Created,
     Running,
     Completed,

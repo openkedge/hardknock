@@ -93,15 +93,18 @@ impl Store {
             if application.verification == ApplicationVerification::Observed
                 && application.influence == LessonInfluence::Applied
                 && (!application.delivered
-                    || exp.agent.kind != "test-agent"
                     || lesson.prefer != application.resulting_action
                     || !exp.observed_actions.iter().any(|a| {
-                        a.observer == "fixture-trace-v2"
+                        ((a.observer == "fixture-trace-v2" && exp.agent.kind == "test-agent")
+                            || (a.observer == "bridge-lifecycle-v1"
+                                && exp.agent.executable.starts_with("bridge:")
+                                && exp.tags.iter().any(|t| t == "bridge-lifecycle-v1")
+                                && super::bridge::valid_observation(exp, a)))
                             && Some(&a.action) == application.resulting_action.as_ref()
                     }))
             {
                 return Err(Error::InvalidInput(
-                    "Observed application lacks matching fixture action evidence".into(),
+                    "Observed application lacks matching lifecycle/fixture action evidence".into(),
                 ));
             }
             tx.execute("INSERT INTO lesson_applications(id,lesson_id,lesson_version,experience_id,created_at,relevance,influence,verification,data) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![application.id.to_string(),application.lesson_id.to_string(),application.lesson_version,exp.id.to_string(),application.created_at.to_rfc3339(),f64::from(application.relevance),serde_json::to_string(&application.influence)?,serde_json::to_string(&application.verification)?,serde_json::to_string(application)?])?;

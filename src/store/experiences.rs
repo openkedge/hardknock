@@ -32,36 +32,11 @@ pub trait ExperienceStore {
 
 impl ExperienceStore for Store {
     fn insert(&self, exp: &Experience) -> Result<()> {
-        exp.evaluation.validate()?;
-        let execution = self.execution(&exp.execution_id)?;
-        if execution.reality_id != exp.reality_id
-            || execution.starting_state != exp.starting_state
-            || execution.agent != exp.agent
-            || execution.task != exp.goal
-            || exp.outcome != Outcome::from_evaluation(&exp.evaluation)
-        {
-            return Err(Error::InvalidInput(
-                "Experience does not match its execution/evaluation".into(),
-            ));
-        }
         let tx = rusqlite::Transaction::new_unchecked(
             &self.connection,
             rusqlite::TransactionBehavior::Immediate,
         )?;
-        tx.execute(
-            "INSERT INTO evaluations(id,execution_id,data) VALUES(?1,?2,?3)",
-            params![
-                exp.evaluation.id.to_string(),
-                exp.execution_id.to_string(),
-                serde_json::to_string(&exp.evaluation)?
-            ],
-        )?;
-        tx.execute("INSERT INTO experiences(id,created_at,reality_id,execution_id,evaluation_id,outcome,data) VALUES(?1,?2,?3,?4,?5,?6,?7)", params![exp.id.to_string(), exp.created_at.to_rfc3339(), exp.reality_id.to_string(), exp.execution_id.to_string(), exp.evaluation.id.to_string(), serde_json::to_string(&exp.outcome)?, serde_json::to_string(exp)?])?;
-        for artifact in &exp.evidence.artifacts {
-            tx.execute("INSERT INTO experience_artifacts(experience_id,path,blake3,bytes,kind) VALUES(?1,?2,?3,?4,?5)", params![exp.id.to_string(), artifact.path.to_string_lossy(), artifact.blake3, i64::try_from(artifact.bytes).map_err(|_| Error::InvalidInput("Artifact exceeds SQLite size range".into()))?, serde_json::to_string(&artifact.kind)?])?;
-        }
-        self.insert_learning(&tx, exp)?;
-        self.insert_resilience(&tx, exp)?;
+        self.insert_experience_in_transaction(&tx, exp)?;
         tx.commit()?;
         Ok(())
     }
@@ -114,5 +89,41 @@ impl Store {
     pub fn experience(&self, id: &ExperienceId) -> Result<Experience> {
         ExperienceStore::get(self, id)?
             .ok_or_else(|| Error::NotFound(format!("Experience {id} not found")))
+    }
+}
+
+impl Store {
+    pub(crate) fn insert_experience_in_transaction(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        exp: &Experience,
+    ) -> Result<()> {
+        exp.evaluation.validate()?;
+        let execution = self.execution(&exp.execution_id)?;
+        if execution.reality_id != exp.reality_id
+            || execution.starting_state != exp.starting_state
+            || execution.agent != exp.agent
+            || execution.task != exp.goal
+            || exp.outcome != Outcome::from_evaluation(&exp.evaluation)
+        {
+            return Err(Error::InvalidInput(
+                "Experience does not match its execution/evaluation".into(),
+            ));
+        }
+        tx.execute(
+            "INSERT INTO evaluations(id,execution_id,data) VALUES(?1,?2,?3)",
+            params![
+                exp.evaluation.id.to_string(),
+                exp.execution_id.to_string(),
+                serde_json::to_string(&exp.evaluation)?
+            ],
+        )?;
+        tx.execute("INSERT INTO experiences(id,created_at,reality_id,execution_id,evaluation_id,outcome,data) VALUES(?1,?2,?3,?4,?5,?6,?7)", params![exp.id.to_string(), exp.created_at.to_rfc3339(), exp.reality_id.to_string(), exp.execution_id.to_string(), exp.evaluation.id.to_string(), serde_json::to_string(&exp.outcome)?, serde_json::to_string(exp)?])?;
+        for artifact in &exp.evidence.artifacts {
+            tx.execute("INSERT INTO experience_artifacts(experience_id,path,blake3,bytes,kind) VALUES(?1,?2,?3,?4,?5)", params![exp.id.to_string(), artifact.path.to_string_lossy(), artifact.blake3, i64::try_from(artifact.bytes).map_err(|_| Error::InvalidInput("Artifact exceeds SQLite size range".into()))?, serde_json::to_string(&artifact.kind)?])?;
+        }
+        self.insert_learning(tx, exp)?;
+        self.insert_resilience(tx, exp)?;
+        Ok(())
     }
 }

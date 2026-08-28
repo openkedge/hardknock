@@ -1,4 +1,6 @@
-# Agent experience contract
+# Generic runner experience contract
+
+This page describes the preserved runner/context-file mode. For V0.3 native hooks, App Server and plugins, see [integrations](integrations.md) and the [portable agent contract](agent-experience-contract.md).
 
 Hardknock launches noninteractive agents; it does not intercept their internal commands or give them additional permissions. The existing `AgentAdapter::build_command(task)` interface is preserved. Context preparation happens in the shared workflow before command execution.
 
@@ -47,7 +49,7 @@ An agent can write `.hardknock/usage.json`:
 }
 ```
 
-Use an actual delivered ID. Valid influences are `retrieved`, `consulted`, `applied`, `ignored`, and `contradicted`. `resulting_action` is optional/null when no changed action is reported. Report disagreement honestly; do not claim success because advice was present.
+Use an actual delivered ID. Valid influences are `retrieved`, `consulted`, `applied`, `ignored`, `contradicted`, and `rejected`. `resulting_action` is optional/null when no changed action is reported. Report disagreement honestly; do not claim success because advice was present.
 
 Reports must be regular, nonsymlink files of at most 64 KiB with schema version 1, no unknown fields, at most 20 entries, and no duplicate or undelivered Lesson IDs. The context directory must not have been replaced by a symlink. Hardknock reads the report after the agent exits and before evaluation, saves a hashed copy if valid, and records malformed reports in `application_report_errors`. Invalid reports do not turn a passing evaluation into failure, and do not establish application.
 
@@ -73,7 +75,7 @@ This task's fixture outputs were produced in the disposable repository; the agen
 
 ## Limits
 
-No named vendor adapter, command interception, automatic parsing of vendor event streams, model-brand promotion rule, MCP server, or enforcement is implemented. The generic adapter records the executable; future adapters may add verified version/model information and independent action observers. Git worktrees remain repository isolation, not a host security boundary. Tasks, logs, and Lesson text can contain sensitive data; review them before sending them to a model or sharing artifacts.
+This generic runner does not intercept commands or parse vendor event streams. Native V0.3 adapters are separate; no model-brand promotion rule or MCP server is implemented. The generic adapter records the executable; future adapters may add verified version/model information and independent action observers. Git worktrees remain repository isolation, not a host security boundary. Tasks, logs, and Lesson text can contain sensitive data; review them before sending them to a model or sharing artifacts.
 
 ## V0.2 deterministic lifecycle hooks
 

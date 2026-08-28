@@ -135,6 +135,15 @@ pub enum EvidenceRef {
     },
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AgentEvidenceContribution {
+    pub agent: AgentIdentity,
+    pub experience_id: ExperienceId,
+    pub relationship: EvidenceRelationship,
+    /// Observed role, never an assertion of epistemic independence.
+    pub role: String,
+}
+
 pub trait ConfidencePolicy {
     fn initial(&self) -> ConfidenceScore;
     fn update(&self, lesson: &Lesson, conclusion: ExperimentConclusion) -> ConfidenceScore;

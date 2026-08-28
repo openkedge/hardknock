@@ -34,4 +34,12 @@ In this negative case, the first three operations fail transiently and the fourt
 
 `FalsePositiveReflexRate = false-positive paired firings / paired tests with a firing`. A firing counts as false positive only when the without-arm trace demonstrates success of the next original action under the same deterministic prefix. This fixture protocol is not a general counterfactual estimator for opaque agents. Empty denominators are unknown (`null`). Contradictions and inconclusive tests are stored alongside support; nothing is hidden to improve the metric.
 
-Retired is a modeled terminal state, but no retirement CLI is provided yet. Response/trigger editing, automatic scope refinement, arbitrary pre-tool hooks, enforcement, and remote policies remain deferred.
+Retired is a modeled terminal state, but no retirement CLI is provided yet. Response/trigger editing, automatic scope refinement, arbitrary tool semantics, and remote policy engines remain deferred. The Bridge integration below adds a separate explicit local policy boundary.
+
+## V0.3 Bridge action decisions
+
+The Bridge loads eligible lessons and reflexes into `ExperienceHotCache`; action matching does not query SQLite. Exact command/cwd and context gates apply. Supported rules warn, active rules request replanning, and lessons advise. A local policy list may separately block an exact shell command or request native approval. An adapter must not convert learning evidence into governance.
+
+Claude maps advice to hook context; Hermes/OpenClaw retain it for the next supported context injection. Codex can contribute evidence at approval requests but cannot pause ordinary item-start notifications. No arbitrary parameter rewriting, autonomous retries, LLM reflection, or shell semantic analysis occurs in this callback. Config/version changes require Bridge restart; lesson/reflex snapshots refresh at session/context requests, completion, and a two-second daemon poll.
+
+The deterministic benchmark includes 1,000 cached lessons and 1,000 reflexes, measures the full in-process action handler, and enforces P95 below 25 ms. Actual measurements and their limits are in the [V0.3 report](implementation-v03.md); they are not an end-to-end native host latency claim.

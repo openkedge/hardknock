@@ -14,6 +14,7 @@ use crate::{
 };
 
 pub struct LearningRunOptions {
+    pub experience_budget: Option<crate::bridge::protocol::ExperienceBudget>,
     pub learning: RunLearningOptions,
     pub auto_reflect: bool,
     pub retry: bool,
@@ -34,6 +35,13 @@ pub async fn execute_learning_run(
     options: LearningRunOptions,
     cancel: &Cancellation,
 ) -> Result<LearningRunResult> {
+    if options
+        .experience_budget
+        .as_ref()
+        .is_some_and(|b| b.max_duration_ms.is_some())
+    {
+        return Err(crate::Error::InvalidInput("Duration-based shared budgets are not supported by the runner yet; use per-execution deadlines and trial/run caps".into()));
+    }
     if options.max_retries > 10 || (options.retry && !options.learning.enabled) {
         return Err(crate::Error::InvalidInput(
             "Retry requires experience enabled and a budget of at most 10 attempts".into(),
@@ -47,11 +55,21 @@ pub async fn execute_learning_run(
         .map(|a| a.lesson_id.clone())
         .collect::<Vec<_>>();
     let mut experiments = Vec::new();
+    let mut remaining = options
+        .experience_budget
+        .as_ref()
+        .map(|b| b.max_trials.min(b.max_agent_runs))
+        .unwrap_or(usize::MAX);
     if options.auto_reflect && !cancel.is_cancelled() {
         for hypothesis in DeterministicReflection.reflect(&initial.experience)? {
             store.insert_hypothesis(&hypothesis)?;
             let lesson = Lesson::candidate(&hypothesis, &HeuristicConfidence);
             LessonStore::insert(store, &lesson)?;
+            if remaining < 2 {
+                lesson_ids.push(lesson.id);
+                break;
+            }
+            remaining -= 2;
             experiments.push(
                 ExperimentEngine { store }
                     .execute(&lesson.id, cancel)
@@ -69,6 +87,10 @@ pub async fn execute_learning_run(
     .to_owned();
     if options.retry {
         for _ in 0..options.max_retries {
+            if remaining == 0 {
+                reason = "Shared experience budget exhausted".into();
+                break;
+            }
             let previous = retries.last().unwrap_or(&initial);
             if cancel.is_cancelled() {
                 reason = "Interrupted; no further attempts".into();
@@ -99,6 +121,7 @@ pub async fn execute_learning_run(
                 break;
             }
             let mut learning = options.learning.clone();
+            remaining -= 1;
             learning.enabled = true;
             learning.relations = vec![ExperienceRelation::RetryOf(previous.experience.id.clone())];
             let result = run_with_learning(store, request.clone(), &learning, cancel).await?;

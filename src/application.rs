@@ -53,6 +53,7 @@ impl ExperienceRelation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LessonInfluence {
+    Rejected,
     Retrieved,
     Consulted,
     Applied,
