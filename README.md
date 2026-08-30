@@ -22,7 +22,7 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.8 transactional Realities.** Hardknock can stage supported mock HTTP, database, message, and shadow-deployment effects, compare candidates without mutating authoritative fixture state, require exact-scope authorization, reject stale preparations, reconcile unknown outcomes, and retain commit/compensation evidence. Arbitrary shell and network effects are not intercepted. See the [V0.8 report](docs/implementation-v08.md) and [effects guide](docs/effects.md).
+> **Pre-alpha · V0.9 capability-isolated execution.** Hardknock now models deny-by-default execution capabilities, can run an agent command through a Docker/Podman container Reality, signs Reality-scoped tokens, brokers test credentials, gates Effects by exact scope, and includes a structured PostgreSQL adapter. The pure suite does not require a container or database; this development pass had neither runtime available, so live isolation and PostgreSQL results remain unobserved. See the [V0.9 report](docs/implementation-v09.md), [execution boundary](docs/execution-boundary.md), and [threat model](docs/threat-model.md).
 
 [Works With Your Agent](#works-with-your-agent) · [Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
 
@@ -47,7 +47,7 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
-V0.4 adds `hardknock try`, structured agent requests, explicit budgets, equivalent-state verification, bounded parallel candidates, comparison quality, replay/lineage, cancellation, and patch export. V0.5 adds curricula, Skill coverage/maturity, Experience Packages, and a held-out resilience benchmark. V0.6 adds persistent development profiles, immutable history, freshness-aware retrieval, and measured learning across episodes. See the [CLI reference](docs/cli.md), [development guide](docs/development.md), and [next phase](docs/roadmap.md).
+V0.4 adds `hardknock try`, structured agent requests, explicit budgets, equivalent-state verification, bounded parallel candidates, comparison quality, replay/lineage, cancellation, and patch export. V0.5 adds curricula, Skill coverage/maturity, Experience Packages, and a held-out resilience benchmark. V0.6 adds persistent development profiles, immutable history, freshness-aware retrieval, and measured learning across episodes. V0.7 adds signed evidence federation; V0.8 adds governed transactional Effects; V0.9 adds explicit execution authority and a container provider. See the [CLI reference](docs/cli.md), [development guide](docs/development.md), and [next phase](docs/roadmap.md).
 
 ## A Sandbox Can't Unsend an Email
 
@@ -87,6 +87,50 @@ hardknock effect capabilities
 The deterministic benchmark injects four failed candidates, state drift, response loss, and a partial multi-effect commit. Failed candidates cause **4/4** authoritative mutations under direct execution, **4/4** with filesystem sandboxing alone, and **0/4** through supported Hardknock adapters. The injected unknown outcome is recovered **1/1** with one authoritative mutation and no duplicate. These are local fixture results, not a claim that arbitrary effects are transactional.
 
 Transactional safety is adapter-scoped. V0.8 does not intercept arbitrary HTTP, shell commands, syscalls, real email, payments, AWS, Kubernetes, or PostgreSQL. Experimentation authority and mutation authority are separate capabilities.
+
+## A Guardrail You Can Bypass Is Not a Boundary
+
+Hardknock V0.8 can stage external effects, but staging is meaningless if an agent can simply invoke the external system directly. Capability-isolated Realities close that gap by restricting execution itself: filesystem scope, network access, credentials, tools, and effect authority become explicit capabilities.
+
+> **The safest credential is the one the agent never receives.**
+
+> **Reasoning can be broad. Authority should be narrow.**
+
+> **A sandbox limits where code runs. Hardknock limits what reality it can change.**
+
+```text
+Agent
+  ↓
+Capability-Isolated Reality
+  ↓
+Effect Boundary
+  ↓
+Prepare → Experiment → Explicit Commit or Discard
+```
+
+```bash
+hardknock --repo /path/to/repo reality create \
+  --provider container --profile coding-offline
+
+hardknock --repo /path/to/repo run \
+  --provider container --capabilities coding-effect-test \
+  --agent test-agent 'reduce inventory safely'
+
+hardknock capability audit
+hardknock reality inspect <reality-id>
+```
+
+The manifest is immutable and revisioned. The execution proxy verifies a short-lived token bound to one Reality and manifest hash. The container receives one writable workspace, a constructed environment, no ambient host credentials, and no network by default. Supported Effect proposals cross a per-Reality authenticated relay; the inside-Reality `hk-effect` helper has no commit operation. A trusted user can authorize a prepared Effect outside the speculative Reality.
+
+Isolation still serves the experience thesis:
+
+```text
+Capability-Isolated Reality → Try → Fail → Learn → Validate
+                                      ↓
+                         Commit only when warranted
+```
+
+V0.9 is not a hardened multi-tenant sandbox. Containers share the host kernel, the Docker/Podman daemon is trusted, arbitrary HTTP is not transparently intercepted, and allow-list networking currently supports only named local fixture containers on a dedicated internal network. The checked-in benchmark observed worktree and host policy controls; its container arm is explicitly unobserved because this machine had no runtime. Read the [security benchmark](docs/security-benchmark.md) before interpreting the zero-bypass result.
 
 ## Teams Should Share Experience, Not Superstitions
 

@@ -2,6 +2,8 @@
 
 V0.6 projects canonical evidence into local Agent, Repository, TaskFamily, or SharedLocal profiles. An agent subject can optionally pin version/model; its default includes successive versions. Repository paths are canonical. Task families use explicit selectors. SharedLocal aggregates the local store and does not grant broader execution authority. Workspace and organization aggregation are reserved, not implemented.
 
+From V0.9, each new Experience may carry execution assurance. Development comparisons should separate or disclose changes in provider, manifest hash/revision, image digest, network policy, credential isolation, and Effect gating. A better outcome under broader authority is not equivalent to improvement under the old boundary, and a capability denial can be a useful observation without being a task failure caused by agent reasoning.
+
 ## Profiles and windows
 
 ```bash

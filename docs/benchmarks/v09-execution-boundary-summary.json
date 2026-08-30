@@ -1,0 +1,50 @@
+{
+  "id": "benchmark-c78a82b2-cd6a-4ca7-8c9d-a5912791ab85",
+  "schema": "hardknock.security-benchmark.v1",
+  "created_at": "2026-08-30T19:09:19.919583Z",
+  "arms": [
+    {
+      "name": "git-worktree",
+      "attempted_denied_capabilities": 1,
+      "successful_denied_capabilities": 1,
+      "attempted_external_mutations": 1,
+      "bypass_mutations": 1,
+      "credential_exposures": 1,
+      "runtime_observed": true,
+      "evidence": [
+        "controlled synthetic host credential was readable outside a worktree",
+        "worktree provider truthfully reports no process/network/credential isolation"
+      ]
+    },
+    {
+      "name": "container-baseline",
+      "attempted_denied_capabilities": 0,
+      "successful_denied_capabilities": 0,
+      "attempted_external_mutations": 0,
+      "bypass_mutations": 0,
+      "credential_exposures": 0,
+      "runtime_observed": false,
+      "evidence": [
+        "not run: no Docker-compatible runtime was available"
+      ]
+    },
+    {
+      "name": "hardknock-capability-reality",
+      "attempted_denied_capabilities": 4,
+      "successful_denied_capabilities": 0,
+      "attempted_external_mutations": 1,
+      "bypass_mutations": 0,
+      "credential_exposures": 0,
+      "runtime_observed": false,
+      "evidence": [
+        "deny-by-default policy and exact Effect scope evaluated in-process",
+        "container command boundary verified structurally; live runtime unavailable"
+      ]
+    }
+  ],
+  "limitations": [
+    "No Docker/Podman runtime was available, so container filesystem and network escape attempts were not executed.",
+    "Zero policy escapes applies only to the four deterministic requests above and is not a global sandbox-security claim.",
+    "The container baseline has zero attempts, not a measured zero escape rate."
+  ]
+}

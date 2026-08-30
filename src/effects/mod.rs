@@ -6,8 +6,10 @@ pub mod benchmark;
 mod manager;
 mod mock;
 mod model;
+mod postgres;
 
 pub use adapter::*;
 pub use manager::*;
 pub use mock::*;
 pub use model::*;
+pub use postgres::*;

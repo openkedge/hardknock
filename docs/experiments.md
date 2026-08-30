@@ -103,6 +103,12 @@ An `EffectPlan` candidate declares bounded structured `EffectRequest`s plus Real
 
 The experiment never supplies commit authority. `CandidateResult.prepared_effects` links the candidate Experience to its Effect IDs, and an eventual authoritative Experience uses `COMMIT_OF`. Filesystem-only commands still have no external-effect interception; use EffectPlan only with registered schemes. See [transactional Realities](transactional-realities.md).
 
+## Isolation quality and provider selection (V0.9)
+
+Experiment evidence records the provider's truthful execution boundary. A Git worktree comparison remains cooperative: commands can reach host files, network, and credentials. A capability-isolated requirement must select the container provider or be rejected as inadequate. Effect-aware work requires both container isolation and a matching Effect capability; preparation never adds commit authority.
+
+V0.9 container support is wired through the one-run workflow. Existing multi-candidate strategy, chaos, curriculum, recovery, and automatic retry engines still use their established Git provider unless their caller explicitly reaches a supported container path. Their evidence must not be relabeled as container-isolated. Provider performance and live container behavior were not measured on the V0.9 development host.
+
 ## Classification and confidence
 
 | Baseline | Alternative | Conclusion |

@@ -1,5 +1,27 @@
 # Architecture
 
+## V0.9 execution and effect boundary
+
+```mermaid
+flowchart LR
+  A[Host reasoning plane] --> P[Capability policy]
+  P --> X[Shell and file proxy]
+  X --> C[Container Reality]
+  C -->|signed Reality token| B[Per-Reality Bridge relay]
+  B --> M[Host Effect Manager]
+  M --> D[Scoped PostgreSQL or mock adapter]
+  D -->|prepare evidence| E[Experience]
+  U[Trusted user authority] -->|exact authorization| M
+```
+
+The reasoning plane, local operator, evaluator, SQLite store, container daemon, Effect Manager, and adapters are trusted host components. Agent commands run in a provider boundary described by `ExecutionBoundary`; provider capability truth is stored alongside the manifest hash/revision and image digest. Git worktrees declare cooperative isolation. Container Realities declare container-level filesystem/process/network/credential isolation and gated supported effects, while explicitly retaining the shared-kernel limitation.
+
+`capability::{model,profiles,policy}` defines immutable manifests and exact deny-by-default request evaluation. `container` creates a hardened Docker/Podman command over the existing exact worktree. `token` signs short-lived Reality/manifest/operation grants. `proxy` mediates shell and host-side file tools. `credential` issues scoped test material without storing raw bytes. Capability decisions, tokens, credentials, manifest history, and benchmark reports use migration 012.
+
+The container gets one writable workspace and a narrow read-only control mount. A per-Reality Unix relay authenticates the inside-Reality `hk-effect` helper. Agent-facing operations are propose, status, and discard; commit stays outside the container. The Effect Manager rechecks Reality scope after token authentication, preventing a valid token from turning the adapter into a confused deputy. The PostgreSQL adapter owns its host connection and accepts structured row mutations only.
+
+Host-mediated reasoning avoids putting model credentials in the container. For V0.9 the trusted evaluator remains a host process, and automatic retry/reflection paths are rejected for container runs until they use the same proxy. See [execution boundary](execution-boundary.md), [container provider](container-realities.md), and [threat model](threat-model.md).
+
 ## V0.5 curriculum and Experience Packages
 
 ```text

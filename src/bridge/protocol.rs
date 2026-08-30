@@ -322,6 +322,20 @@ pub enum AgentEvent {
     ContextRequested(ContextRequested),
     ActionProposed(ActionProposed),
     EffectProposed(EffectProposal),
+    /// Capability-token-authenticated effect interface for an isolated Reality.
+    /// Transport authentication binds the caller to this exact Reality ID.
+    RealityEffectProposed {
+        reality_id: crate::core::RealityId,
+        request: crate::effects::EffectRequest,
+    },
+    RealityEffectStatus {
+        reality_id: crate::core::RealityId,
+        effect_id: crate::core::EffectId,
+    },
+    RealityEffectDiscardRequested {
+        reality_id: crate::core::RealityId,
+        effect_id: crate::core::EffectId,
+    },
     EffectCommitRequested {
         hardknock_session_id: String,
         effect_id: crate::core::EffectId,

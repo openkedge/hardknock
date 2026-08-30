@@ -4,6 +4,7 @@ use crate::{Error, Result, cancellation::Cancellation, store::Store};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
     io::Write,
     net::{Ipv4Addr, SocketAddr},
@@ -16,6 +17,7 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream, UnixListener, UnixStream},
     sync::Semaphore,
+    task::JoinHandle,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -135,6 +137,8 @@ pub async fn serve(home: &Path, tcp: Option<u16>, cancel: &Cancellation) -> Resu
     )?;
     let semaphore = Arc::new(Semaphore::new(32));
     let mut clients = tokio::task::JoinSet::new();
+    let mut reality_relays = HashMap::new();
+    refresh_reality_relays(&home, bridge.clone(), &mut reality_relays).await?;
     let mut tick = tokio::time::interval(Duration::from_millis(100));
     let mut refresh = tokio::time::interval(Duration::from_secs(2));
     loop {
@@ -144,12 +148,16 @@ pub async fn serve(home: &Path, tcp: Option<u16>, cancel: &Cancellation) -> Resu
         tokio::select! {
             _=cancel.cancelled()=>break,
             _=tick.tick()=>{},
-            _=refresh.tick()=>{let b=bridge.clone();tokio::task::spawn_blocking(move||b.refresh());},
+            _=refresh.tick()=>{
+                let b=bridge.clone();
+                tokio::task::spawn_blocking(move||b.refresh());
+                refresh_reality_relays(&home,bridge.clone(),&mut reality_relays).await?;
+            },
             accepted=async { match &listener {Listener::Unix(l)=>l.accept().await.map(|(s,_)|Box::new(s)as BoxStream),Listener::Tcp(l)=>l.accept().await.map(|(s,_)|Box::new(s)as BoxStream)} }=>{
                 let stream=accepted?;
                 let Ok(permit)=semaphore.clone().try_acquire_owned()else{drop(stream);continue;};
                 let b=bridge.clone();let t=token.clone();
-                clients.spawn(async move{let _permit=permit;let _=tokio::time::timeout(Duration::from_secs(10),connection(stream,b,&t)).await;});
+                clients.spawn(async move{let _permit=permit;let _=tokio::time::timeout(Duration::from_secs(10),connection(stream,b,&t,None)).await;});
             }
             Some(_)=clients.join_next()=>{},
         }
@@ -158,6 +166,10 @@ pub async fn serve(home: &Path, tcp: Option<u16>, cancel: &Cancellation) -> Resu
     bridge.learning_cancel.cancel();
     bridge.experiments.cancel_all();
     clients.abort_all();
+    for (_, relay) in reality_relays.drain() {
+        relay.handle.abort();
+        let _ = fs::remove_file(relay.path);
+    }
     while clients.join_next().await.is_some() {}
     let b = bridge.clone();
     let flushed = tokio::task::spawn_blocking(move || b.flush())
@@ -171,6 +183,99 @@ pub async fn serve(home: &Path, tcp: Option<u16>, cancel: &Cancellation) -> Resu
     drop(guard);
     flushed
 }
+
+struct RealityRelay {
+    path: PathBuf,
+    handle: JoinHandle<()>,
+}
+
+async fn refresh_reality_relays(
+    home: &Path,
+    bridge: Arc<Bridge>,
+    relays: &mut HashMap<String, RealityRelay>,
+) -> Result<()> {
+    let realities = Store::open(home)?.realities()?;
+    let active: HashSet<_> = realities
+        .iter()
+        .filter(|reality| {
+            reality.execution_boundary.provider == "container"
+                && reality.status != crate::core::RealityStatus::Discarded
+                && !reality.execution_boundary.frozen
+        })
+        .map(|reality| reality.id.to_string())
+        .collect();
+    let obsolete: Vec<_> = relays
+        .keys()
+        .filter(|id| !active.contains(*id))
+        .cloned()
+        .collect();
+    for id in obsolete {
+        if let Some(relay) = relays.remove(&id) {
+            relay.handle.abort();
+            let _ = fs::remove_file(&relay.path);
+            if let Some(directory) = relay.path.parent() {
+                let _ = fs::remove_dir(directory);
+            }
+        }
+    }
+    let missing: Vec<_> = realities
+        .into_iter()
+        .filter(|reality| {
+            active.contains(&reality.id.to_string())
+                && !relays.contains_key(&reality.id.to_string())
+        })
+        .collect();
+    for reality in missing {
+        let directory = home
+            .join("run")
+            .join("realities")
+            .join(reality.id.to_string());
+        fs::create_dir_all(&directory)?;
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o755))?;
+        let path = directory.join("bridge.sock");
+        if let Ok(metadata) = fs::symlink_metadata(&path) {
+            if !metadata.file_type().is_socket() {
+                return Err(invalid("Refusing unsafe Reality Bridge relay path"));
+            }
+            fs::remove_file(&path)?;
+        }
+        let listener = UnixListener::bind(&path)?;
+        // The host parent remains below a 0700 HARDKNOCK_HOME. Mode 0666 is
+        // needed only across the container bind mount; every request still
+        // requires a signed, short-lived, Reality-bound token.
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o666))?;
+        let relay_bridge = bridge.clone();
+        let bound = reality.id.clone();
+        let unexposed_guard = format!("relay-{}", uuid::Uuid::new_v4());
+        let handle = tokio::spawn(async move {
+            let semaphore = Arc::new(Semaphore::new(8));
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let Ok(permit) = semaphore.clone().try_acquire_owned() else {
+                    drop(stream);
+                    continue;
+                };
+                let bridge = relay_bridge.clone();
+                let guard = unexposed_guard.clone();
+                let bound = bound.clone();
+                tokio::spawn(async move {
+                    let _permit = permit;
+                    let stream: BoxStream = Box::new(stream);
+                    let _ = tokio::time::timeout(
+                        Duration::from_secs(10),
+                        connection(stream, bridge, &guard, Some(&bound)),
+                    )
+                    .await;
+                });
+            }
+        });
+        relays.insert(reality.id.to_string(), RealityRelay { path, handle });
+    }
+    Ok(())
+}
+
 async fn frame<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Result<Vec<u8>> {
     let mut line = Vec::new();
     loop {
@@ -201,7 +306,12 @@ fn token_matches(a: &str, b: &str) -> bool {
             .fold(0u8, |diff, (x, y)| diff | (x ^ y))
             == 0
 }
-async fn connection(stream: BoxStream, bridge: Arc<Bridge>, token: &str) -> Result<()> {
+async fn connection(
+    stream: BoxStream,
+    bridge: Arc<Bridge>,
+    token: &str,
+    bound_reality: Option<&crate::core::RealityId>,
+) -> Result<()> {
     let mut stream = BufReader::new(stream);
     let bytes = frame(&mut stream).await?;
     let raw: serde_json::Value =
@@ -211,9 +321,7 @@ async fn connection(stream: BoxStream, bridge: Arc<Bridge>, token: &str) -> Resu
         .filter(|s| s.len() <= 128)
         .unwrap_or("")
         .to_owned();
-    let result = if !token_matches(raw["token"].as_str().unwrap_or(""), token) {
-        Err(("unauthorized", "Bridge authentication failed".into()))
-    } else if raw["protocol_version"] != PROTOCOL_VERSION {
+    let result = if raw["protocol_version"] != PROTOCOL_VERSION {
         Err((
             "unsupported_protocol",
             "Expected hardknock.bridge.v1".into(),
@@ -226,10 +334,24 @@ async fn connection(stream: BoxStream, bridge: Arc<Bridge>, token: &str) -> Resu
     } else {
         match serde_json::from_value::<BridgeEnvelope<AgentEvent>>(raw) {
             Err(_) => Err(("invalid_event", "Malformed or unknown event fields".into())),
-            Ok(envelope) => tokio::task::spawn_blocking(move || bridge.handle(envelope.payload))
-                .await
-                .map_err(|_| invalid("Bridge handler failed"))?
-                .map_err(|e| ("rejected", super::privacy::redact(&e.to_string(), 512))),
+            Ok(envelope) => {
+                let authenticated = token_matches(&envelope.token, token)
+                    || authenticate_reality_capability(
+                        &bridge.home,
+                        &envelope.token,
+                        &envelope.payload,
+                        bound_reality,
+                    )
+                    .unwrap_or(false);
+                if !authenticated {
+                    Err(("unauthorized", "Bridge authentication failed".into()))
+                } else {
+                    tokio::task::spawn_blocking(move || bridge.handle(envelope.payload))
+                        .await
+                        .map_err(|_| invalid("Bridge handler failed"))?
+                        .map_err(|e| ("rejected", super::privacy::redact(&e.to_string(), 512)))
+                }
+            }
         }
     };
     let (payload, error) = match result {
@@ -253,6 +375,45 @@ async fn connection(stream: BoxStream, bridge: Arc<Bridge>, token: &str) -> Resu
     bytes.push(b'\n');
     stream.get_mut().write_all(&bytes).await?;
     Ok(())
+}
+
+fn authenticate_reality_capability(
+    home: &Path,
+    encoded: &str,
+    event: &AgentEvent,
+    bound_reality: Option<&crate::core::RealityId>,
+) -> Result<bool> {
+    use crate::{
+        capability::{
+            CapabilityTokenAuthority, RealityTokenOperation, SignedRealityCapabilityToken,
+        },
+        store::{CapabilityStore, Store, token_hash},
+    };
+    let (reality_id, operation) = match event {
+        AgentEvent::RealityEffectProposed { reality_id, .. } => {
+            (reality_id, RealityTokenOperation::EffectPrepare)
+        }
+        AgentEvent::RealityEffectStatus { reality_id, .. } => {
+            (reality_id, RealityTokenOperation::EffectStatus)
+        }
+        AgentEvent::RealityEffectDiscardRequested { reality_id, .. } => {
+            (reality_id, RealityTokenOperation::EffectDiscard)
+        }
+        _ => return Ok(false),
+    };
+    let signed: SignedRealityCapabilityToken =
+        serde_json::from_str(encoded).map_err(|_| invalid("Malformed Reality capability token"))?;
+    if signed.claims.reality_id != *reality_id
+        || bound_reality.is_some_and(|bound| bound != reality_id)
+    {
+        return Ok(false);
+    }
+    let store = Store::open(home)?;
+    let reality = store.reality(reality_id)?;
+    let manifest = store.effective_capability_manifest(reality_id)?;
+    CapabilityTokenAuthority::load_or_create(home)?
+        .verify(&signed, &reality, &manifest, operation)?;
+    Ok(!store.capability_token_revoked(&token_hash(&signed)?)?)
 }
 #[derive(Clone)]
 pub struct BridgeClient {

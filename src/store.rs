@@ -17,7 +17,9 @@ use crate::{
     core::{ArtifactRef, ExecutionId, ExecutionRecord, Reality, RealityId},
 };
 
+mod capabilities;
 mod effects;
+pub use capabilities::{CapabilityStore, token_hash};
 mod experiences;
 mod experiments;
 pub use effects::EffectStore;
@@ -105,7 +107,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 11 {
+        if version > 12 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -153,6 +155,10 @@ impl Store {
         if version < 11 {
             tx.execute_batch(include_str!("../migrations/011_effects.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (11)", [])?;
+        }
+        if version < 12 {
+            tx.execute_batch(include_str!("../migrations/012_capabilities.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (12)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

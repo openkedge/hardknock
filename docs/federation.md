@@ -38,6 +38,8 @@ Imported Reflexes can warn only: any requested `WARN`, `REPLAN`, or `BLOCK` is r
 
 Node, agent, repository, and context counts describe diversity. They do not establish independence. Nodes can share a model, prompt, evaluator, test suite, documentation, dependency, or upstream defect. Hardknock therefore does not vote on claims, infer correctness from popularity, or count a re-exported lineage twice.
 
+V0.9 Experience evidence can include execution assurance: provider/security levels, capability manifest hash/revision, image digest when observed, network mode, credential isolation, Effect gating, and frozen state. This metadata improves interpretation but is producer-supplied signed provenance, not remote attestation. A receiving node must not treat `container` as a hardened sandbox or infer that an unobserved runtime test passed.
+
 ## Configuration
 
 ```toml
@@ -53,4 +55,3 @@ The size defaults are 50 MiB per bundle, 10,000 objects, 10 MiB per artifact (re
 ## Threats
 
 Signatures address tampering and attribution, not experience poisoning. The safety design assumes peers or signing keys may be compromised and Lessons may be plausible but harmful. Advisory defaults, context visibility, local experiments, contradiction retention, lineage deduplication, no automatic blocking/recovery, conservative parsing, and local peer blocking limit the impact. There is no popularity score or global trust declaration.
-

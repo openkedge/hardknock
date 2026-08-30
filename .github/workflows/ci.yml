@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  quality:
     strategy:
       fail-fast: false
       matrix:
@@ -23,4 +23,72 @@ jobs:
         run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
-      - run: cargo test --locked --all-targets
+
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - run: cargo test --locked --lib --bins
+
+  integration-local:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - run: cargo test --locked --tests
+
+  integration-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - run: docker pull alpine:3.20
+      - name: Run live container boundary test
+        env:
+          HARDKNOCK_TEST_CONTAINER: "1"
+          HARDKNOCK_TEST_CONTAINER_IMAGE: alpine:3.20
+        run: cargo test --locked --test security optional_live_container -- --nocapture
+
+  optional-real-adapters:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: hardknock-test
+          POSTGRES_DB: hardknock_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d hardknock_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Run PostgreSQL adapter transaction test
+        env:
+          HARDKNOCK_TEST_POSTGRES_URL: postgresql://postgres:hardknock-test@127.0.0.1:5432/hardknock_test
+        run: cargo test --locked --test security optional_real_postgres -- --nocapture

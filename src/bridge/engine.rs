@@ -354,6 +354,57 @@ impl Bridge {
                     "message":"The effect is prepared only. No authoritative external mutation has occurred."
                 }))
             }
+            AgentEvent::RealityEffectProposed { reality_id, mut request } => {
+                request.reality_id = Some(reality_id.clone());
+                request.session_id = format!("reality:{reality_id}");
+                request.evidence.truncate(128);
+                let store = Store::open(&self.home)?;
+                let manager = crate::effects::EffectManager::new(&store)?;
+                let (effect, prepared) = manager.propose_and_prepare(
+                    request,
+                    &crate::effects::EffectManager::agent_context(&format!(
+                        "isolated-reality:{reality_id}"
+                    )),
+                )?;
+                Ok(json!({
+                    "effect_id":effect.id,
+                    "status":"prepared",
+                    "committed":false,
+                    "preview":prepared.preview,
+                    "message":"Prepared through the scoped Reality channel. No authoritative external mutation occurred."
+                }))
+            }
+            AgentEvent::RealityEffectStatus { reality_id, effect_id } => {
+                let store = Store::open(&self.home)?;
+                let effect = store.effect(&effect_id)?;
+                if effect.reality_id.as_ref() != Some(&reality_id) {
+                    return Err(Error::Intervention(
+                        "Effect is outside the authenticated Reality scope".into(),
+                    ));
+                }
+                Ok(json!({
+                    "effect":effect,
+                    "events":store.effect_events(&effect_id)?,
+                    "prepared":store.prepared_effect(&effect_id).ok(),
+                    "committed":store.commit_receipt_for_effect(&effect_id)?
+                }))
+            }
+            AgentEvent::RealityEffectDiscardRequested { reality_id, effect_id } => {
+                let store = Store::open(&self.home)?;
+                let effect = store.effect(&effect_id)?;
+                if effect.reality_id.as_ref() != Some(&reality_id) {
+                    return Err(Error::Intervention(
+                        "Effect is outside the authenticated Reality scope".into(),
+                    ));
+                }
+                let effect = crate::effects::EffectManager::new(&store)?.discard(
+                    &effect_id,
+                    &crate::effects::EffectManager::agent_context(&format!(
+                        "isolated-reality:{reality_id}"
+                    )),
+                )?;
+                Ok(json!({"effect":effect,"committed":false}))
+            }
             AgentEvent::EffectCommitRequested { hardknock_session_id, effect_id } => {
                 let agent = self.with_session(&hardknock_session_id, |session| Ok(session.agent.name.clone()))?;
                 let store = Store::open(&self.home)?;

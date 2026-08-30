@@ -35,6 +35,9 @@ impl EffectAdapterRegistry {
         registry.register(Arc::new(MockDatabaseEffectAdapter::new(home)?))?;
         registry.register(Arc::new(MockMessageEffectAdapter::new(home)?))?;
         registry.register(Arc::new(ShadowDeploymentEffectAdapter::new(home)?))?;
+        if let Some(adapter) = PostgresEffectAdapter::from_home(home)? {
+            registry.register(Arc::new(adapter))?;
+        }
         Ok(registry)
     }
     pub fn register(&mut self, adapter: Arc<dyn EffectAdapter>) -> Result<()> {

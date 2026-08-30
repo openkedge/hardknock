@@ -8,6 +8,7 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
+pub(crate) mod capability;
 pub mod curriculum;
 mod development;
 mod effects;
@@ -38,8 +39,8 @@ use crate::{
         DeterministicRetriever, LessonRetriever, QueryContext, RetrievalOptions, RetrievalReport,
     },
     store::{
-        ExperienceQuery, ExperienceStore, ExperienceSummary, LessonQuery, LessonStore,
-        LessonSummary, Store, artifact,
+        CapabilityStore, ExperienceQuery, ExperienceStore, ExperienceSummary, LessonQuery,
+        LessonStore, LessonSummary, Store, artifact,
     },
     workflow::{RunRequest, RunResult},
 };
@@ -89,6 +90,11 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Inspect, explain, audit, compare, and revoke execution capabilities.
+    Capability {
+        #[command(subcommand)]
+        command: capability::CapabilityCommand,
+    },
     /// Prepare, inspect, explicitly commit, discard, and reconcile governed effects.
     Effect {
         #[command(subcommand)]
@@ -235,6 +241,12 @@ pub enum Commands {
 #[derive(Debug, Args)]
 #[command(group(clap::ArgGroup::new("runner").required(true).args(["agent_command", "agent", "script"])))]
 pub struct RunArgs {
+    #[arg(long, value_enum, default_value = "git-worktree")]
+    pub provider: RealityProviderChoice,
+    #[arg(long = "capabilities", requires = "provider")]
+    pub capability_profile: Option<String>,
+    #[arg(long, requires = "capability_profile")]
+    pub image: Option<String>,
     #[arg(long, help = "Maximum additional executions shared by controlled trials and retries", value_parser = clap::value_parser!(u32).range(0..=100))]
     pub experience_budget: Option<u32>,
     #[arg(
@@ -432,7 +444,14 @@ pub enum ExperimentCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum RealityCommand {
-    Create,
+    Create {
+        #[arg(long, value_enum, default_value = "git-worktree")]
+        provider: RealityProviderChoice,
+        #[arg(long)]
+        profile: Option<String>,
+        #[arg(long, requires = "profile")]
+        image: Option<String>,
+    },
     List,
     Tree,
     Export {
@@ -442,6 +461,17 @@ pub enum RealityCommand {
     },
     Show {
         id: RealityId,
+    },
+    Inspect {
+        id: RealityId,
+    },
+    Freeze {
+        id: RealityId,
+    },
+    Execute {
+        id: RealityId,
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
     },
     /// Recreate the parent's original snapshot, not its current modifications.
     Fork {
@@ -459,6 +489,12 @@ pub enum RealityCommand {
     Cleanup,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum RealityProviderChoice {
+    GitWorktree,
+    Container,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum ExecutionCommand {
     List,
@@ -474,8 +510,12 @@ pub enum ExperienceCommand {
 }
 
 #[derive(Serialize)]
+#[allow(clippy::large_enum_variant)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Capability {
+        result: serde_json::Value,
+    },
     Effects {
         result: serde_json::Value,
     },
@@ -618,6 +658,10 @@ impl Response {
             return Ok(());
         }
         match self {
+            Self::Capability { result } => {
+                serde_json::to_writer_pretty(&mut stdout, result)?;
+                writeln!(stdout)?;
+            }
             Self::Effects { result } => effects::print(result, &mut stdout)?,
             Self::Federation { result } => federation::print(result, &mut stdout)?,
             Self::Curriculum { result } => result.print(&mut stdout)?,
@@ -1097,6 +1141,18 @@ pub fn warning(json: bool) -> Result<()> {
     Ok(())
 }
 
+fn container_provider<'a>(
+    store: &'a Store,
+    image: Option<&str>,
+) -> Result<crate::capability::ContainerRealityProvider<'a>> {
+    let runtime = crate::capability::ContainerRuntime::detect()?;
+    crate::capability::ContainerRealityProvider::with_runtime(
+        store,
+        runtime,
+        image.unwrap_or(crate::capability::DEFAULT_CONTAINER_IMAGE),
+    )
+}
+
 pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     let raw_home = cli
         .home
@@ -1126,7 +1182,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                 command: LessonCommand::Search { .. } | LessonCommand::Test { .. }
             }
             | Commands::Reality {
-                command: RealityCommand::Create
+                command: RealityCommand::Create { .. }
             }
     ) {
         let state = capture_state(&cli.repo)?;
@@ -1167,6 +1223,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if capability::handles(&cli.command) {
+        return Ok(Response::Capability {
+            result: capability::execute(cli, &store)?,
+        });
+    }
     if effects::handles(&cli.command) {
         return Ok(Response::Effects {
             result: effects::execute(cli, &store)?,
@@ -1211,6 +1272,9 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
+        Commands::Capability { .. } => {
+            Err(Error::InvalidInput("Capability dispatch failed".into()))
+        }
         Commands::Effect { .. } => Err(Error::InvalidInput("Effect dispatch failed".into())),
         Commands::Peer { .. }
         | Commands::Federate { .. }
@@ -1247,7 +1311,15 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             counts: store.status_counts()?,
         }),
         Commands::Run(args) => {
-            warning(cli.json)?;
+            if args.provider == RealityProviderChoice::GitWorktree {
+                if args.capability_profile.is_some() || args.image.is_some() {
+                    return Err(Error::Intervention(
+                        "Git worktrees cannot enforce capability profiles; use --provider container"
+                            .into(),
+                    ));
+                }
+                warning(cli.json)?;
+            }
             let state =
                 state.ok_or_else(|| Error::InvalidInput("Missing starting state".into()))?;
             let (mut spec, agent, replay) = args.adapter()?;
@@ -1275,22 +1347,72 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                     .map(|s| ActionPattern::shell(s))
                     .collect()
             };
+            let request = RunRequest {
+                state,
+                goal: args.task.clone(),
+                agent,
+                command: spec,
+                evaluation: EvaluationSpec {
+                    checks: args.checks.clone(),
+                },
+                timeout_secs: args.timeout_secs,
+                keep: args.keep,
+                replay,
+                perturbations: vec![],
+                expected_fingerprint: None,
+            };
+            let learning = RunLearningOptions {
+                enabled: !args.no_experience
+                    && (args.agent.is_some() || args.with_experience || args.retry_with_experience),
+                audit: args.agent.is_some() || args.no_experience,
+                fixture,
+                proposed_actions: actions,
+                retrieval: args.retrieval.options()?,
+                relations: vec![],
+                on_advice: if cli.quiet {
+                    None
+                } else {
+                    let json = cli.json;
+                    Some(std::sync::Arc::new(move |advice| {
+                        print_advice(advice, json)
+                    }))
+                },
+            };
+            if args.provider == RealityProviderChoice::Container {
+                if args.retry_with_experience || args.max_retries != 1 {
+                    return Err(Error::Intervention(
+                        "V0.9 container runs record one isolated Experience; automatic retry/reflection orchestration is not yet routed through the execution proxy"
+                            .into(),
+                    ));
+                }
+                let manifest = crate::capability::builtin_profile(
+                    args.capability_profile
+                        .as_deref()
+                        .unwrap_or("coding-offline"),
+                )?;
+                let run = crate::workflow::run_in_container(
+                    &store,
+                    request,
+                    &learning,
+                    manifest,
+                    args.image.as_deref(),
+                    cancel,
+                )
+                .await?;
+                return Ok(Response::RunCompleted {
+                    execution: Box::new(run.execution),
+                    reality: Box::new(run.reality),
+                    experience: Box::new(run.experience),
+                    lesson: None,
+                    experiment: None,
+                    retries: vec![],
+                    retry_stop_reason: "Container run completed without automatic retries".into(),
+                    interrupted: false,
+                });
+            }
             let cycle = execute_learning_run(
                 &store,
-                RunRequest {
-                    state,
-                    goal: args.task.clone(),
-                    agent,
-                    command: spec,
-                    evaluation: EvaluationSpec {
-                        checks: args.checks.clone(),
-                    },
-                    timeout_secs: args.timeout_secs,
-                    keep: args.keep,
-                    replay,
-                    perturbations: vec![],
-                    expected_fingerprint: None,
-                },
+                request,
                 LearningRunOptions {
                     experience_budget: args.experience_budget.map(|n| {
                         crate::bridge::protocol::ExperienceBudget {
@@ -1301,25 +1423,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                             ..Default::default()
                         }
                     }),
-                    learning: RunLearningOptions {
-                        enabled: !args.no_experience
-                            && (args.agent.is_some()
-                                || args.with_experience
-                                || args.retry_with_experience),
-                        audit: args.agent.is_some() || args.no_experience,
-                        fixture,
-                        proposed_actions: actions,
-                        retrieval: args.retrieval.options()?,
-                        relations: vec![],
-                        on_advice: if cli.quiet {
-                            None
-                        } else {
-                            let json = cli.json;
-                            Some(std::sync::Arc::new(move |advice| {
-                                print_advice(advice, json)
-                            }))
-                        },
-                    },
+                    learning,
                     auto_reflect: args.agent.is_some() && !args.no_experience,
                     retry: args.retry_with_experience,
                     max_retries: args.max_retries,
@@ -1484,13 +1588,61 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             RealityCommand::Tree | RealityCommand::Export { .. } => {
                 Err(Error::InvalidInput("Reality dispatch failed".into()))
             }
-            RealityCommand::Create => {
-                warning(cli.json)?;
+            RealityCommand::Create {
+                provider: selected,
+                profile,
+                image,
+            } => {
+                let state = state
+                    .as_ref()
+                    .ok_or_else(|| Error::InvalidInput("Missing starting state".into()))?;
+                let reality = match selected {
+                    RealityProviderChoice::GitWorktree => {
+                        if profile.is_some() || image.is_some() {
+                            return Err(Error::Intervention(
+                                "Git worktrees cannot enforce capability profiles; use --provider container"
+                                    .into(),
+                            ));
+                        }
+                        warning(cli.json)?;
+                        provider.create(state)?
+                    }
+                    RealityProviderChoice::Container => {
+                        let manifest = crate::capability::builtin_profile(
+                            profile.as_deref().unwrap_or("coding-offline"),
+                        )?;
+                        let container = container_provider(&store, image.as_deref())?;
+                        let mut reality =
+                            crate::capability::IsolatedRealityProvider::create_with_capabilities(
+                                &container, state, &manifest,
+                            )?;
+                        let token = match capability::issue_reality_token(&store, &reality)
+                            .and_then(|token| {
+                                capability::publish_reality_token(&store, &reality, &token)?;
+                                Ok(token)
+                            }) {
+                            Ok(token) => token,
+                            Err(primary) => {
+                                let cleanup = container.discard(&mut reality);
+                                return match cleanup {
+                                    Ok(()) => Err(primary),
+                                    Err(cleanup) => Err(Error::Cleanup {
+                                        primary: Box::new(primary),
+                                        cleanup: Box::new(cleanup),
+                                    }),
+                                };
+                            }
+                        };
+                        tracing::debug!(
+                            reality_id = %reality.id,
+                            token_id = %token.claims.id,
+                            "Issued scoped Reality capability token"
+                        );
+                        reality
+                    }
+                };
                 Ok(Response::Reality {
-                    reality: provider
-                        .create(&state.ok_or_else(|| {
-                            Error::InvalidInput("Missing starting state".into())
-                        })?)?,
+                    reality,
                     effects: None,
                 })
             }
@@ -1510,17 +1662,191 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                     })),
                 })
             }
-            RealityCommand::Fork { id } => {
-                warning(cli.json)?;
+            RealityCommand::Inspect { id } => {
+                let reality = store.reality(id)?;
+                let effects = crate::store::EffectStore::effects(&store, Some(id))?;
+                let (manifest, events, credentials) =
+                    if reality.execution_boundary.manifest_id.is_some() {
+                        (
+                            Some(store.effective_capability_manifest(id)?),
+                            store.capability_events(Some(id))?,
+                            store.issued_credentials(id)?,
+                        )
+                    } else {
+                        (None, vec![], vec![])
+                    };
+                let runtime = if reality.execution_boundary.provider == "container" {
+                    Some(
+                        store
+                            .provider_runtime::<crate::capability::ContainerRuntimeMetadata>(id)?,
+                    )
+                } else {
+                    None
+                };
+                let processes = if let Some(runtime) = &runtime {
+                    let provider = crate::capability::ContainerRealityProvider::with_runtime(
+                        &store,
+                        crate::capability::ContainerRuntime::named(&runtime.runtime)?,
+                        &runtime.image,
+                    )?;
+                    match provider.processes(&reality) {
+                        Ok(processes) => serde_json::json!({"observed":true,"listing":processes}),
+                        Err(error) => {
+                            serde_json::json!({"observed":false,"reason":error.to_string()})
+                        }
+                    }
+                } else {
+                    serde_json::json!({"observed":false,"reason":"provider has no isolated process namespace"})
+                };
+                let filesystem_diff = if reality.status != RealityStatus::Discarded {
+                    let diff = if reality.execution_boundary.provider == "container" {
+                        crate::capability::ContainerRealityProvider::with_runtime(
+                            &store,
+                            crate::capability::ContainerRuntime::named(
+                                &runtime.as_ref().expect("container runtime").runtime,
+                            )?,
+                            &runtime.as_ref().expect("container runtime").image,
+                        )?
+                        .diff(&reality)
+                    } else {
+                        provider.diff(&reality)
+                    };
+                    match diff {
+                        Ok(bytes) => {
+                            let maximum = 256 * 1024;
+                            let truncated = bytes.len() > maximum;
+                            let visible = &bytes[..bytes.len().min(maximum)];
+                            serde_json::json!({
+                                "available":true,
+                                "bytes":bytes.len(),
+                                "truncated":truncated,
+                                "patch":String::from_utf8_lossy(visible)
+                            })
+                        }
+                        Err(error) => {
+                            serde_json::json!({"available":false,"reason":error.to_string()})
+                        }
+                    }
+                } else {
+                    serde_json::json!({"available":false,"reason":"Reality is discarded; inspect saved diff artifacts"})
+                };
+                let violations: Vec<_> = events
+                    .iter()
+                    .filter(|event| {
+                        matches!(
+                            event.kind,
+                            crate::capability::CapabilityEventKind::Denied
+                                | crate::capability::CapabilityEventKind::ApprovalRequired
+                        )
+                    })
+                    .collect();
+                Ok(Response::Capability {
+                    result: serde_json::json!({
+                        "reality":reality,
+                        "runtime":runtime,
+                        "manifest":manifest,
+                        "network_policy":manifest.as_ref().map(|manifest| &manifest.network),
+                        "processes":processes,
+                        "pending_effects":effects.iter().filter(|effect| effect.lifecycle == crate::effects::EffectLifecycle::Prepared).collect::<Vec<_>>(),
+                        "issued_credentials":credentials,
+                        "violations":violations,
+                        "capability_events":events,
+                        "filesystem_diff":filesystem_diff
+                    }),
+                })
+            }
+            RealityCommand::Freeze { id } => {
                 let _lease = store.lock_reality(id)?;
+                let mut reality = store.reality(id)?;
+                if reality.execution_boundary.provider != "container" {
+                    return Err(Error::Intervention(
+                        "Freeze requires a container Reality".into(),
+                    ));
+                }
+                container_provider(&store, None)?.freeze(&mut reality)?;
                 Ok(Response::Reality {
-                    reality: provider.fork(&store.reality(id)?)?,
+                    reality,
+                    effects: None,
+                })
+            }
+            RealityCommand::Execute { id, command } => {
+                let _lease = store.lock_reality(id)?;
+                let reality = store.reality(id)?;
+                if reality.execution_boundary.provider != "container" {
+                    return Err(Error::Intervention(
+                        "Capability execution proxy requires a container Reality".into(),
+                    ));
+                }
+                let (program, args) = command
+                    .split_first()
+                    .ok_or_else(|| Error::InvalidInput("Command is required".into()))?;
+                let token = capability::issue_reality_token(&store, &reality)?;
+                capability::publish_reality_token(&store, &reality, &token)?;
+                let proxy = crate::capability::CapabilityExecutionProxy::new(
+                    &store,
+                    crate::capability::SecretRedactor::default(),
+                )?;
+                let artifacts = store
+                    .home
+                    .join("artifacts")
+                    .join(format!("capability-action-{}", uuid::Uuid::new_v4()));
+                let result = crate::capability::ToolExecutionProxy::execute(
+                    &proxy,
+                    &reality,
+                    &token,
+                    &crate::capability::NormalizedAction::Shell(CommandSpec {
+                        program: program.clone(),
+                        args: args.to_vec(),
+                        environment: EnvironmentMode::Controlled,
+                        environment_overrides: Default::default(),
+                    }),
+                    &artifacts,
+                )
+                .await?;
+                let crate::capability::ActionResult::Process { status, action } = result else {
+                    return Err(Error::InvalidInput(
+                        "Shell proxy returned a non-process result".into(),
+                    ));
+                };
+                let stdout = String::from_utf8_lossy(&fs::read(&action.stdout.path)?).into_owned();
+                let stderr = String::from_utf8_lossy(&fs::read(&action.stderr.path)?).into_owned();
+                Ok(Response::Capability {
+                    result: serde_json::json!({
+                        "reality":id,
+                        "status":status,
+                        "action":action,
+                        "stdout":stdout,
+                        "stderr":stderr
+                    }),
+                })
+            }
+            RealityCommand::Fork { id } => {
+                let _lease = store.lock_reality(id)?;
+                let original = store.reality(id)?;
+                let reality = if original.execution_boundary.provider == "container" {
+                    let mut reality = container_provider(&store, None)?.fork(&original)?;
+                    let token = capability::issue_reality_token(&store, &reality)?;
+                    capability::publish_reality_token(&store, &reality, &token)?;
+                    reality.parent = Some(original.id);
+                    store.update_reality(&reality)?;
+                    reality
+                } else {
+                    warning(cli.json)?;
+                    provider.fork(&original)?
+                };
+                Ok(Response::Reality {
+                    reality,
                     effects: None,
                 })
             }
             RealityCommand::Diff { id } => {
                 let _lease = store.lock_reality(id)?;
-                let patch = provider.diff(&store.reality(id)?)?;
+                let reality = store.reality(id)?;
+                let patch = if reality.execution_boundary.provider == "container" {
+                    container_provider(&store, None)?.diff(&reality)?
+                } else {
+                    provider.diff(&reality)?
+                };
                 let path = store
                     .home
                     .join("artifacts")
@@ -1535,7 +1861,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                 let _lease = store.lock_reality(id)?;
                 let mut reality = store.reality(id)?;
                 crate::effects::EffectManager::new(&store)?.discard_reality(id)?;
-                provider.discard(&mut reality)?;
+                if reality.execution_boundary.provider == "container" {
+                    container_provider(&store, None)?.discard(&mut reality)?;
+                } else {
+                    provider.discard(&mut reality)?;
+                }
                 Ok(Response::Reality {
                     reality,
                     effects: None,
@@ -1563,7 +1893,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                         continue;
                     }
                     crate::effects::EffectManager::new(&store)?.discard_reality(&reality.id)?;
-                    provider.discard(&mut reality)?;
+                    if reality.execution_boundary.provider == "container" {
+                        container_provider(&store, None)?.discard(&mut reality)?;
+                    } else {
+                        provider.discard(&mut reality)?;
+                    }
                     discarded.push(reality.id);
                 }
                 Ok(Response::CleanupCompleted {

@@ -84,6 +84,76 @@ pub async fn run_with_learning(
     run_configured(store, request, learning, None, cancel).await
 }
 
+/// Run the agent execution plane inside a capability-isolated container while
+/// keeping Hardknock reasoning, evaluation, effect authority, and evidence on
+/// the trusted host plane. Evaluator commands remain trusted host operations in
+/// V0.9 and are explicitly not attributed to the agent container.
+pub async fn run_in_container(
+    store: &Store,
+    request: RunRequest,
+    learning: &RunLearningOptions,
+    mut manifest: crate::capability::CapabilityManifest,
+    image: Option<&str>,
+    cancel: &Cancellation,
+) -> Result<RunResult> {
+    request.evaluation.validate()?;
+    if cancel.is_cancelled() {
+        return Err(Error::Intervention(
+            "Run cancelled before creating a Reality".into(),
+        ));
+    }
+    let requested_timeout = request.timeout_secs.saturating_mul(1000);
+    manifest.resources.timeout_ms = Some(
+        manifest
+            .resources
+            .timeout_ms
+            .unwrap_or(requested_timeout)
+            .min(requested_timeout),
+    );
+    let runtime = crate::capability::ContainerRuntime::detect()?;
+    let provider = crate::capability::ContainerRealityProvider::with_runtime(
+        store,
+        runtime,
+        image.unwrap_or(crate::capability::DEFAULT_CONTAINER_IMAGE),
+    )?;
+    let mut reality = crate::capability::IsolatedRealityProvider::create_with_capabilities(
+        &provider,
+        &request.state,
+        &manifest,
+    )?;
+    let _token =
+        match crate::cli::capability::issue_reality_token(store, &reality).and_then(|token| {
+            crate::cli::capability::publish_reality_token(store, &reality, &token)?;
+            Ok(token)
+        }) {
+            Ok(token) => token,
+            Err(primary) => {
+                return match provider.discard(&mut reality) {
+                    Ok(()) => Err(primary),
+                    Err(cleanup) => Err(Error::Cleanup {
+                        primary: Box::new(primary),
+                        cleanup: Box::new(cleanup),
+                    }),
+                };
+            }
+        };
+    let lease = store.lock_reality(&reality.id)?;
+    execute_prepared(
+        store,
+        request,
+        learning,
+        None,
+        cancel,
+        PreparedTrial {
+            reality,
+            lease,
+            experiment: None,
+            commands: None,
+        },
+    )
+    .await
+}
+
 pub async fn run_with_resilience(
     store: &Store,
     request: RunRequest,
@@ -186,14 +256,14 @@ async fn execute_prepared(
         } else if let Some(commands) = &commands {
             let mut last_status = crate::core::ProcessStatus::Succeeded;
             for (i, command) in commands.iter().enumerate() {
-                let (status, action) = ProcessRunner.run(command, &reality.root, &artifacts.join(format!("agent-{i}")), Duration::from_secs(request.timeout_secs), cancel.cancelled()).await?;
+                let (status, action) = run_reality_process(store, &reality, command, &artifacts.join(format!("agent-{i}")), request.timeout_secs, cancel).await?;
                 trial_actions.push(action);
                 last_status = status;
                 if status != crate::core::ProcessStatus::Succeeded { break; }
             }
             (last_status, trial_actions.last().cloned().ok_or_else(|| Error::InvalidInput("Trial has no commands".into()))?)
         } else {
-            ProcessRunner.run(&request.command, &reality.root, &artifacts.join("agent"), Duration::from_secs(request.timeout_secs), cancel.cancelled()).await?
+            run_reality_process(store, &reality, &request.command, &artifacts.join("agent"), request.timeout_secs, cancel).await?
         };
         let agent_diff = artifacts.join("agent.diff.patch");
         fs::write(&agent_diff, provider.diff(&reality)?)?;
@@ -233,7 +303,15 @@ async fn execute_prepared(
             starting_state: request.state, reality_id: reality.id.clone(), execution_id: execution.id.clone(), agent: request.agent,
             actions, perturbations, outcome: Outcome::from_evaluation(&evaluation),
             failure_signatures: signatures, evaluation,
-            evidence: EvidenceBundle { artifacts: evidence }, replay,
+            evidence: EvidenceBundle {
+                artifacts: evidence,
+                execution_assurance: Some(crate::capability::ExecutionAssurance {
+                    reality_provider: reality.execution_boundary.provider.clone(),
+                    isolation: reality.execution_boundary.capabilities.clone(),
+                    capability_manifest_hash: reality.execution_boundary.manifest_hash.clone(),
+                    external_effect_gating: reality.execution_boundary.capabilities.external_effect_control == crate::capability::EffectControlLevel::Gated,
+                }),
+            }, replay,
             lesson_applications:observation.applications, relations:observation.relations, repeated_mistakes:observation.mistakes,
             observed_actions:observation.actions, application_report_errors:observation.errors,
             resilience: runtime.map(|r|r.observation),
@@ -262,7 +340,14 @@ async fn execute_prepared(
         }
         store.update_reality(&reality)
     } else {
-        provider.discard(&mut reality)
+        if reality.execution_boundary.provider == "container" {
+            crate::effects::EffectManager::new(store)
+                .and_then(|manager| manager.discard_reality(&reality.id))
+                .and_then(|_| crate::capability::ContainerRealityProvider::new(store))
+                .and_then(|container| container.discard(&mut reality))
+        } else {
+            provider.discard(&mut reality)
+        }
     };
     match (result, cleanup) {
         (Ok((execution, experience)), Ok(())) => Ok(RunResult {
@@ -280,5 +365,50 @@ async fn execute_prepared(
             source: Box::new(error),
         }),
         (Err(error), _) | (_, Err(error)) => Err(error),
+    }
+}
+
+async fn run_reality_process(
+    store: &Store,
+    reality: &Reality,
+    command: &CommandSpec,
+    artifacts: &std::path::Path,
+    timeout_secs: u64,
+    cancel: &Cancellation,
+) -> Result<(crate::core::ProcessStatus, crate::core::ActionRecord)> {
+    if reality.execution_boundary.provider != "container" {
+        return ProcessRunner
+            .run(
+                command,
+                &reality.root,
+                artifacts,
+                Duration::from_secs(timeout_secs),
+                cancel.cancelled(),
+            )
+            .await;
+    }
+    if cancel.is_cancelled() {
+        return Err(Error::Intervention(
+            "Run cancelled before container action".into(),
+        ));
+    }
+    let token = crate::cli::capability::issue_reality_token(store, reality)?;
+    let proxy = crate::capability::CapabilityExecutionProxy::new(
+        store,
+        crate::capability::SecretRedactor::default(),
+    )?;
+    let result = crate::capability::ToolExecutionProxy::execute(
+        &proxy,
+        reality,
+        &token,
+        &crate::capability::NormalizedAction::Shell(command.clone()),
+        artifacts,
+    )
+    .await?;
+    match result {
+        crate::capability::ActionResult::Process { status, action } => Ok((status, action)),
+        _ => Err(Error::InvalidInput(
+            "Container shell proxy returned a non-process result".into(),
+        )),
     }
 }

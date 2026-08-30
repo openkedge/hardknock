@@ -192,6 +192,7 @@ pub fn record(
         experiment_id: None,
         candidate_id: None,
         effect_ledger: None,
+        execution_boundary: Default::default(),
         id: RealityId::new(),
         parent: None,
         root: session.cwd.clone(),
@@ -380,7 +381,15 @@ pub fn record(
         outcome: Outcome::from_evaluation(&evaluation),
         evaluation,
         failure_signatures,
-        evidence: EvidenceBundle { artifacts },
+        evidence: EvidenceBundle {
+            artifacts,
+            execution_assurance: Some(crate::capability::ExecutionAssurance {
+                reality_provider: "external-workspace".into(),
+                isolation: crate::capability::RealityProviderCapabilities::git_worktree(),
+                capability_manifest_hash: None,
+                external_effect_gating: false,
+            }),
+        },
         tags: vec![
             "bridge-lifecycle-v1".into(),
             "external-workspace-not-isolated".into(),

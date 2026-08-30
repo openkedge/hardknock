@@ -103,6 +103,11 @@ identifier!(EffectInvariantId, "effect-invariant-");
 identifier!(CommitAuthorizationId, "authorization-");
 identifier!(ExternalStateSnapshotId, "snapshot-");
 identifier!(ReconciliationAttemptId, "reconcile-");
+identifier!(CapabilityManifestId, "capability-manifest-");
+identifier!(CapabilityEventId, "capability-event-");
+identifier!(CapabilityTokenId, "capability-token-");
+identifier!(CredentialId, "credential-");
+identifier!(CapabilityEscalationId, "capability-escalation-");
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateRef {
@@ -136,6 +141,10 @@ pub struct Reality {
     /// The append-only external effect history associated with this Reality.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect_ledger: Option<EffectLedgerId>,
+    /// Truthful execution-boundary metadata. Older Realities deserialize as a
+    /// cooperative Git worktree rather than being upgraded to a stronger claim.
+    #[serde(default)]
+    pub execution_boundary: crate::capability::ExecutionBoundary,
     pub root: PathBuf,
     pub starting_state: StateRef,
     pub created_at: DateTime<Utc>,

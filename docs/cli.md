@@ -1,5 +1,31 @@
 # CLI reference
 
+## Capability-isolated execution (V0.9)
+
+```text
+hardknock capability list
+hardknock capability show <profile>
+hardknock capability validate <json-or-toml>
+hardknock capability explain <reality-id> --request '<CapabilityRequest JSON>'
+hardknock capability audit [--reality <id>]
+hardknock capability diff <left-profile> <right-profile>
+hardknock capability revoke --reality <id> <network|process|credentials|effects>
+hardknock capability benchmark [--output <json>]
+
+hardknock --repo <repo> reality create --provider container [--profile coding-offline] [--image <reference>]
+hardknock reality inspect <id>
+hardknock reality execute <id> -- <argv...>
+hardknock reality freeze <id>
+
+hardknock --repo <repo> run --provider container [--capabilities <profile>] [--image <reference>] <agent options> <task>
+```
+
+Container runs default to `coding-offline` and `debian:bookworm-slim`. Git worktrees reject `--capabilities`/`--image` because they cannot enforce the manifest. A container run records one isolated Experience; V0.9 rejects `--retry-with-experience` and a non-default retry count because retry/reflection subprocesses are not yet routed through the execution proxy.
+
+`reality inspect` reports provider security claims, manifest hash/revision, image digest, runtime metadata, running processes, pending Effects, credentials, violations, network policy, and diff. `freeze` stops new process execution, revokes token/credentials, prevents new Effect preparation, and preserves inspection state. Resume is not implemented.
+
+Inside a container image that includes the separate `hk-effect` binary, `hk-effect propose`, `hk-effect status`, and `hk-effect discard` use `/run/hardknock/bridge.sock` and the Reality token. The default Debian image does not bundle Hardknock. There is deliberately no `hk-effect commit`. Bridge must be running to publish the per-Reality relay. See [capabilities](capabilities.md) and [container Realities](container-realities.md).
+
 ## Governed effects (V0.8)
 
 ```text
@@ -191,8 +217,12 @@ Retirement accepts an optional reason and records time/reason in a new revision,
 
 ```bash
 hardknock reality create
+hardknock reality create --provider container --profile coding-offline
 hardknock reality list
 hardknock reality show r-<uuid>
+hardknock reality inspect r-<uuid>
+hardknock reality execute r-<uuid> -- /bin/sh -lc 'make test'
+hardknock reality freeze r-<uuid>
 hardknock reality fork r-<uuid>
 hardknock reality diff r-<uuid>
 hardknock reality discard r-<uuid>
@@ -201,7 +231,7 @@ hardknock reality cleanup
 
 Create uses `--repo`; subsequent operations use persisted repository references. Fork recreates the original commit, not the parent's modifications. Diff includes tracked/nonignored files against that commit, with patch bytes in human mode and an artifact reference in JSON mode. Saved diffs remain available after disposal.
 
-Discard removes only the selected managed worktree, retains records/artifacts, and refuses active leases or unsafe paths. Cleanup removes unlocked automatic-run orphans, skipping manual, kept, or capture-failure Realities. Stop abandoned commands before cleanup; escaped descendants and external effects cannot be undone.
+Discard removes the selected provider resources while retaining records/artifacts, and refuses active leases or unsafe paths. For a container it also removes its internal network, token, relay, credentials, and underlying managed worktree. Cleanup removes unlocked automatic-run orphans, skipping manual, kept, or capture-failure Realities. Stop abandoned commands before cleanup; escaped descendants and external effects cannot be undone.
 
 ## Global flags and JSON
 

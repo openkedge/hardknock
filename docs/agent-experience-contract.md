@@ -45,3 +45,13 @@ The Bridge accepts `effect_proposed`, `effect_commit_requested`, `effect_discard
 Bridge agents receive observe/propose/prepare capability and may discard their uncommitted staging. They do not receive commit or compensate capability. `effect_commit_requested` therefore records a rejected attempt and returns `authorization_required`; model text such as “I approve” cannot substitute for user, CI, policy, or external approval authority.
 
 This is explicit tool use, not transparent interception. Native tool calls, shell commands, and network requests outside the registered effect tools retain the ordinary host boundary.
+
+## Capability-isolated agent execution (V0.9)
+
+An integrated container agent uses host-mediated reasoning and Reality-mediated execution. Hardknock creates a manifest before the agent command, issues a signed token bound to the Reality/manifest revision, and routes shell/file tools through the execution proxy. The model's host credential does not enter the container.
+
+The per-Reality Bridge relay accepts only that Reality's token. `hk-effect` exposes propose, status, and discard; proposal may prepare but always returns `committed:false`. The relay never exposes commit, and the Effect Manager repeats exact kind/target/operation/action checks after authentication. A model statement or stolen token from another Reality cannot become mutation approval.
+
+Capability denials are observable events that may explain a failed attempt or suggest a later user-reviewed profile revision. They are not permission for the agent to broaden its own manifest. Experience/federation records retain execution-assurance metadata so a receiver can distinguish cooperative worktree evidence from container-gated evidence.
+
+Container integration currently covers one execution. Native lifecycle adapters still observe their host workspace and are not retroactively contained. Automatic retry/reflection and the trusted evaluator remain host-side until those execution paths are routed through the proxy.

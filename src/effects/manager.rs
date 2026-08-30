@@ -3,6 +3,10 @@ use super::*;
 use crate::{
     Error, Result,
     application::ExperienceRelation,
+    capability::{
+        CapabilityDecision, CapabilityEvent, CapabilityEventKind, CapabilityPolicy,
+        CapabilityRequest, DenyByDefaultCapabilityPolicy, EffectCapabilityStage,
+    },
     core::{
         ActionRecord, AgentIdentity, ArtifactKind, CommandSpec, EffectGroupId, EffectId,
         EffectPlanId, EnvironmentMode, ExecutionId, ExecutionRecord, ExperienceId, ProcessStatus,
@@ -13,7 +17,7 @@ use crate::{
         EnvironmentContext, EvidenceBundle, Experience, ExperienceContext, Outcome,
         RepositoryContext,
     },
-    store::{EffectStore, ExperienceStore, Store, artifact},
+    store::{CapabilityStore, EffectStore, ExperienceStore, Store, artifact},
 };
 use chrono::Utc;
 use serde_json::{Value, json};
@@ -80,6 +84,7 @@ impl EffectManager<'_> {
             experiment_id: None,
             candidate_id: None,
             effect_ledger: None,
+            execution_boundary: Default::default(),
             root: self.store.home.join("effects"),
             starting_state: starting_state.clone(),
             created_at: Utc::now(),
@@ -227,6 +232,12 @@ impl EffectManager<'_> {
                     check_action.stdout,
                     check_action.stderr,
                 ],
+                execution_assurance: Some(crate::capability::ExecutionAssurance {
+                    reality_provider: "hardknock-host-effect-adapter".into(),
+                    isolation: crate::capability::RealityProviderCapabilities::git_worktree(),
+                    capability_manifest_hash: None,
+                    external_effect_gating: true,
+                }),
             },
             tags: vec!["authoritative-effect".into(), format!("effect:{kind}")],
             replay: None,
@@ -244,6 +255,56 @@ impl EffectManager<'_> {
     }
 }
 impl<'a> EffectManager<'a> {
+    fn enforce_reality_capability(
+        &self,
+        reality_id: Option<&RealityId>,
+        stage: EffectCapabilityStage,
+        kind: EffectKind,
+        target: &str,
+        operation: &EffectOperation,
+    ) -> Result<()> {
+        let Some(reality_id) = reality_id else {
+            return Ok(());
+        };
+        let reality = self.store.reality(reality_id)?;
+        if reality.execution_boundary.provider != "container" {
+            // Git worktrees remain explicitly cooperative. They do not gain a
+            // security claim merely because Effect Manager was used.
+            return Ok(());
+        }
+        if reality.execution_boundary.frozen {
+            return Err(Error::Intervention(
+                "Frozen Reality cannot request external effects".into(),
+            ));
+        }
+        let manifest = self.store.effective_capability_manifest(reality_id)?;
+        let request = CapabilityRequest::Effect {
+            stage,
+            kind,
+            target: target.into(),
+            operation: operation.clone(),
+        };
+        let evaluation = DenyByDefaultCapabilityPolicy.evaluate(&request, &manifest);
+        self.store.append_capability_event(&CapabilityEvent {
+            id: crate::core::CapabilityEventId::new(),
+            reality_id: reality_id.clone(),
+            manifest_id: manifest.id.clone(),
+            kind: match evaluation.decision {
+                CapabilityDecision::Allow => CapabilityEventKind::Allowed,
+                CapabilityDecision::Deny => CapabilityEventKind::Denied,
+                CapabilityDecision::RequireApproval => CapabilityEventKind::ApprovalRequired,
+            },
+            request: Some(request),
+            reason: evaluation.reason.clone(),
+            created_at: Utc::now(),
+        })?;
+        if evaluation.decision == CapabilityDecision::Allow {
+            Ok(())
+        } else {
+            Err(Error::Intervention(evaluation.reason))
+        }
+    }
+
     pub fn new(store: &'a Store) -> Result<Self> {
         Ok(Self {
             registry: EffectAdapterRegistry::deterministic(&store.home)?,
@@ -285,6 +346,13 @@ impl<'a> EffectManager<'a> {
                 "Actor lacks effect proposal capability".into(),
             ));
         }
+        self.enforce_reality_capability(
+            request.reality_id.as_ref(),
+            EffectCapabilityStage::Propose,
+            request.kind,
+            &request.target.uri,
+            &request.operation,
+        )?;
         let adapter = self.registry.select_request(&request)?;
         let classification = adapter.classify(&request)?;
         let ledger = self
@@ -318,6 +386,13 @@ impl<'a> EffectManager<'a> {
             ));
         }
         let mut effect = self.store.effect(id)?;
+        self.enforce_reality_capability(
+            effect.reality_id.as_ref(),
+            EffectCapabilityStage::Prepare,
+            effect.kind,
+            &effect.target.uri,
+            &effect.operation,
+        )?;
         if effect.lifecycle != EffectLifecycle::Classified
             && effect.lifecycle != EffectLifecycle::Virtualized
         {
@@ -400,6 +475,15 @@ impl<'a> EffectManager<'a> {
         context: &EffectContext,
         authorization_scope: Option<&[Effect]>,
     ) -> Result<CommitOutcome> {
+        if context.is_agent {
+            self.enforce_reality_capability(
+                effect.reality_id.as_ref(),
+                EffectCapabilityStage::Commit,
+                effect.kind,
+                &effect.target.uri,
+                &effect.operation,
+            )?;
+        }
         if context.is_agent || !context.capabilities.commit {
             self.store.append_effect_event(
                 &effect,
