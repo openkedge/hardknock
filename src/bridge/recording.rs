@@ -191,6 +191,7 @@ pub fn record(
         fork_reason: None,
         experiment_id: None,
         candidate_id: None,
+        effect_ledger: None,
         id: RealityId::new(),
         parent: None,
         root: session.cwd.clone(),

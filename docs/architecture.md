@@ -249,3 +249,26 @@ flowchart LR
 ```
 
 The first transport is a local filesystem repository. It never pushes Git state or performs network I/O. Provenance retains the original producer and lineage through re-export; duplicate detection uses content and lineage identifiers. See [federation](federation.md) and the [V0.7 report](implementation-v07.md).
+
+## V0.8 effect boundary
+
+```mermaid
+flowchart TD
+  A[Agent proposed action] --> N[Normalize structured Effect]
+  N --> C[Adapter classification and policy]
+  C --> P[Prepare in transactional Reality]
+  P --> X[Experiment and deterministic checks]
+  X -->|failed or losing| D[Discard staged Effect]
+  X -->|selected| W[PREPARED only]
+  W --> G[External authority and scope hash]
+  G --> O[Observe and revalidate external state]
+  O -->|changed or expired| R[Reject and reprepare]
+  O -->|unchanged| M[Adapter commit]
+  M -->|receipt| E[COMMITTED + Experience]
+  M -->|response uncertain| U[UNKNOWN]
+  U --> Q[Reconcile by idempotency key]
+```
+
+`effects` materializes current state; `effect_events` is the append-only canonical lifecycle. Realities reference ledgers. Prepared records retain previews and before-state snapshots. Authorizations bind exact scopes. Receipts, compensation receipts, reconciliation attempts, group outcomes, and Effect-to-Experience links preserve the evidence chain.
+
+The mock external system is deliberately separate from the main ledger database. Its resource mutation and idempotency record commit in one local SQLite transaction. This proves adapter semantics without claiming arbitrary external systems share those guarantees. See [transactional Realities](transactional-realities.md), [commit semantics](commit-semantics.md), and the [V0.8 report](implementation-v08.md).

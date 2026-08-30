@@ -10,7 +10,7 @@ use crate::{
     core::{ExperienceId, StateRef},
     experience::ExperienceContext,
     retrieval::RetrievedLesson,
-    store::Store,
+    store::{EffectStore, Store},
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -323,6 +323,78 @@ impl Bridge {
                     Ok((response,s.context.clone(),s.agent.clone()))
                 })?;
                 Ok(serde_json::to_value(self.development_response(response,&context,&agent)?)?)
+            }
+            AgentEvent::EffectProposed(mut proposal) => {
+                let agent = self.with_session(&proposal.hardknock_session_id, |session| {
+                    if session.ended {
+                        return Err(invalid("Session has ended"));
+                    }
+                    Ok(session.agent.name.clone())
+                })?;
+                if proposal.request.session_id != proposal.hardknock_session_id {
+                    return Err(invalid("Effect proposal session binding mismatch"));
+                }
+                proposal.request.evidence.truncate(128);
+                let store = Store::open(&self.home)?;
+                let manager = crate::effects::EffectManager::new(&store)?;
+                let (effect, prepared) = manager.propose_and_prepare(
+                    proposal.request,
+                    &crate::effects::EffectManager::agent_context(&agent),
+                )?;
+                self.enqueue(
+                    &proposal.hardknock_session_id,
+                    "effect_prepared",
+                    json!({"effect_id":effect.id,"prepared_id":prepared.id,"committed":false}),
+                )?;
+                Ok(json!({
+                    "effect_id":effect.id,
+                    "status":"prepared",
+                    "committed":false,
+                    "preview":prepared.preview,
+                    "message":"The effect is prepared only. No authoritative external mutation has occurred."
+                }))
+            }
+            AgentEvent::EffectCommitRequested { hardknock_session_id, effect_id } => {
+                let agent = self.with_session(&hardknock_session_id, |session| Ok(session.agent.name.clone()))?;
+                let store = Store::open(&self.home)?;
+                let manager = crate::effects::EffectManager::new(&store)?;
+                match manager.commit(&effect_id,None,&crate::effects::EffectManager::agent_context(&agent)) {
+                    Ok(result) => Ok(json!({"effect_id":effect_id,"result":result})),
+                    Err(Error::Intervention(reason)) => Ok(json!({
+                        "effect_id":effect_id,
+                        "status":"authorization_required",
+                        "committed":false,
+                        "reason":reason
+                    })),
+                    Err(error) => Err(error),
+                }
+            }
+            AgentEvent::EffectDiscardRequested { hardknock_session_id, effect_id } => {
+                let agent = self.with_session(&hardknock_session_id, |session| Ok(session.agent.name.clone()))?;
+                let store = Store::open(&self.home)?;
+                let effect = crate::effects::EffectManager::new(&store)?.discard(
+                    &effect_id,
+                    &crate::effects::EffectManager::agent_context(&agent),
+                )?;
+                self.enqueue(&hardknock_session_id,"effect_discarded",json!({"effect_id":effect_id}))?;
+                Ok(json!({"effect":effect,"committed":false}))
+            }
+            AgentEvent::EffectStatus { hardknock_session_id, effect_id } => {
+                self.with_session(&hardknock_session_id, |_| Ok(()))?;
+                let store = Store::open(&self.home)?;
+                Ok(json!({
+                    "effect":store.effect(&effect_id)?,
+                    "prepared":store.prepared_effect(&effect_id).ok(),
+                    "receipt":store.commit_receipt_for_effect(&effect_id)?,
+                    "events":store.effect_events(&effect_id)?
+                }))
+            }
+            AgentEvent::EffectReconcileRequested { hardknock_session_id, effect_id } => {
+                self.with_session(&hardknock_session_id, |_| Ok(()))?;
+                let store = Store::open(&self.home)?;
+                let result = crate::effects::EffectManager::new(&store)?.reconcile(&effect_id)?;
+                self.enqueue(&hardknock_session_id,"effect_reconciled",json!({"effect_id":effect_id,"result":result}))?;
+                Ok(json!({"effect_id":effect_id,"result":result}))
             }
             AgentEvent::ActionProposed(mut proposed) => {
                 valid_id(&proposed.action_id)?; validate_action(&proposed.action)?;

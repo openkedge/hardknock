@@ -28,6 +28,9 @@ pub enum ExperienceRelation {
     TransferFrom(ExperienceId),
     ChaosVariantOf(ExperienceId),
     RecoveryOf(ExperienceId),
+    CommitOf(ExperienceId),
+    CompensationOf(ExperienceId),
+    ReconciliationOf(ExperienceId),
 }
 impl ExperienceRelation {
     pub fn target(&self) -> &ExperienceId {
@@ -36,7 +39,10 @@ impl ExperienceRelation {
             | Self::CounterfactualOf(id)
             | Self::TransferFrom(id)
             | Self::ChaosVariantOf(id)
-            | Self::RecoveryOf(id) => id,
+            | Self::RecoveryOf(id)
+            | Self::CommitOf(id)
+            | Self::CompensationOf(id)
+            | Self::ReconciliationOf(id) => id,
         }
     }
     pub fn kind(&self) -> &'static str {
@@ -46,6 +52,9 @@ impl ExperienceRelation {
             Self::TransferFrom(_) => "transfer_from",
             Self::ChaosVariantOf(_) => "chaos_variant_of",
             Self::RecoveryOf(_) => "recovery_of",
+            Self::CommitOf(_) => "commit_of",
+            Self::CompensationOf(_) => "compensation_of",
+            Self::ReconciliationOf(_) => "reconciliation_of",
         }
     }
 }

@@ -1,0 +1,117 @@
+{
+  "artifact": "artifacts/transactional-effects-summary.json",
+  "created_at": "2026-08-30T06:17:01.955740Z",
+  "duration_ms": 94,
+  "id": "benchmark-fe4a46e2-54a3-4559-8f79-8d1eb0e0b956",
+  "metrics": {
+    "authoritative_mutations_from_failed_candidates": {
+      "direct_agent": 4,
+      "hardknock_transactional_reality": 0,
+      "sandbox_only": 4
+    },
+    "commit_conflict_rate": "1/1",
+    "commit_success_rate": "1/1",
+    "compensation_success_rate": "0/1 injected failure",
+    "duplicate_effect_rate": 0.0,
+    "experimental_failures": 4,
+    "external_mistake_escape_rate": {
+      "direct_agent": 1.0,
+      "hardknock_transactional_reality": 0.0,
+      "sandbox_only": 1.0
+    },
+    "prepared_effect_discard_rate": "4/4",
+    "unknown_outcome_rate": "1/1 injected",
+    "unknown_outcome_recovery_rate": "1/1"
+  },
+  "scenarios": {
+    "bad_candidates": {
+      "authoritative_mutations": 0,
+      "discarded": [
+        "effect-0f5376f3-8475-4c59-8097-a6c1e48e6a23",
+        "effect-d920ed2b-be07-4589-ac52-101d15b78ec0",
+        "effect-3d329336-ca21-4cdf-8550-acc1257f785b",
+        "effect-0740a557-e262-4028-8933-9d2d6722538c"
+      ]
+    },
+    "explicit_winner_commit": {
+      "effect": "effect-b0828ff3-90fc-4490-85d9-fab01a77db53",
+      "result": {
+        "outcome": "committed",
+        "receipt": {
+          "adapter": "mock-http",
+          "committed_at": "2026-08-30T06:17:01.912338Z",
+          "effect_id": "effect-b0828ff3-90fc-4490-85d9-fab01a77db53",
+          "external_reference": "mock://benchmark/benchmark-fe4a46e2-54a3-4559-8f79-8d1eb0e0b956/winner#version-2",
+          "id": "receipt-d74fc891-8903-42e4-b1a0-8bc85541a49d",
+          "idempotency_key": "hk-effect:effect-b0828ff3-90fc-4490-85d9-fab01a77db53",
+          "metadata": {
+            "after": {
+              "version": 3
+            },
+            "before": {
+              "version": 1
+            },
+            "strategy": "compensating",
+            "version_after": 2,
+            "version_before": 1
+          },
+          "result_hash": "80a7ccb4fc7422465490cf978029575bfda18f322e1a6f687a0f3c6314432aae"
+        }
+      },
+      "state": {
+        "adapter": "mock-http",
+        "mutation_count": 1,
+        "state": {
+          "version": 3
+        },
+        "target": "mock://benchmark/benchmark-fe4a46e2-54a3-4559-8f79-8d1eb0e0b956/winner",
+        "version": 2
+      }
+    },
+    "partial_commit": {
+      "commit_outcome": "partially_committed",
+      "final_outcome": "partially_compensated",
+      "manual_intervention_required": true,
+      "plan": "effect-plan-1d114aed-71ba-4aea-92e9-4a0194e332ea"
+    },
+    "response_loss": {
+      "effect": "effect-fa543c95-6ed9-41a5-bc64-6514249e5d8b",
+      "initial": {
+        "outcome": "unknown",
+        "reason": "Commit applied but response was lost"
+      },
+      "mutations": 1,
+      "reconciliation": {
+        "receipt": {
+          "adapter": "mock-http",
+          "committed_at": "2026-08-30T06:17:01.930259Z",
+          "effect_id": "effect-fa543c95-6ed9-41a5-bc64-6514249e5d8b",
+          "external_reference": "mock://benchmark/benchmark-fe4a46e2-54a3-4559-8f79-8d1eb0e0b956/response-loss#version-2",
+          "id": "receipt-9debde34-e718-4b50-91a1-29219ed3a870",
+          "idempotency_key": "hk-effect:effect-fa543c95-6ed9-41a5-bc64-6514249e5d8b",
+          "metadata": {
+            "after": {
+              "version": 3
+            },
+            "before": {
+              "version": 1
+            },
+            "strategy": "compensating",
+            "version_after": 2,
+            "version_before": 1
+          },
+          "result_hash": "80a7ccb4fc7422465490cf978029575bfda18f322e1a6f687a0f3c6314432aae"
+        },
+        "result": "committed"
+      }
+    },
+    "state_drift": {
+      "effect": "effect-6109403d-60bb-4b86-b46f-7562a19ffc4b",
+      "result": {
+        "outcome": "rejected",
+        "reason": "External state changed after preparation (expected Some(\"1\"), observed Some(\"2\")); reprepare required",
+        "reprepare": true
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "adapter": "mock-http",
+  "target": "mock://deployment/service-a",
+  "authoritative": {
+    "version": 1
+  },
+  "candidates": {
+    "direct": { "version": 2, "validation": "fail" },
+    "shadow": { "version": 3, "validation": "pass" }
+  },
+  "expected_before_commit": { "version": 1 },
+  "expected_after_commit": { "version": 3 }
+}

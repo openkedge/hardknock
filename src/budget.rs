@@ -83,6 +83,16 @@ impl ExperienceBudgetPolicy for StrictBudgetPolicy {
                 }
                 // Native agents may launch arbitrary tool calls. A cap cannot honestly be enforced.
                 CandidateExecution::AgentTask { .. } => true,
+                CandidateExecution::EffectPlan {
+                    effects,
+                    simulation,
+                } => {
+                    effects
+                        .len()
+                        .saturating_add(simulation.len())
+                        .saturating_add(request.evaluator.checks.len())
+                        > limit
+                }
             })
         }) {
             Some(

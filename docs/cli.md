@@ -1,5 +1,28 @@
 # CLI reference
 
+## Governed effects (V0.8)
+
+```text
+hardknock effect list [--reality <id>]
+hardknock effect show <effect-id>
+hardknock effect propose --kind <kind> --operation <operation> --target <scheme-uri> [--payload <json>] [--reality <id>] [--prepare]
+hardknock effect prepare <effect-id>
+hardknock effect commit <effect-id> [--yes | --authorization-file <json>]
+hardknock effect discard <effect-id>
+hardknock effect compensate <effect-id> --yes
+hardknock effect reconcile <effect-id>
+hardknock effect capabilities
+hardknock effect orphans
+hardknock effect cleanup
+hardknock effect plan-create --effect <id>... [--dependency BEFORE:AFTER] [--compensate-on-failure]
+hardknock effect plan-commit <plan-id> --yes
+hardknock benchmark transactional-effects [--output <json>]
+```
+
+`propose --prepare` is a convenience for two guarded lifecycle operations, not commit. Mock fixture setup is available through `effect fixture-set` and `effect fixture-show`; `--inject-fault` is limited to deterministic adapters. `reality show` includes effect counts, and `reality discard` refuses to remove the worktree if attached effect cleanup is incomplete.
+
+Human output includes an explicit “prepared only” message. JSON retains the complete Effect, preview, receipts, and event stream. See [effects](effects.md).
+
 ## V0.7 federation
 
 ```text

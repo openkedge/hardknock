@@ -119,6 +119,12 @@ pub struct ActionProposed {
     #[serde(default)]
     pub context: ActionContext,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectProposal {
+    pub hardknock_session_id: String,
+    pub request: crate::effects::EffectRequest,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DecisionAuthority {
@@ -315,6 +321,23 @@ pub enum AgentEvent {
     SessionStarted(SessionStarted),
     ContextRequested(ContextRequested),
     ActionProposed(ActionProposed),
+    EffectProposed(EffectProposal),
+    EffectCommitRequested {
+        hardknock_session_id: String,
+        effect_id: crate::core::EffectId,
+    },
+    EffectDiscardRequested {
+        hardknock_session_id: String,
+        effect_id: crate::core::EffectId,
+    },
+    EffectStatus {
+        hardknock_session_id: String,
+        effect_id: crate::core::EffectId,
+    },
+    EffectReconcileRequested {
+        hardknock_session_id: String,
+        effect_id: crate::core::EffectId,
+    },
     ActionCompleted(ActionCompleted),
     AgentMessage(AgentMessage),
     RunCompleted(RunCompleted),

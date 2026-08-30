@@ -1,0 +1,13 @@
+{
+  "adapter": "mock-db",
+  "target": "mock-db://inventory/widget",
+  "authoritative": {
+    "version": 1,
+    "quantity": 10,
+    "balance": 10
+  },
+  "invariants": [
+    "expected external version must match",
+    "balance must not become negative"
+  ]
+}

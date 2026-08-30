@@ -1,0 +1,12 @@
+{
+  "adapter": "shadow-deployment",
+  "target": "shadow://service-a",
+  "authoritative": {
+    "active": "v1"
+  },
+  "prepared": {
+    "shadow": "v3",
+    "externally_visible": false
+  },
+  "commit_semantics": "promote the validated shadow pointer"
+}

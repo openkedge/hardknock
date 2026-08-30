@@ -37,3 +37,11 @@ Delivery alone is not application. A preferred shell action must complete succes
 A native observation can be followed by an explicit paired **controlled reconstruction** when it has a clean committed Git baseline, a completed observed shell action, a scoped candidate and a configured evaluator. The plan marks `external_reconstruction: true`. This tests the two actions under a new common controlled environment; it does not pretend to replay the agent's inherited environment or reasoning. The source observation is immutable.
 
 Validation still requires controlled support plus an evaluated, observed application in a distinct repository tree. A different agent name does not by itself improve confidence or make evidence epistemically independent. Dirty/unversioned starts cannot support this reconstruction or observed-transfer promotion.
+
+## Explicit governed effects (V0.8)
+
+The Bridge accepts `effect_proposed`, `effect_commit_requested`, `effect_discard_requested`, `effect_status`, and `effect_reconcile_requested`. Proposal uses a structured `EffectRequest`; a successful response always says `committed: false` and states that no authoritative mutation occurred.
+
+Bridge agents receive observe/propose/prepare capability and may discard their uncommitted staging. They do not receive commit or compensate capability. `effect_commit_requested` therefore records a rejected attempt and returns `authorization_required`; model text such as “I approve” cannot substitute for user, CI, policy, or external approval authority.
+
+This is explicit tool use, not transparent interception. Native tool calls, shell commands, and network requests outside the registered effect tools retain the ordinary host boundary.

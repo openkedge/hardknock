@@ -10,6 +10,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 pub mod curriculum;
 mod development;
+mod effects;
 mod experimentation;
 mod federation;
 pub mod integrations;
@@ -43,7 +44,7 @@ use crate::{
     workflow::{RunRequest, RunResult},
 };
 
-pub const ISOLATION_WARNING: &str = "Dojo backend: git-worktree\nIsolation: repository filesystem only (not a security sandbox)\nNetwork: shared\nCredentials: shared\nHost filesystem outside worktree: accessible\nGit objects, refs, and repository configuration: shared\nOnly run trusted commands. Default cleanup removes trial changes after capturing a diff.";
+pub const ISOLATION_WARNING: &str = "Dojo backend: git-worktree\nIsolation: repository filesystem only (not a security sandbox)\nNetwork: shared\nCredentials: shared\nHost filesystem outside worktree: accessible\nExternal effects: shared unless explicitly routed through a governed effect adapter; arbitrary shell/network calls are not intercepted\nGit objects, refs, and repository configuration: shared\nOnly run trusted commands. Default cleanup removes trial changes after capturing a diff.";
 
 #[derive(Debug, Parser)]
 #[command(
@@ -88,6 +89,11 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Prepare, inspect, explicitly commit, discard, and reconcile governed effects.
+    Effect {
+        #[command(subcommand)]
+        command: effects::EffectCommand,
+    },
     /// Manage local cryptographic peer relationships.
     Peer {
         #[command(subcommand)]
@@ -470,6 +476,9 @@ pub enum ExperienceCommand {
 #[derive(Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Effects {
+        result: serde_json::Value,
+    },
     Federation {
         result: serde_json::Value,
     },
@@ -536,6 +545,8 @@ pub enum Response {
     },
     Reality {
         reality: Reality,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        effects: Option<serde_json::Value>,
     },
     Realities {
         realities: Vec<Reality>,
@@ -607,6 +618,7 @@ impl Response {
             return Ok(());
         }
         match self {
+            Self::Effects { result } => effects::print(result, &mut stdout)?,
             Self::Federation { result } => federation::print(result, &mut stdout)?,
             Self::Curriculum { result } => result.print(&mut stdout)?,
             Self::Development { result } => development::print(result, &mut stdout)?,
@@ -925,13 +937,25 @@ impl Response {
                     writeln!(stdout, "No experiences recorded.")?;
                 }
             }
-            Self::Reality { reality } => writeln!(
-                stdout,
-                "{}\t{:?}\t{}",
-                reality.id,
-                reality.status,
-                reality.root.display()
-            )?,
+            Self::Reality { reality, effects } => {
+                writeln!(
+                    stdout,
+                    "{}\t{:?}\t{}",
+                    reality.id,
+                    reality.status,
+                    reality.root.display()
+                )?;
+                if let Some(effects) = effects {
+                    writeln!(
+                        stdout,
+                        "External Effects\n  proposed {}\n  prepared {}\n  committed {}\n  discarded {}",
+                        effects["proposed"].as_u64().unwrap_or(0),
+                        effects["prepared"].as_u64().unwrap_or(0),
+                        effects["committed"].as_u64().unwrap_or(0),
+                        effects["discarded"].as_u64().unwrap_or(0)
+                    )?;
+                }
+            }
             Self::Realities { realities } => {
                 for r in realities {
                     writeln!(stdout, "{}\t{:?}\t{}", r.id, r.status, r.root.display())?;
@@ -1143,6 +1167,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if effects::handles(&cli.command) {
+        return Ok(Response::Effects {
+            result: effects::execute(cli, &store)?,
+        });
+    }
     if federation::handles(&cli.command) {
         return Ok(Response::Federation {
             result: federation::execute(cli, &store, cancel).await?,
@@ -1182,6 +1211,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
+        Commands::Effect { .. } => Err(Error::InvalidInput("Effect dispatch failed".into())),
         Commands::Peer { .. }
         | Commands::Federate { .. }
         | Commands::Provenance { .. }
@@ -1461,19 +1491,31 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                         .create(&state.ok_or_else(|| {
                             Error::InvalidInput("Missing starting state".into())
                         })?)?,
+                    effects: None,
                 })
             }
             RealityCommand::List => Ok(Response::Realities {
                 realities: store.realities()?,
             }),
-            RealityCommand::Show { id } => Ok(Response::Reality {
-                reality: store.reality(id)?,
-            }),
+            RealityCommand::Show { id } => {
+                let entries = crate::store::EffectStore::effects(&store, Some(id))?;
+                Ok(Response::Reality {
+                    reality: store.reality(id)?,
+                    effects: Some(serde_json::json!({
+                        "proposed":entries.iter().filter(|effect| matches!(effect.lifecycle,crate::effects::EffectLifecycle::Proposed|crate::effects::EffectLifecycle::Classified|crate::effects::EffectLifecycle::Virtualized)).count(),
+                        "prepared":entries.iter().filter(|effect| effect.lifecycle==crate::effects::EffectLifecycle::Prepared).count(),
+                        "committed":entries.iter().filter(|effect| effect.lifecycle==crate::effects::EffectLifecycle::Committed).count(),
+                        "discarded":entries.iter().filter(|effect| effect.lifecycle==crate::effects::EffectLifecycle::Discarded).count(),
+                        "unknown":entries.iter().filter(|effect| effect.lifecycle==crate::effects::EffectLifecycle::Unknown).count(),
+                    })),
+                })
+            }
             RealityCommand::Fork { id } => {
                 warning(cli.json)?;
                 let _lease = store.lock_reality(id)?;
                 Ok(Response::Reality {
                     reality: provider.fork(&store.reality(id)?)?,
+                    effects: None,
                 })
             }
             RealityCommand::Diff { id } => {
@@ -1492,8 +1534,12 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             RealityCommand::Discard { id } => {
                 let _lease = store.lock_reality(id)?;
                 let mut reality = store.reality(id)?;
+                crate::effects::EffectManager::new(&store)?.discard_reality(id)?;
                 provider.discard(&mut reality)?;
-                Ok(Response::Reality { reality })
+                Ok(Response::Reality {
+                    reality,
+                    effects: None,
+                })
             }
             RealityCommand::Cleanup => {
                 let mut discarded = Vec::new();
@@ -1516,6 +1562,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                     if !reality.ephemeral || reality.status == RealityStatus::Discarded {
                         continue;
                     }
+                    crate::effects::EffectManager::new(&store)?.discard_reality(&reality.id)?;
                     provider.discard(&mut reality)?;
                     discarded.push(reality.id);
                 }

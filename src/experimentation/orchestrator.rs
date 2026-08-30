@@ -12,7 +12,7 @@ use crate::{
     core::{AgentIdentity, CommandSpec, EnvironmentMode, ExperimentId, ForkReason, RealityStatus},
     dojo::{GitRealityProvider, RealityProvider},
     experience::{EnvironmentContext, ReplaySpec},
-    store::{ExperimentStore, Store, artifact},
+    store::{EffectStore, ExperimentStore, Store, artifact},
     workflow::{PreparedTrial, RunRequest, run_prepared_trial},
 };
 use chrono::Utc;
@@ -348,6 +348,24 @@ impl ExperimentOrchestrator<'_> {
                     commands.clone()
                 }
                 CandidateExecution::AgentTask { prompt, .. } => vec![prompt.clone()],
+                CandidateExecution::EffectPlan {
+                    effects,
+                    simulation,
+                } => {
+                    if effects.is_empty() || effects.len() > 32 || simulation.len() > 64 {
+                        return Err(invalid(
+                            "Effect-plan candidate needs 1–32 effects and at most 64 simulation steps",
+                        ));
+                    }
+                    for effect in effects {
+                        effect.validate()?;
+                    }
+                    effects
+                        .iter()
+                        .map(|effect| effect.target.uri.clone())
+                        .chain(simulation.iter().cloned())
+                        .collect()
+                }
             };
             if values
                 .iter()
@@ -363,9 +381,13 @@ impl ExperimentOrchestrator<'_> {
 
     fn validate_scope(&self, request: &ExperimentRequest) -> Result<()> {
         let capabilities = &request.capabilities;
+        let has_effect_plan = request
+            .candidates
+            .iter()
+            .any(|candidate| matches!(candidate.execution, CandidateExecution::EffectPlan { .. }));
         if !capabilities.filesystem_scope.is_empty()
             || capabilities.allow_external_mutations
-            || !capabilities.external_effects.is_empty()
+            || (!capabilities.external_effects.is_empty() && !has_effect_plan)
         {
             return Err(invalid(
                 "Experiment requires unsupported external side effects or filesystem scope; only repository-local work is supported",
@@ -401,6 +423,7 @@ impl ExperimentOrchestrator<'_> {
                     commands.iter().map(String::as_str).collect::<Vec<_>>()
                 }
                 CandidateExecution::AgentTask { prompt, .. } => vec![prompt.as_str()],
+                CandidateExecution::EffectPlan { .. } => Vec::new(),
             })
             .chain(request.evaluator.checks.iter().map(String::as_str))
         {
@@ -553,6 +576,36 @@ impl ExperimentOrchestrator<'_> {
                     template,
                 })
             }
+            CandidateExecution::EffectPlan { simulation, .. } => Ok(ResolvedCandidate {
+                candidate: candidate.clone(),
+                command: simulation.first().map_or_else(
+                    || CommandSpec {
+                        program: "/bin/true".into(),
+                        args: Vec::new(),
+                        environment: EnvironmentMode::Controlled,
+                        environment_overrides: BTreeMap::new(),
+                    },
+                    |step| CommandSpec::shell(step, EnvironmentMode::Controlled),
+                ),
+                commands: (!simulation.is_empty()).then(|| {
+                    simulation
+                        .iter()
+                        .map(|step| CommandSpec::shell(step, EnvironmentMode::Controlled))
+                        .collect()
+                }),
+                agent: AgentIdentity {
+                    kind: "effect-plan".into(),
+                    executable: if simulation.is_empty() {
+                        "/bin/true"
+                    } else {
+                        "/bin/sh"
+                    }
+                    .into(),
+                    version: Some(env!("CARGO_PKG_VERSION").into()),
+                    model: None,
+                },
+                template: "hardknock-effect-plan-v1".into(),
+            }),
         }
     }
 
@@ -816,6 +869,29 @@ impl ExperimentOrchestrator<'_> {
                             .fingerprint
                     };
                     let start = Instant::now();
+                    let mut prepared_effects = Vec::new();
+                    if let CandidateExecution::EffectPlan { effects, .. } = &c.candidate.execution {
+                        let manager = crate::effects::EffectManager::new(&store)?;
+                        for request in effects {
+                            let mut request = request.clone();
+                            request.reality_id = Some(prepared.reality.id.clone());
+                            match manager.propose_and_prepare(
+                                request,
+                                &crate::effects::EffectManager::agent_context("experiment-engine"),
+                            ) {
+                                Ok((effect, _)) => prepared_effects.push(effect.id),
+                                Err(error) => {
+                                    for id in &prepared_effects {
+                                        let _ = manager.discard(
+                                            id,
+                                            &crate::effects::EffectManager::user_context(),
+                                        );
+                                    }
+                                    return Err(error);
+                                }
+                            }
+                        }
+                    }
                     let replay = c.commands.as_ref().map(|commands| ReplaySpec {
                         script: commands
                             .iter()
@@ -824,7 +900,7 @@ impl ExperimentOrchestrator<'_> {
                             .join("\n"),
                         timeout_secs,
                     });
-                    let run = runtime.block_on(run_prepared_trial(
+                    let run = match runtime.block_on(run_prepared_trial(
                         &store,
                         RunRequest {
                             state: proof.state_ref,
@@ -840,7 +916,30 @@ impl ExperimentOrchestrator<'_> {
                         },
                         prepared,
                         &cancellation,
-                    ))?;
+                    )) {
+                        Ok(run) => run,
+                        Err(error) => {
+                            let manager = crate::effects::EffectManager::new(&store)?;
+                            for id in &prepared_effects {
+                                let _ = manager
+                                    .discard(id, &crate::effects::EffectManager::user_context());
+                            }
+                            return Err(error);
+                        }
+                    };
+                    if !run.experience.evaluation.success {
+                        let manager = crate::effects::EffectManager::new(&store)?;
+                        for id in &prepared_effects {
+                            manager.discard(id, &crate::effects::EffectManager::user_context())?;
+                        }
+                    }
+                    for id in &prepared_effects {
+                        store.link_effect_experience(
+                            id,
+                            &run.experience.id,
+                            "experimental_candidate",
+                        )?;
+                    }
                     let result = CandidateResult {
                         candidate_id: c.candidate.id,
                         name: c.candidate.name,
@@ -853,6 +952,7 @@ impl ExperimentOrchestrator<'_> {
                         artifacts: run.experience.evidence.artifacts,
                         starting_fingerprint: proof.fingerprint,
                         agent: c.agent,
+                        prepared_effects,
                     };
                     store.insert_candidate_result(&id, &result)?;
                     Ok(result)
@@ -933,6 +1033,23 @@ impl ExperimentOrchestrator<'_> {
             ExperimentQuality::Invalid => "invalid",
         }
         .into();
+        let effect_manager = crate::effects::EffectManager::new(self.store)?;
+        for candidate in &candidates {
+            let selected = candidate.evaluation.success
+                && comparison.recommendation.as_ref() == Some(&candidate.candidate_id);
+            for effect_id in &candidate.prepared_effects {
+                let effect = self.store.effect(effect_id)?;
+                if effect.lifecycle != crate::effects::EffectLifecycle::Prepared {
+                    continue;
+                }
+                if selected {
+                    self.store.detach_prepared_effect(effect_id)?;
+                } else {
+                    effect_manager
+                        .discard(effect_id, &crate::effects::EffectManager::user_context())?;
+                }
+            }
+        }
         self.progress(
             &experiment.id,
             None,
@@ -1060,6 +1177,10 @@ fn changed_variables(candidates: &[ResolvedCandidate]) -> Result<Vec<ExperimentV
                     "strategy" => match &c.candidate.execution {
                         CandidateExecution::Shell { commands } => hash(commands)?,
                         CandidateExecution::AgentTask { prompt, .. } => hash(prompt)?,
+                        CandidateExecution::EffectPlan {
+                            effects,
+                            simulation,
+                        } => hash(&(effects, simulation))?,
                     },
                     "agent" => format!(
                         "{}@{}",

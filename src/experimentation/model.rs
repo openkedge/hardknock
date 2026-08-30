@@ -62,6 +62,14 @@ pub enum CandidateExecution {
         #[serde(default)]
         agent: Option<AgentIdentity>,
     },
+    /// Structured external mutations are prepared inside candidate Realities and never committed
+    /// by the experiment runner. Only the selected passing candidate remains commit-eligible.
+    EffectPlan {
+        effects: Vec<crate::effects::EffectRequest>,
+        /// Reality-local setup/validation steps; these never perform the declared external effect.
+        #[serde(default)]
+        simulation: Vec<String>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -185,6 +193,8 @@ pub struct CandidateResult {
     pub artifacts: Vec<ArtifactRef>,
     pub starting_fingerprint: String,
     pub agent: AgentIdentity,
+    #[serde(default)]
+    pub prepared_effects: Vec<crate::core::EffectId>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -17,8 +17,10 @@ use crate::{
     core::{ArtifactRef, ExecutionId, ExecutionRecord, Reality, RealityId},
 };
 
+mod effects;
 mod experiences;
 mod experiments;
+pub use effects::EffectStore;
 mod federation;
 pub use experiences::{ExperienceQuery, ExperienceStore, ExperienceSummary};
 pub use experiments::ExperimentStore;
@@ -55,6 +57,7 @@ impl Store {
                     "integrations",
                     "identity",
                     "federation",
+                    "effects",
                 ]
                 .iter()
                 .any(|allowed| name == *allowed)
@@ -76,6 +79,7 @@ impl Store {
             "integrations",
             "identity",
             "federation",
+            "effects",
         ] {
             if fs::symlink_metadata(home.join(child)).is_ok_and(|m| m.file_type().is_symlink()) {
                 return Err(Error::Intervention(
@@ -101,7 +105,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 10 {
+        if version > 11 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -145,6 +149,10 @@ impl Store {
         if version < 10 {
             tx.execute_batch(include_str!("../migrations/010_federation.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (10)", [])?;
+        }
+        if version < 11 {
+            tx.execute_batch(include_str!("../migrations/011_effects.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (11)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

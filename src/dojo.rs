@@ -149,6 +149,7 @@ impl<'a> GitRealityProvider<'a> {
             fork_reason: None,
             experiment_id: None,
             candidate_id: None,
+            effect_ledger: None,
             starting_state: state.clone(),
             created_at: Utc::now(),
             status: RealityStatus::Created,

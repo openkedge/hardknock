@@ -170,6 +170,8 @@ pub struct RealityCapabilities {
     pub process_isolation: IsolationLevel,
     pub network_isolation: IsolationLevel,
     pub external_effect_isolation: IsolationLevel,
+    #[serde(default)]
+    pub external_effects: crate::effects::ExternalEffectCapabilities,
 }
 impl Default for RealityCapabilities {
     fn default() -> Self {
@@ -178,6 +180,7 @@ impl Default for RealityCapabilities {
             process_isolation: IsolationLevel::Shared,
             network_isolation: IsolationLevel::Shared,
             external_effect_isolation: IsolationLevel::Shared,
+            external_effects: Default::default(),
         }
     }
 }

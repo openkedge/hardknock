@@ -121,6 +121,10 @@ pub enum EpisodeCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum BenchmarkCommand {
+    TransactionalEffects {
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     Federation {
         #[arg(long)]
         output: Option<PathBuf>,
@@ -458,6 +462,16 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
             }
             json!({"kind":"federation_benchmark","benchmark":result})
         }
+        Commands::Benchmark {
+            command: BenchmarkCommand::TransactionalEffects { output },
+        } => {
+            super::warning(cli.json)?;
+            let result = crate::effects::benchmark::run(store, cancel).await?;
+            if let Some(path) = output {
+                export(path, &serde_json::to_value(&result)?)?;
+            }
+            json!({"kind":"transactional_effects_benchmark","benchmark":result})
+        }
         Commands::Doctor => {
             let p = build(
                 store,
@@ -466,7 +480,7 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
                 ProfileWindow::AllTime,
             )?;
             let database = store.database_health()?;
-            json!({"kind":"doctor","snapshots":database["snapshot_count"],"database":database,"schema_version":10,"policy_hash":p.policy_hash,"health":p.freshness,"experience_count":p.experience_count,"queue_pending":store.revalidations()?.iter().filter(|i|i.status=="pending").count(),"latest_benchmark":store.benchmark_runs()?.last().map(|b|json!({"id":b.id,"status":b.status})),"latest_federation_benchmark":store.federation_benchmarks()?.last().map(|b|json!({"id":b.id,"status":b.status})),"auto_run":false})
+            json!({"kind":"doctor","snapshots":database["snapshot_count"],"database":database,"schema_version":11,"policy_hash":p.policy_hash,"health":p.freshness,"experience_count":p.experience_count,"queue_pending":store.revalidations()?.iter().filter(|i|i.status=="pending").count(),"latest_benchmark":store.benchmark_runs()?.last().map(|b|json!({"id":b.id,"status":b.status})),"latest_federation_benchmark":store.federation_benchmarks()?.last().map(|b|json!({"id":b.id,"status":b.status})),"latest_transactional_effects_benchmark":store.latest_effect_benchmark()?.map(|b|json!({"id":b.id,"created_at":b.created_at})),"auto_run":false})
         }
         _ => return Err(Error::InvalidInput("Not a development command".into())),
     })

@@ -1,0 +1,10 @@
+{
+  "adapter": "mock-message",
+  "target": "mock-message://recipient@example.test",
+  "authoritative": {
+    "delivered": []
+  },
+  "prepare_semantics": "stage in a private outbox",
+  "commit_semantics": "dispatch after external approval",
+  "compensation": "unsupported after delivery"
+}

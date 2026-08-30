@@ -97,6 +97,12 @@ This does **not** freeze clocks, randomness, external files, services, tool bina
 
 A Git worktree is not a security sandbox. Host files, credentials reachable through other paths, network, processes, and Git objects/refs remain shared. Only run trusted scripts without irreversible external effects.
 
+## Structured EffectPlan candidates (V0.8)
+
+An `EffectPlan` candidate declares bounded structured `EffectRequest`s plus Reality-local simulation steps. The engine prepares the effects through registered adapters before running the normal evaluator. A failing candidate's effects are discarded. Once comparison finishes, losing candidates are discarded and only the selected passing candidate can remain `PREPARED` for later inspection.
+
+The experiment never supplies commit authority. `CandidateResult.prepared_effects` links the candidate Experience to its Effect IDs, and an eventual authoritative Experience uses `COMMIT_OF`. Filesystem-only commands still have no external-effect interception; use EffectPlan only with registered schemes. See [transactional Realities](transactional-realities.md).
+
 ## Classification and confidence
 
 | Baseline | Alternative | Conclusion |

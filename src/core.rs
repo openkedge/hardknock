@@ -91,6 +91,18 @@ identifier!(FederatedObjectId, "federated-");
 identifier!(FederatedConflictId, "conflict-");
 identifier!(FederationAuditId, "federation-audit-");
 identifier!(FederationReproductionId, "reproduction-");
+identifier!(EffectId, "effect-");
+identifier!(PreparedEffectId, "prepared-");
+identifier!(CommitReceiptId, "receipt-");
+identifier!(CompensationReceiptId, "compensation-");
+identifier!(EffectLedgerId, "effect-ledger-");
+identifier!(EffectEventId, "effect-event-");
+identifier!(EffectPlanId, "effect-plan-");
+identifier!(EffectGroupId, "effect-group-");
+identifier!(EffectInvariantId, "effect-invariant-");
+identifier!(CommitAuthorizationId, "authorization-");
+identifier!(ExternalStateSnapshotId, "snapshot-");
+identifier!(ReconciliationAttemptId, "reconcile-");
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateRef {
@@ -121,6 +133,9 @@ pub struct Reality {
     pub experiment_id: Option<ExperimentId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_id: Option<CandidateId>,
+    /// The append-only external effect history associated with this Reality.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect_ledger: Option<EffectLedgerId>,
     pub root: PathBuf,
     pub starting_state: StateRef,
     pub created_at: DateTime<Utc>,

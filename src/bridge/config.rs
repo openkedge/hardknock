@@ -73,6 +73,7 @@ pub struct Config {
     pub curriculum: crate::curriculum::CurriculumConfig,
     pub development: crate::development::DevelopmentConfig,
     pub federation: crate::federation::FederationConfig,
+    pub effects: crate::effects::EffectConfig,
 }
 impl Config {
     pub fn load(home: &Path) -> Result<Self> {
@@ -97,6 +98,7 @@ impl Config {
         config.curriculum.validate()?;
         config.development.validate()?;
         config.federation.validate()?;
+        config.effects.validate()?;
         if !(1024..=32768).contains(&b.max_context_bytes)
             || !(1..=5).contains(&b.max_context_lessons)
             || !(1..=10000).contains(&b.max_actions)

@@ -22,7 +22,7 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.7 experience federation.** Hardknock can export redacted, Ed25519-signed evidence, import it as advisory external experience, compare context, reproduce it locally, and retain support or contradiction. Successful live acceptance with two different agents is still pending. See the [V0.7 report](docs/implementation-v07.md) and [federation guide](docs/federation.md). Recommendations never apply changes automatically.
+> **Pre-alpha · V0.8 transactional Realities.** Hardknock can stage supported mock HTTP, database, message, and shadow-deployment effects, compare candidates without mutating authoritative fixture state, require exact-scope authorization, reject stale preparations, reconcile unknown outcomes, and retain commit/compensation evidence. Arbitrary shell and network effects are not intercepted. See the [V0.8 report](docs/implementation-v08.md) and [effects guide](docs/effects.md).
 
 [Works With Your Agent](#works-with-your-agent) · [Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
 
@@ -48,6 +48,45 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
 V0.4 adds `hardknock try`, structured agent requests, explicit budgets, equivalent-state verification, bounded parallel candidates, comparison quality, replay/lineage, cancellation, and patch export. V0.5 adds curricula, Skill coverage/maturity, Experience Packages, and a held-out resilience benchmark. V0.6 adds persistent development profiles, immutable history, freshness-aware retrieval, and measured learning across episodes. See the [CLI reference](docs/cli.md), [development guide](docs/development.md), and [next phase](docs/roadmap.md).
+
+## A Sandbox Can't Unsend an Email
+
+Disposable filesystems solve only part of safe agent experimentation. Real agents call APIs, update databases, deploy services, and send messages. Those effects survive when the sandbox disappears.
+
+> **Forking state is easy. Forking reality is the hard part.**
+
+> **Hardknock separates experimentation from commitment.**
+
+> **Let the agent try the mutation before the mutation becomes true.**
+
+```text
+Agent Action
+    ↓
+Proposed Effect
+    ↓
+Prepare in a transactional Reality
+    ↓
+Experiment
+    ↓
+Explicit Commit or Discard
+```
+
+`PREPARED` never means `COMMITTED`. A passing candidate leaves a structured effect ready for inspection; it does not change authoritative state. Commit re-reads external state, checks the prepared fingerprint and expiration, verifies authorization bound to the exact target and payload, and then invokes the adapter. Every successful commit has a receipt and a separate immutable Experience.
+
+```bash
+hardknock effect fixture-set --adapter mock-http \
+  --target mock://deployment/service-a --state '{"version":1}'
+hardknock effect propose --kind deployment --operation update \
+  --target mock://deployment/service-a --payload '{"version":3}' --prepare
+hardknock effect show effect-<uuid>
+hardknock effect commit effect-<uuid> --yes
+hardknock effect reconcile effect-<uuid>
+hardknock effect capabilities
+```
+
+The deterministic benchmark injects four failed candidates, state drift, response loss, and a partial multi-effect commit. Failed candidates cause **4/4** authoritative mutations under direct execution, **4/4** with filesystem sandboxing alone, and **0/4** through supported Hardknock adapters. The injected unknown outcome is recovered **1/1** with one authoritative mutation and no duplicate. These are local fixture results, not a claim that arbitrary effects are transactional.
+
+Transactional safety is adapter-scoped. V0.8 does not intercept arbitrary HTTP, shell commands, syscalls, real email, payments, AWS, Kubernetes, or PostgreSQL. Experimentation authority and mutation authority are separate capabilities.
 
 ## Teams Should Share Experience, Not Superstitions
 
