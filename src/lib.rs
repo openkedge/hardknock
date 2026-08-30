@@ -19,6 +19,7 @@ pub mod experience;
 pub mod experiment;
 pub mod experimentation;
 pub mod explanation;
+pub mod federation;
 pub mod integrations;
 pub mod learning_loop;
 pub mod lesson;

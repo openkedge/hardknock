@@ -385,6 +385,7 @@ impl ExperimentOrchestrator<'_> {
             ExperimentIntent::ResolveUncertainty
                 | ExperimentIntent::CompareStrategies
                 | ExperimentIntent::ValidateHypothesis
+                | ExperimentIntent::ReproduceFederatedExperience
         ) {
             return Err(invalid(
                 "This experiment intent requires the existing lesson/chaos/recovery engine; strategy execution does not substitute for it",

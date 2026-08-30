@@ -1,0 +1,113 @@
+{
+  "artifact": "standalone artifact omitted from committed summary",
+  "created_at": "2026-08-29T23:29:25.652048Z",
+  "id": "benchmark-758fa4f9-eb3f-4610-bcf2-af4104d9f0e8",
+  "metadata": {
+    "duration_ms": 6277,
+    "fixture_version": "federation-fixtures-v1",
+    "hardknock_version": "0.7.0-dev.1",
+    "network": false,
+    "nodes": [
+      "hk-node:8d3d5657be9cd0001238e4efed6ef19d97da96c58e921fc9871e27e91d61f1d5",
+      "hk-node:f9e7011cbed4d67ec057e1f37a49f7df4f339860534a378ddd04e59d77ce2f43",
+      "hk-node:f570b463565ca0496236f9db55981e9ad051e4bfb533858003b0a1b01beea6ed"
+    ],
+    "random_seed": null,
+    "transport": "signed portable bundle; filesystem transport separately exercised"
+  },
+  "metrics": {
+    "DuplicateEvidenceSuppressionRate": {
+      "sample_count": 1,
+      "value": 1.0
+    },
+    "ExternalExperienceUtilization": {
+      "sample_count": 1,
+      "value": 1.0
+    },
+    "FederatedContradictionRate": {
+      "sample_count": 2,
+      "value": 0.5
+    },
+    "FederatedTransferRate": {
+      "sample_count": 1,
+      "value": 1.0
+    },
+    "InvalidBundleRejectionRate": {
+      "sample_count": 1,
+      "value": 1.0
+    },
+    "LocalReproductionRate": {
+      "sample_count": 2,
+      "value": 1.0
+    },
+    "external_mistake_escape_rate": {
+      "hardknock_federation": 0.0,
+      "isolated": 0.5,
+      "naive_shared": 0.5
+    },
+    "task_success": {
+      "hardknock_federation": "2/2",
+      "isolated": "1/2",
+      "naive_shared": "1/2"
+    }
+  },
+  "scenarios": {
+    "contradiction": {
+      "conflict_count": 1,
+      "naive_remote_action": "failure",
+      "remote_preserved": true,
+      "reproduction": {
+        "created_at": "2026-08-29T23:29:24.040459Z",
+        "experience_ids": [
+          "exp-7b7c9d2c-b913-4be5-bda5-8293fe78e4de",
+          "exp-241da674-9c8d-4e6b-aab4-1f2ec618d785"
+        ],
+        "experiment_id": "experiment-33788a69-acf3-4dbb-a701-4e3619081401",
+        "explanation": "baseline Some(Success); alternative Some(Failure)",
+        "id": "reproduction-9468a790-f486-4deb-b113-d3b809d5342b",
+        "object_id": "federated-6fd82541-24ae-46a1-b918-01f27df906bc",
+        "result": "contradicts"
+      },
+      "safe_local_action": "success"
+    },
+    "duplicate_reexport": {
+      "duplicates_suppressed": 1,
+      "new_local_evidence": 2
+    },
+    "malicious_bundle": {
+      "tampered_signature_rejected": true
+    },
+    "naive_memory_failure": {
+      "different_environment_remote_alternative": "failure",
+      "hardknock_retained_local_baseline": "success"
+    },
+    "recovery_safety": {
+      "remote_recovery_auto_executed": false
+    },
+    "remote_reflex": {
+      "effective": "ADVISE",
+      "requested": "BLOCK",
+      "safe": true
+    },
+    "stale_remote": {
+      "policy": "version/context differences reduce compatibility and external evidence remains advisory until reproduction"
+    },
+    "successful_transfer": {
+      "advisory_before": "reproduction_recommended",
+      "future_outcome": "success",
+      "reproduction": {
+        "created_at": "2026-08-29T23:29:22.788845Z",
+        "experience_ids": [
+          "exp-e27a555f-3753-40e8-9036-bf6bac7a3fb2",
+          "exp-c0f1a8e1-b6b0-49d6-9077-388e3a816d18"
+        ],
+        "experiment_id": "experiment-a4a13fcb-0c75-41a9-96d3-c4ad916b46dc",
+        "explanation": "baseline Some(Failure); alternative Some(Success)",
+        "id": "reproduction-b2c63d28-5add-44df-92d7-268e405c7e36",
+        "object_id": "federated-08458ee8-c326-494b-b903-3da8c05a9f43",
+        "result": "supports"
+      }
+    }
+  },
+  "status": "completed"
+}

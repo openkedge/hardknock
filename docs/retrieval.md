@@ -27,6 +27,8 @@ After the scope gate, `DeterministicRelevance` adds each signal once:
 
 Scores are rounded to two decimal places and clamped to [0, 1]. Results sort by descending score, then Lesson ID for stable ties. Matches carry signal values and weights; exclusions carry reasons. The current local store scans Lessons; no scale or latency claim is made.
 
+Federated search preserves this local ordering. Eligible local Lessons are returned first. External candidates are listed in a separately labeled advisory section and never displace, activate, or silently merge with local knowledge. Promotion requires a local reproduction and a separate successful compatible Experience.
+
 | Default score | Meaning |
 | --- | --- |
 | Below 0.50 | Excluded |

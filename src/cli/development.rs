@@ -67,6 +67,8 @@ impl ProfileArgs {
 }
 #[derive(Debug, Subcommand)]
 pub enum ProfileCommand {
+    /// Institutional/federated evidence profile; never a universal trust score.
+    Federation,
     Show(ProfileArgs),
     Rebuild(ProfileArgs),
     Snapshot(ProfileArgs),
@@ -119,6 +121,10 @@ pub enum EpisodeCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum BenchmarkCommand {
+    Federation {
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     Longitudinal {
         #[arg(long)]
         output: Option<PathBuf>,
@@ -221,6 +227,9 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
     let cfg = Config::load(&store.home)?;
     Ok(match &cli.command {
         Commands::Profile { command } => match command {
+            ProfileCommand::Federation => {
+                json!({"kind":"federation_profile","profile":store.federation_status()?,"metrics":{"federated_experience_received":store.federated_objects()?.len(),"federated_experience_reproduced":store.reproductions()?.len(),"conflicts":store.federated_conflicts()?.len()},"caveat":"Node count measures diversity, not epistemic independence"})
+            }
             ProfileCommand::Show(a)
             | ProfileCommand::Rebuild(a)
             | ProfileCommand::Snapshot(a)
@@ -439,6 +448,16 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
             }
             json!({"kind":"benchmark","benchmark":result})
         }
+        Commands::Benchmark {
+            command: BenchmarkCommand::Federation { output },
+        } => {
+            super::warning(cli.json)?;
+            let result = crate::federation::benchmark::run(store, cancel).await?;
+            if let Some(path) = output {
+                export(path, &serde_json::to_value(&result)?)?;
+            }
+            json!({"kind":"federation_benchmark","benchmark":result})
+        }
         Commands::Doctor => {
             let p = build(
                 store,
@@ -447,7 +466,7 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
                 ProfileWindow::AllTime,
             )?;
             let database = store.database_health()?;
-            json!({"kind":"doctor","snapshots":database["snapshot_count"],"database":database,"schema_version":9,"policy_hash":p.policy_hash,"health":p.freshness,"experience_count":p.experience_count,"queue_pending":store.revalidations()?.iter().filter(|i|i.status=="pending").count(),"latest_benchmark":store.benchmark_runs()?.last().map(|b|json!({"id":b.id,"status":b.status})),"auto_run":false})
+            json!({"kind":"doctor","snapshots":database["snapshot_count"],"database":database,"schema_version":10,"policy_hash":p.policy_hash,"health":p.freshness,"experience_count":p.experience_count,"queue_pending":store.revalidations()?.iter().filter(|i|i.status=="pending").count(),"latest_benchmark":store.benchmark_runs()?.last().map(|b|json!({"id":b.id,"status":b.status})),"latest_federation_benchmark":store.federation_benchmarks()?.last().map(|b|json!({"id":b.id,"status":b.status})),"auto_run":false})
         }
         _ => return Err(Error::InvalidInput("Not a development command".into())),
     })

@@ -232,3 +232,20 @@ flowchart LR
 Cold retrieval reads only linked source/support observations for freshness; cache loading also resolves Reflex support once. Pre-tool decisions never query the store. Optional development context is assembled during session/context requests, outside the session mutex, and obeys the existing serialized byte budget. Broader local profile aggregation does not widen an artifact's selector or turn evidence into user policy.
 
 `development::benchmark` runs three isolated fixture arms through existing execution, experiment, curriculum and recovery engines. Task and training evidence remain distinguishable. Each terminal result contains run configuration, source trees, agent versions, per-episode metrics and learning-curve Experience IDs. See [development semantics](development.md) and the [V0.6 report](implementation-v06.md).
+
+## V0.7 federation boundary
+
+Federation exchanges signed, content-addressed experience bundles between independently operated nodes. A bundle crosses an explicit trust boundary: signature verification proves which node key produced the bytes, while local reproduction determines whether its claims transfer to the receiving context. Imported Lessons, Skills, and Reflexes remain advisory until local evidence supports promotion. External Reflexes can request `BLOCK`, but import constrains their effective behavior to `ADVISE`.
+
+```mermaid
+flowchart LR
+  A[Node A local evidence] --> R[Deterministic redaction]
+  R --> S[Signed immutable bundle]
+  S --> V[Node B verification and trust policy]
+  V --> I[Advisory external object]
+  I --> X[Local reproduction experiment]
+  X -->|supports| P[Explicit local promotion]
+  X -->|contradicts| C[Conflict record]
+```
+
+The first transport is a local filesystem repository. It never pushes Git state or performs network I/O. Provenance retains the original producer and lineage through re-export; duplicate detection uses content and lineage identifiers. See [federation](federation.md) and the [V0.7 report](implementation-v07.md).

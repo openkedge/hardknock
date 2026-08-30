@@ -11,6 +11,7 @@ use serde::Serialize;
 pub mod curriculum;
 mod development;
 mod experimentation;
+mod federation;
 pub mod integrations;
 mod resilience;
 use resilience::{ChaosCommand, EnvelopeCommand, RecoveryCommand, ReflexCommand, SkillCommand};
@@ -87,6 +88,23 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Manage local cryptographic peer relationships.
+    Peer {
+        #[command(subcommand)]
+        command: federation::PeerCommand,
+    },
+    /// Export, import, reproduce, and inspect signed external evidence.
+    Federate {
+        #[command(subcommand)]
+        command: federation::FederateCommand,
+    },
+    /// Trace local and cross-node evidence lineage.
+    Provenance { object: String },
+    /// Inspect and experimentally resolve local/remote evidence conflicts.
+    Conflict {
+        #[command(subcommand)]
+        command: federation::ConflictCommand,
+    },
     /// Inspect reconstructable, scoped development profiles.
     Profile {
         #[command(subcommand)]
@@ -341,6 +359,11 @@ pub enum LessonCommand {
         task: String,
         #[arg(long)]
         include_candidates: bool,
+        #[arg(
+            long,
+            help = "Include separately labeled advisory federated candidates"
+        )]
+        include_federated: bool,
         #[command(flatten)]
         retrieval: RetrievalArgs,
     },
@@ -447,6 +470,9 @@ pub enum ExperienceCommand {
 #[derive(Serialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Federation {
+        result: serde_json::Value,
+    },
     Development {
         result: serde_json::Value,
     },
@@ -465,6 +491,7 @@ pub enum Response {
     LessonSearch {
         query: Box<QueryContext>,
         report: RetrievalReport,
+        federated: Vec<crate::federation::FederatedObject>,
     },
     Why {
         explanation: Box<Explanation>,
@@ -580,6 +607,7 @@ impl Response {
             return Ok(());
         }
         match self {
+            Self::Federation { result } => federation::print(result, &mut stdout)?,
             Self::Curriculum { result } => result.print(&mut stdout)?,
             Self::Development { result } => development::print(result, &mut stdout)?,
             Self::Experimentation { result } => result.print(&mut stdout)?,
@@ -679,7 +707,9 @@ impl Response {
                     execution.diff.path.display()
                 )?;
             }
-            Self::LessonSearch { report, .. } => {
+            Self::LessonSearch {
+                report, federated, ..
+            } => {
                 for retrieved in &report.matches {
                     writeln!(
                         stdout,
@@ -706,6 +736,18 @@ impl Response {
                         stdout,
                         "Excluded {}: {}",
                         excluded.lesson_id, excluded.reason
+                    )?;
+                }
+                for external in federated {
+                    writeln!(stdout, "FEDERATED · ADVISORY · {}", external.id)?;
+                    writeln!(
+                        stdout,
+                        "  producer: {} · context match {:.2}",
+                        external.identity.origin_node, external.trust.context_compatibility.score
+                    )?;
+                    writeln!(
+                        stdout,
+                        "  This federated evidence has not been locally validated."
                     )?;
                 }
             }
@@ -1101,6 +1143,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if federation::handles(&cli.command) {
+        return Ok(Response::Federation {
+            result: federation::execute(cli, &store, cancel).await?,
+        });
+    }
     if development::handles(&cli.command) {
         return Ok(Response::Development {
             result: development::execute(cli, &store, cancel).await?,
@@ -1135,6 +1182,12 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
+        Commands::Peer { .. }
+        | Commands::Federate { .. }
+        | Commands::Provenance { .. }
+        | Commands::Conflict { .. } => {
+            Err(Error::InvalidInput("Federation dispatch failed".into()))
+        }
         Commands::Profile { .. }
         | Commands::Growth(_)
         | Commands::Timeline(_)
@@ -1272,6 +1325,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                 actions,
                 task,
                 include_candidates,
+                include_federated,
                 retrieval,
             } => {
                 let state = state
@@ -1297,6 +1351,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                 Ok(Response::LessonSearch {
                     query: Box::new(query),
                     report,
+                    federated: if *include_federated {
+                        store.search_federated(Some("lesson"),None)?.into_iter().filter(|o| !matches!(o.state,crate::federation::FederatedExperienceState::Rejected|crate::federation::FederatedExperienceState::Retired|crate::federation::FederatedExperienceState::LocallyContradicted)).collect()
+                    } else {
+                        vec![]
+                    },
                 })
             }
             LessonCommand::Retire { id, reason } => {

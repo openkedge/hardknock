@@ -19,6 +19,7 @@ use crate::{
 
 mod experiences;
 mod experiments;
+mod federation;
 pub use experiences::{ExperienceQuery, ExperienceStore, ExperienceSummary};
 pub use experiments::ExperimentStore;
 mod bridge;
@@ -52,6 +53,8 @@ impl Store {
                     "fixtures",
                     "run",
                     "integrations",
+                    "identity",
+                    "federation",
                 ]
                 .iter()
                 .any(|allowed| name == *allowed)
@@ -71,6 +74,8 @@ impl Store {
             "fixtures",
             "run",
             "integrations",
+            "identity",
+            "federation",
         ] {
             if fs::symlink_metadata(home.join(child)).is_ok_and(|m| m.file_type().is_symlink()) {
                 return Err(Error::Intervention(
@@ -96,7 +101,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 9 {
+        if version > 10 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -136,6 +141,10 @@ impl Store {
         if version < 9 {
             tx.execute_batch(include_str!("../migrations/009_development.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (9)", [])?;
+        }
+        if version < 10 {
+            tx.execute_batch(include_str!("../migrations/010_federation.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (10)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

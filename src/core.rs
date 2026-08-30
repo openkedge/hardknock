@@ -87,6 +87,10 @@ identifier!(DevelopmentEpisodeId, "episode-");
 identifier!(ExperiencePackageId, "package-");
 identifier!(RevalidationId, "revalidation-");
 identifier!(BenchmarkRunId, "benchmark-");
+identifier!(FederatedObjectId, "federated-");
+identifier!(FederatedConflictId, "conflict-");
+identifier!(FederationAuditId, "federation-audit-");
+identifier!(FederationReproductionId, "reproduction-");
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateRef {

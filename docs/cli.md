@@ -1,5 +1,30 @@
 # CLI reference
 
+## V0.7 federation
+
+```text
+peer list | add --name NAME --public-key FILE | show PEER | trust PEER | block PEER | remove PEER
+federate status
+federate export (--lesson ID | --skill NAME | --reflex ID | --external ID) [--output FILE | --dry-run]
+federate import FILE
+federate test FEDERATED_ID [--check SCRIPT ...]
+federate promote FEDERATED_ID --experience EXPERIENCE_ID
+federate publish OBJECT --target DIRECTORY [--namespace team/NAME] [--dry-run]
+federate search [--kind KIND] [--marker MARKER]
+federate search --repository DIRECTORY [--producer NODE] [--task-family FAMILY] [--marker MARKER]
+federate backlog | audit | compare LEFT RIGHT
+provenance OBJECT
+conflict list | show ID | test ID [--check SCRIPT ...]
+profile federation
+benchmark federation [--output FILE]
+```
+
+Export requires explicit publication and refuses overwrite. `--dry-run` returns the complete redacted, signed payload without writing or publishing it. Raw artifacts remain excluded; `--include-artifacts` is deliberately refused in this version. Import rejects invalid signatures, hash/ID mismatches, unsafe paths, bad references, excessive depth, and oversized files. A bundle from an unknown signing key is surfaced as `unknown_key`; add its public key as a peer to establish a local administrative relationship.
+
+Import creates new `federated-<uuid>` IDs while retaining origin node/object/bundle mappings. External items remain advisory. `federate test` is an explicit request to execute the imported Lesson's baseline and alternative as trusted local shell candidates in Git worktrees; the normal isolation warning applies. A supporting test reaches `locally_supported`. Only a separate later successful Experience in a compatible context can be supplied to `promote` for `locally_validated`.
+
+`lesson search --include-federated` appends separately labeled external candidates after local results. Federated evidence never outranks local validated evidence in the combined display. Remote Reflexes show requested and effective behavior separately; effective behavior is always `ADVISE` on import.
+
 ## V0.5 curriculum
 
 ```text

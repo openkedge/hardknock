@@ -72,6 +72,7 @@ pub struct Config {
     pub experience_budget: crate::experimentation::ExperienceBudgetConfig,
     pub curriculum: crate::curriculum::CurriculumConfig,
     pub development: crate::development::DevelopmentConfig,
+    pub federation: crate::federation::FederationConfig,
 }
 impl Config {
     pub fn load(home: &Path) -> Result<Self> {
@@ -95,6 +96,7 @@ impl Config {
         config.experiments.validate(&config.experience_budget)?;
         config.curriculum.validate()?;
         config.development.validate()?;
+        config.federation.validate()?;
         if !(1024..=32768).contains(&b.max_context_bytes)
             || !(1..=5).contains(&b.max_context_lessons)
             || !(1..=10000).contains(&b.max_actions)

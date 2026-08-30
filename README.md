@@ -22,7 +22,7 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.6 persistent development.** Scoped profiles, immutable snapshots, freshness, explicit revalidation, and a longitudinal fixture benchmark track what agents actually learn. Coverage and maturity describe tested conditions under configured policy, not universal safety. Successful live acceptance with two different agents is still pending. See the [V0.6 report](docs/implementation-v06.md) and [integration limits](docs/implementation-v03.md). Recommendations never apply changes automatically.
+> **Pre-alpha · V0.7 experience federation.** Hardknock can export redacted, Ed25519-signed evidence, import it as advisory external experience, compare context, reproduce it locally, and retain support or contradiction. Successful live acceptance with two different agents is still pending. See the [V0.7 report](docs/implementation-v07.md) and [federation guide](docs/federation.md). Recommendations never apply changes automatically.
 
 [Works With Your Agent](#works-with-your-agent) · [Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
 
@@ -48,6 +48,38 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
 V0.4 adds `hardknock try`, structured agent requests, explicit budgets, equivalent-state verification, bounded parallel candidates, comparison quality, replay/lineage, cancellation, and patch export. V0.5 adds curricula, Skill coverage/maturity, Experience Packages, and a held-out resilience benchmark. V0.6 adds persistent development profiles, immutable history, freshness-aware retrieval, and measured learning across episodes. See the [CLI reference](docs/cli.md), [development guide](docs/development.md), and [next phase](docs/roadmap.md).
+
+## Teams Should Share Experience, Not Superstitions
+
+> **Experience can travel. Trust has to be earned locally.**
+
+> **Hardknock shares evidence, not commandments.**
+
+A lesson learned by one agent can be valuable to another—but only if its provenance, scope, and evidence survive the transfer. Hardknock federates empirical experience rather than copying behavioral rules blindly.
+
+```text
+Team A → Evidence → Signed Experience Bundle → Team B
+                                                ↓
+                                      Context Compatibility
+                                                ↓
+                                      Local Reproduction
+                                        /             \
+                                    SUPPORT        CONTRADICT
+```
+
+Remote validation never becomes local validation automatically. A valid signature proves who produced a bundle; it does not prove the Lesson is correct in the receiver's environment. External Lessons, Reflexes, Recoveries, Skills, and envelopes remain visibly separate. In particular, a remote `BLOCK` Reflex becomes local `ADVISE` until local evidence and explicit policy permit more.
+
+```bash
+hardknock peer add --name platform-team --public-key ./platform-team.pub
+hardknock federate export --lesson lesson-<uuid> --output lesson.hkexp
+hardknock federate import lesson.hkexp
+hardknock federate test federated-<uuid>
+hardknock provenance lesson-<uuid>
+hardknock conflict list
+hardknock profile federation
+```
+
+The deterministic three-node benchmark records **2/2** critical successes with evidence federation versus **1/2** for isolated teams and **1/2** for naive shared rules. Node B supports and benefits from the Lesson; Node C contradicts it and keeps the local action. This is designed fixture evidence, not a production reliability estimate. Hardknock turns individual agent failures into institutional experience without requiring every agent to make the same mistake independently, while imported experience remains contextual and advisory until locally supported.
 
 ## Does Your Agent Actually Get Better?
 

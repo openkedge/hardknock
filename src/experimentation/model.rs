@@ -124,6 +124,7 @@ pub enum ExperimentOrigin {
     ChaosEngine,
     LessonValidation,
     ReflexValidation,
+    FederationReproduction,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -135,6 +136,7 @@ pub enum ExperimentIntent {
     TestLesson,
     ValidateRecovery,
     MapBoundary,
+    ReproduceFederatedExperience,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

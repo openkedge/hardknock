@@ -53,7 +53,7 @@ fn git(root: &Path, args: &[&str]) -> Result<()> {
     }
     Ok(())
 }
-fn pnpm(store: &Store, transfer: bool) -> Result<StateRef> {
+pub(crate) fn pnpm(store: &Store, transfer: bool) -> Result<StateRef> {
     let root = store.home.join("fixtures").join(if transfer {
         "longitudinal-transfer"
     } else {
@@ -142,7 +142,7 @@ fn pnpm(store: &Store, transfer: bool) -> Result<StateRef> {
     git(&root, &["commit", "-qm", "Pinned longitudinal fixture"])?;
     capture_state(&root)
 }
-fn update_environment(state: &StateRef) -> Result<StateRef> {
+pub(crate) fn update_environment(state: &StateRef) -> Result<StateRef> {
     for (name, body) in [
         (
             "agent-script.sh",
@@ -170,7 +170,12 @@ fn update_environment(state: &StateRef) -> Result<StateRef> {
     )?;
     capture_state(&state.repo_path)
 }
-fn request(state: &StateRef, agent: &AgentIdentity, credential: bool, script: &str) -> RunRequest {
+pub(crate) fn request(
+    state: &StateRef,
+    agent: &AgentIdentity,
+    credential: bool,
+    script: &str,
+) -> RunRequest {
     RunRequest {
         state: state.clone(),
         goal: if credential {
