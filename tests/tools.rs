@@ -242,7 +242,7 @@ fn container_arguments_keep_specialized_mounts_and_network_separate() {
     assert!(
         read_args
             .iter()
-            .any(|arg| { arg.contains("dst=/workspace,ro") && !arg.contains("dst=/workspace,rw") })
+            .any(|arg| arg.contains("dst=/workspace,readonly"))
     );
 
     let tests = tools.iter().find(|tool| tool.name == "run-tests").unwrap();
@@ -253,7 +253,7 @@ fn container_arguments_keep_specialized_mounts_and_network_separate() {
     assert!(
         test_args
             .iter()
-            .any(|arg| arg.contains("dst=/workspace,ro"))
+            .any(|arg| arg.contains("dst=/workspace,readonly"))
     );
     assert!(
         test_args
@@ -269,8 +269,16 @@ fn container_arguments_keep_specialized_mounts_and_network_separate() {
     assert!(
         write_args
             .iter()
-            .any(|arg| arg.contains("dst=/workspace,rw"))
+            .any(|arg| arg.contains("dst=/workspace") && !arg.contains("readonly"))
     );
+    for arguments in [&read_args, &test_args, &write_args] {
+        assert!(
+            arguments
+                .iter()
+                .filter(|arg| arg.starts_with("type=bind,"))
+                .all(|arg| !arg.ends_with(",rw") && !arg.ends_with(",ro"))
+        );
+    }
 }
 
 #[test]

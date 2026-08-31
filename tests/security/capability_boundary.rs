@@ -182,13 +182,29 @@ fn container_command_has_no_ambient_credentials_host_network_or_dangerous_mounts
         "no-new-privileges",
         "--network none",
         "--user",
-        "dst=/workspace,rw",
-        "dst=/run/hardknock,ro",
+        "dst=/workspace",
+        "dst=/run/hardknock,readonly",
         "--pids-limit 256",
         "--memory 1024m",
     ] {
         assert!(command.contains(required), "missing {required}: {command}");
     }
+    let mounts = arguments
+        .windows(2)
+        .filter(|pair| pair[0] == "--mount")
+        .map(|pair| pair[1].as_str())
+        .collect::<Vec<_>>();
+    let workspace = mounts
+        .iter()
+        .find(|mount| mount.contains("dst=/workspace"))
+        .unwrap();
+    assert!(!workspace.contains("readonly"), "{workspace}");
+    assert!(
+        mounts
+            .iter()
+            .all(|mount| !mount.ends_with(",rw") && !mount.ends_with(",ro")),
+        "bare volume mode is invalid in --mount syntax: {mounts:?}"
+    );
     assert!(
         !command.contains("--user 0:"),
         "container must be non-root: {command}"

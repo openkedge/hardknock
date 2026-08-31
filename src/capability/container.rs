@@ -163,9 +163,9 @@ impl<'a> ContainerRealityProvider<'a> {
             "--workdir".into(),
             "/workspace".into(),
             "--mount".into(),
-            format!("type=bind,src={},dst=/workspace,rw", root.display()),
+            super::container_bind_mount(&root, "/workspace", false),
             "--mount".into(),
-            format!("type=bind,src={},dst=/run/hardknock,ro", control.display()),
+            super::container_bind_mount(&control, "/run/hardknock", true),
             "--tmpfs".into(),
             "/tmp:rw,nosuid,nodev,noexec,size=256m".into(),
         ];

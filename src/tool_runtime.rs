@@ -7,7 +7,7 @@
 
 use crate::{
     Error, Result,
-    capability::{CapabilityManifest, IsolationLevel, NetworkMode},
+    capability::{CapabilityManifest, IsolationLevel, NetworkMode, container_bind_mount},
     core::{MicroSandboxId, Reality},
     store::{Store, ToolStore},
     tool::*,
@@ -286,14 +286,9 @@ impl ContainerMicroSandboxProvider {
             })
             .collect::<BTreeSet<_>>();
         let full_workspace_write = write_roots.contains("/workspace");
-        let mount_mode = if full_workspace_write { "rw" } else { "ro" };
         args.extend([
             "--mount".into(),
-            format!(
-                "type=bind,src={},dst=/workspace,{}",
-                root.display(),
-                mount_mode
-            ),
+            container_bind_mount(&root, "/workspace", !full_workspace_write),
             "--tmpfs".into(),
             "/tmp:rw,nosuid,nodev,noexec,size=256m".into(),
             "--env".into(),
@@ -309,7 +304,7 @@ impl ContainerMicroSandboxProvider {
                 if source.exists() {
                     args.extend([
                         "--mount".into(),
-                        format!("type=bind,src={},dst={target},rw", source.display()),
+                        container_bind_mount(&source, target, false),
                     ]);
                 } else {
                     args.extend([
