@@ -40,6 +40,7 @@ hardknock capability show coding-offline
 hardknock capability validate ./manifest.json
 hardknock capability diff coding-offline coding-networked
 hardknock capability explain <reality-id> --request '<CapabilityRequest JSON>'
+hardknock capability explain <micro-sandbox-id>
 hardknock capability audit --reality <reality-id>
 hardknock capability revoke --reality <reality-id> network
 hardknock capability benchmark --output ./security-report.json

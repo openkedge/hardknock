@@ -55,3 +55,13 @@ The per-Reality Bridge relay accepts only that Reality's token. `hk-effect` expo
 Capability denials are observable events that may explain a failed attempt or suggest a later user-reviewed profile revision. They are not permission for the agent to broaden its own manifest. Experience/federation records retain execution-assurance metadata so a receiver can distinguish cooperative worktree evidence from container-gated evidence.
 
 Container integration currently covers one execution. Native lifecycle adapters still observe their host workspace and are not retroactively contained. Automatic retry/reflection and the trusted evaluator remain host-side until those execution paths are routed through the proxy.
+
+## Named tools and attestations (V0.10)
+
+Adapters should expose canonical Hardknock `ToolDefinition` objects when their
+lifecycle supports structured tools. The agent can query names, schemas, and
+capability summaries on demand; the entire registry is not injected into every
+prompt. Each invocation receives the intersection of Reality, tool, and
+temporary policy capabilities, then returns a `ToolExecutionReceipt` pointing
+to an immutable execution attestation. A tool may propose or prepare a
+structured Effect without receiving commit authority or database credentials.

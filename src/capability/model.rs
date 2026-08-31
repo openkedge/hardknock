@@ -3,7 +3,8 @@
 use crate::{
     Error, Result,
     core::{
-        CapabilityEscalationId, CapabilityEventId, CapabilityManifestId, CredentialId, RealityId,
+        CapabilityEscalationId, CapabilityEventId, CapabilityManifestId, CredentialId,
+        ExecutionAttestationId, RealityId,
     },
     effects::{EffectKind, EffectOperation},
 };
@@ -583,4 +584,20 @@ pub struct ExecutionAssurance {
     pub isolation: RealityProviderCapabilities,
     pub capability_manifest_hash: Option<String>,
     pub external_effect_gating: bool,
+    #[serde(default)]
+    pub origin: ExecutionEvidenceOrigin,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attestation_id: Option<ExecutionAttestationId>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionEvidenceOrigin {
+    HostProcess,
+    ContainerReality,
+    MicroSandbox,
+    Wasi,
+    EffectBoundary,
+    #[default]
+    Unknown,
 }

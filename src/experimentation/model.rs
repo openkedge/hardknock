@@ -112,6 +112,15 @@ pub struct ComparisonCriteria {
     /// Reserved for explicit future policies; nonempty values are rejected in V0.4.
     pub custom_checks: Vec<String>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComparisonCriterion {
+    EvaluatorSuccess,
+    MinimizeDuration,
+    MinimizeDiffSize,
+    MinimizeCapabilityExposure,
+}
 impl Default for ComparisonCriteria {
     fn default() -> Self {
         Self {

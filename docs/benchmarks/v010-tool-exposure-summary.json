@@ -1,0 +1,32 @@
+{
+  "session_container": {
+    "network_endpoints_exposed": 2,
+    "credential_grants": 0,
+    "writable_scopes": 2,
+    "effect_permissions": 0,
+    "exposure_duration_ms": 1800000,
+    "network_exposure_duration_ms": 1800000,
+    "credential_exposure_duration_ms": 0,
+    "write_exposure_duration_ms": 1800000,
+    "effect_exposure_duration_ms": 0
+  },
+  "micro_sandboxes": {
+    "network_endpoints_exposed": 1,
+    "credential_grants": 0,
+    "writable_scopes": 4,
+    "effect_permissions": 0,
+    "exposure_duration_ms": 1800000,
+    "network_exposure_duration_ms": 300000,
+    "credential_exposure_duration_ms": 0,
+    "write_exposure_duration_ms": 900000,
+    "effect_exposure_duration_ms": 0
+  },
+  "tool_count": 6,
+  "capability_resolution_ms": 1,
+  "runtime_startup_ms": null,
+  "notes": [
+    "Dimensions are reported separately; no synthetic security score is calculated",
+    "Exposure durations are configured maximum windows from manifest timeouts, not observed wall-clock runtime",
+    "Runtime startup requires an installed Docker/Podman provider and is therefore optional"
+  ]
+}

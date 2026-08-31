@@ -242,6 +242,8 @@ pub struct FailureSignatureObservation {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EvidenceBundle {
     pub artifacts: Vec<ArtifactRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attestations: Vec<crate::core::ExecutionAttestationId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub execution_assurance: Option<crate::capability::ExecutionAssurance>,
 }

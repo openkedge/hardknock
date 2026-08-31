@@ -1,7 +1,7 @@
 [package]
 name = "hardknock"
 default-run = "hardknock"
-version = "0.9.0-dev.1"
+version = "0.10.0-dev.1"
 edition = "2024"
 license = "Apache-2.0"
 description = "Agent experience infrastructure for safe experimentation, empirical learning, and resilience"
@@ -9,6 +9,7 @@ repository = "https://github.com/openkedge/hardknock"
 publish = false
 
 [dependencies]
+async-trait = "0.1"
 blake3 = "1"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }

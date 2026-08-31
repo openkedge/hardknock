@@ -8,6 +8,7 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
+pub(crate) mod attestation;
 pub(crate) mod capability;
 pub mod curriculum;
 mod development;
@@ -16,6 +17,7 @@ mod experimentation;
 mod federation;
 pub mod integrations;
 mod resilience;
+pub(crate) mod tools;
 use resilience::{ChaosCommand, EnvelopeCommand, RecoveryCommand, ReflexCommand, SkillCommand};
 
 use crate::{
@@ -90,6 +92,16 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Register and execute portable, least-authority tools.
+    Tool {
+        #[command(subcommand)]
+        command: tools::ToolCommand,
+    },
+    /// Inspect and verify immutable per-tool execution attestations.
+    Attestation {
+        #[command(subcommand)]
+        command: attestation::AttestationCommand,
+    },
     /// Inspect, explain, audit, compare, and revoke execution capabilities.
     Capability {
         #[command(subcommand)]
@@ -513,6 +525,12 @@ pub enum ExperienceCommand {
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Tools {
+        result: serde_json::Value,
+    },
+    Attestations {
+        result: serde_json::Value,
+    },
     Capability {
         result: serde_json::Value,
     },
@@ -658,6 +676,10 @@ impl Response {
             return Ok(());
         }
         match self {
+            Self::Tools { result } | Self::Attestations { result } => {
+                serde_json::to_writer_pretty(&mut stdout, result)?;
+                writeln!(stdout)?;
+            }
             Self::Capability { result } => {
                 serde_json::to_writer_pretty(&mut stdout, result)?;
                 writeln!(stdout)?;
@@ -1223,6 +1245,16 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if tools::handles(&cli.command) {
+        return Ok(Response::Tools {
+            result: tools::execute(cli, &store, cancel).await?,
+        });
+    }
+    if attestation::handles(&cli.command) {
+        return Ok(Response::Attestations {
+            result: attestation::execute(cli, &store)?,
+        });
+    }
     if capability::handles(&cli.command) {
         return Ok(Response::Capability {
             result: capability::execute(cli, &store)?,
@@ -1272,6 +1304,9 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
+        Commands::Tool { .. } | Commands::Attestation { .. } => Err(Error::InvalidInput(
+            "Tool or attestation dispatch failed".into(),
+        )),
         Commands::Capability { .. } => {
             Err(Error::InvalidInput("Capability dispatch failed".into()))
         }

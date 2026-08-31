@@ -31,6 +31,13 @@ pub mod reflection;
 pub mod resilience;
 pub mod retrieval;
 pub mod store;
+pub mod tool;
+pub mod tool_benchmark;
+pub mod tool_runtime;
+/// Compatibility alias for callers that prefer a plural module name.
+pub mod tools {
+    pub use crate::tool::*;
+}
 pub mod validation;
 pub mod workflow;
 

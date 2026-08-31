@@ -556,8 +556,9 @@ dependencies = [
 
 [[package]]
 name = "hardknock"
-version = "0.9.0-dev.1"
+version = "0.10.0-dev.1"
 dependencies = [
+ "async-trait",
  "blake3",
  "chrono",
  "clap",

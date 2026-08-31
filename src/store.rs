@@ -31,9 +31,11 @@ mod curriculum;
 mod development;
 mod learning;
 mod resilience;
+mod tools;
 mod transfer;
 pub use curriculum::CurriculumStore;
 pub use learning::{LessonQuery, LessonStore, LessonSummary};
+pub use tools::ToolStore;
 
 pub struct Store {
     pub home: PathBuf,
@@ -60,6 +62,7 @@ impl Store {
                     "identity",
                     "federation",
                     "effects",
+                    "tools",
                 ]
                 .iter()
                 .any(|allowed| name == *allowed)
@@ -82,6 +85,7 @@ impl Store {
             "identity",
             "federation",
             "effects",
+            "tools",
         ] {
             if fs::symlink_metadata(home.join(child)).is_ok_and(|m| m.file_type().is_symlink()) {
                 return Err(Error::Intervention(
@@ -107,7 +111,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 12 {
+        if version > 13 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -159,6 +163,10 @@ impl Store {
         if version < 12 {
             tx.execute_batch(include_str!("../migrations/012_capabilities.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (12)", [])?;
+        }
+        if version < 13 {
+            tx.execute_batch(include_str!("../migrations/013_tools.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (13)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

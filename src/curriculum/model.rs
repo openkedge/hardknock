@@ -80,6 +80,7 @@ pub enum CurriculumGoalKind {
     ExploreUnknownCondition,
     RevalidateOldExperience,
     ResolveContradiction,
+    MinimizeCapability,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -10,7 +10,7 @@ use crate::{Error, Result};
 
 macro_rules! identifier {
     ($name:ident, $prefix:literal) => {
-        #[derive(Clone, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+        #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
         #[serde(try_from = "String", into = "String")]
         pub struct $name(String);
 
@@ -108,6 +108,9 @@ identifier!(CapabilityEventId, "capability-event-");
 identifier!(CapabilityTokenId, "capability-token-");
 identifier!(CredentialId, "credential-");
 identifier!(CapabilityEscalationId, "capability-escalation-");
+identifier!(ToolId, "tool-");
+identifier!(MicroSandboxId, "micro-sandbox-");
+identifier!(ExecutionAttestationId, "attestation-");
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateRef {
@@ -201,7 +204,7 @@ pub struct AgentIdentity {
     pub model: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactRef {
     pub path: PathBuf,
     pub blake3: String,

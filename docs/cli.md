@@ -7,6 +7,7 @@ hardknock capability list
 hardknock capability show <profile>
 hardknock capability validate <json-or-toml>
 hardknock capability explain <reality-id> --request '<CapabilityRequest JSON>'
+hardknock capability explain <micro-sandbox-id>
 hardknock capability audit [--reality <id>]
 hardknock capability diff <left-profile> <right-profile>
 hardknock capability revoke --reality <id> <network|process|credentials|effects>
@@ -297,6 +298,31 @@ Cancellation terminates the active process group, records available evidence, an
 ## Deferred commands
 
 Autonomous skill synthesis and arbitrary action interception remain deferred. `try` and `benchmark longitudinal` are implemented; see [agent experiments](agent-experiments.md) and [persistent development](development.md). Native integration commands remain a preview with live acceptance pending. The generic adapter has a tested context-file contract; see [agent integration](agent-integration.md).
+
+## V0.10 tools and attestations
+
+```bash
+hardknock tool list [--include-disabled]
+hardknock tool show NAME_OR_ID
+hardknock tool verify NAME_OR_ID
+hardknock tool validate hardknock-tool.toml
+hardknock tool register hardknock-tool.toml
+hardknock tool disable NAME_OR_ID
+hardknock tool audit [--sandbox ID]
+hardknock tool benchmark [--output FILE]
+hardknock tool run NAME [--reality ID] [--runtime container|host]
+hardknock tool run NAME --explain-capabilities [--reality ID]
+hardknock capability explain MICRO_SANDBOX_ID
+hardknock attestation list
+hardknock attestation show ID
+hardknock attestation verify ID
+hardknock attestation replay ID
+```
+
+The default runtime is a disposable container and does not silently downgrade.
+`--runtime host` requires `--allow-host-fallback` and records `Observed`,
+non-isolated evidence. Attestation replay reports when the original input was
+not retained because only its hash is available.
 
 ## V0.2 resilience commands
 

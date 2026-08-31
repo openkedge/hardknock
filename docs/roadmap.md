@@ -18,6 +18,7 @@ The local passive learning and active resilience loops are implemented. V0.9 add
 | 17 — Experience federation | Implemented locally in V0.7 | Node identity, signed/redacted bundles, peer trust, advisory import, context matching, local reproduction, provenance/conflicts, filesystem transport and three-node benchmark |
 | 18 — Governed external effects | Implemented for deterministic adapters in V0.8 | Effect lifecycle/ledger, transactional Realities, mock HTTP/database/message/shadow adapters, explicit commit authority, receipts, idempotency, reconciliation, compensation, groups and benchmark |
 | 19 — Capability-isolated execution | Implemented in V0.9; live runtime acceptance pending | Immutable manifests, truthful provider requirements, Docker/Podman provider, signed Reality tokens, shell/file proxy, test credential broker, scoped Effect relay, structured PostgreSQL adapter and security benchmark |
+| 20 — Micro-sandboxed tools and attestation | Implemented locally; live container/WASI acceptance pending | Portable tool manifests and registry, Reality ∩ Tool ∩ Grant capability resolution, per-invocation provider lifecycle, lifecycle persistence, execution receipts/attestations, raw exposure benchmark and explicit host/WASI limitations |
 
 ## Verified acceptance boundaries
 
@@ -37,7 +38,7 @@ V0.9 code and pure security coverage do not retroactively complete V0.3 live acc
 
 ## Exact next-phase plan
 
-**V0.10 — Micro-Sandboxes, Portable Capability Tools, and Execution Attestation.** Begin only after the V0.9 runtime acceptance above demonstrates that an integrated agent can learn through broad experimentation while possessing substantially less authority than the host.
+**V0.10 — Micro-Sandboxes, Portable Capability Tools, and Execution Attestation.** The local foundation is implemented: portable named tools, Reality/tool/grant intersection, short-lived provider lifecycle, credentialless Effect requests, execution attestations, CLI inspection, and raw authority-surface reporting. Live container and WASI acceptance remains below.
 
 Move from a container-scale Reality toward per-tool capability sandboxes, short-lived execution environments, portable tool manifests, stronger provider isolation, and independently inspectable execution receipts. Candidate components are a WASM/WASI tool runtime, a microVM provider, capability-signed tools, tool-level filesystem/network grants, shorter-lived credential exchange, and artifact/effect attestation. Preserve provider truth: container evidence is not microVM evidence, and signed local metadata is not remote attestation.
 
@@ -52,3 +53,12 @@ Remaining cross-version integration work continues in parallel:
 MCP may later be an optional facade over the same Bridge; it is not the architecture. Hosted services, multi-user authentication, remote sharing/sync, marketplaces, privileged/cloud/network chaos, financial effects, arbitrary transaction virtualization, production AWS/Kubernetes mutation, arbitrary HTTP interception, organization RBAC, tournaments, and GUI remain out of scope.
 
 See [the V0.3 report](implementation-v03.md) for remaining acceptance work and measured results.
+
+## Remaining V0.10 runtime acceptance
+
+Run the optional container layer on Docker/Podman hosts and add a WASI build
+before claiming live micro-sandbox isolation. Measure startup/disposal overhead,
+capability duration, credential lifetime, tool tampering, artifact mutation,
+replay match/divergence, and the flagship multi-tool dependency task. Imported
+tools must remain disabled until local approval; no executable marketplace or
+hardware-backed attestation is implied.

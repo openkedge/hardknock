@@ -305,11 +305,18 @@ async fn execute_prepared(
             failure_signatures: signatures, evaluation,
             evidence: EvidenceBundle {
                 artifacts: evidence,
+                attestations: vec![],
                 execution_assurance: Some(crate::capability::ExecutionAssurance {
                     reality_provider: reality.execution_boundary.provider.clone(),
                     isolation: reality.execution_boundary.capabilities.clone(),
                     capability_manifest_hash: reality.execution_boundary.manifest_hash.clone(),
                     external_effect_gating: reality.execution_boundary.capabilities.external_effect_control == crate::capability::EffectControlLevel::Gated,
+                    origin: if reality.execution_boundary.provider == "container" {
+                        crate::capability::ExecutionEvidenceOrigin::ContainerReality
+                    } else {
+                        crate::capability::ExecutionEvidenceOrigin::HostProcess
+                    },
+                    attestation_id: None,
                 }),
             }, replay,
             lesson_applications:observation.applications, relations:observation.relations, repeated_mistakes:observation.mistakes,

@@ -22,7 +22,31 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.9 capability-isolated execution.** Hardknock now models deny-by-default execution capabilities, can run an agent command through a Docker/Podman container Reality, signs Reality-scoped tokens, brokers test credentials, gates Effects by exact scope, and includes a structured PostgreSQL adapter. The pure suite does not require a container or database; this development pass had neither runtime available, so live isolation and PostgreSQL results remain unobserved. See the [V0.9 report](docs/implementation-v09.md), [execution boundary](docs/execution-boundary.md), and [threat model](docs/threat-model.md).
+> **Pre-alpha · V0.10 portable capability tools.** Hardknock now narrows authority from a Reality down to each named tool invocation, records a short-lived micro-sandbox lifecycle, and stores execution attestations without copying input secrets. The pure suite does not require Docker, PostgreSQL, or WASI; live container and database results remain optional and explicitly unobserved when their runtimes are absent. See the [V0.10 report](docs/implementation-v010.md), [tools](docs/tools.md), [micro-sandboxes](docs/micro-sandboxes.md), and [execution attestations](docs/execution-attestation.md).
+
+## Give the Tool What It Needs — Not What the Agent Has
+
+Session-level sandboxes are useful, but most actions need less authority than
+the whole agent Reality. Hardknock resolves a named tool against the parent
+Reality and policy, runs it in a short-lived micro-sandbox, records what was
+allowed and observed, then destroys the sandbox.
+
+> **Least privilege should apply to actions, not just agents.**
+
+> **A tool should lose its authority when the tool stops running.**
+
+> **Give code capabilities, not credentials.**
+
+```text
+Agent → Tool Request → Capability Intersection → Micro-Sandbox
+      → Execute → Attest → Destroy
+```
+
+Try `hardknock tool list`, `hardknock tool show run-tests`, and
+`hardknock tool benchmark`. Host runs require an explicit
+`--allow-host-fallback`; the safe default is a container provider with no
+silent downgrade. Plain Docker endpoint allow-lists fail closed until an
+enforceable runtime-specific network policy is configured.
 
 [Works With Your Agent](#works-with-your-agent) · [Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
 

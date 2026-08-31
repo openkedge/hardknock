@@ -64,3 +64,11 @@ hardknock effect fixture-show --adapter mock-http \
 ```
 
 These commands do not configure real providers. See [adapters](effect-adapters.md), [commit semantics](commit-semantics.md), and [security](effect-security.md).
+## Credentialless tool effects (V0.10)
+
+Named effectful tools run with no database password or network credential. They
+emit a structured Effect request through `ToolExecutionResult::effect_request`;
+the host then applies the existing Effect Manager scope and authorization
+checks. A tool may propose or prepare only when both its manifest and the parent
+Reality allow the exact kind, target, and operation. Commit remains an
+external authority and is never inferred from tool execution success.

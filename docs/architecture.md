@@ -1,5 +1,27 @@
 # Architecture
 
+## V0.10 tool router and execution attestation
+
+```mermaid
+flowchart LR
+  A[Claude / Codex / other agent] --> R[Tool Router]
+  R --> I[Reality ∩ Tool ∩ Policy]
+  I --> S1[Micro-Sandbox A]
+  I --> S2[Micro-Sandbox B]
+  I --> E[Effect Boundary]
+  S1 --> T1[Attestation]
+  S2 --> T2[Attestation]
+  E --> T3[Prepared Effect]
+  T1 --> X[Experience references]
+  T2 --> X
+```
+
+Named tools are portable executable contracts. The router validates input,
+verifies integrity and trust, computes an effective capability set, selects a
+runtime without silent fallback, executes once, records lifecycle evidence,
+and destroys the compartment. A tool may emit a structured Effect request,
+but its `commit` capability is never inherited from propose or prepare access.
+
 ## V0.9 execution and effect boundary
 
 ```mermaid

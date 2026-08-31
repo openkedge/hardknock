@@ -383,11 +383,14 @@ pub fn record(
         failure_signatures,
         evidence: EvidenceBundle {
             artifacts,
+            attestations: vec![],
             execution_assurance: Some(crate::capability::ExecutionAssurance {
                 reality_provider: "external-workspace".into(),
                 isolation: crate::capability::RealityProviderCapabilities::git_worktree(),
                 capability_manifest_hash: None,
                 external_effect_gating: false,
+                origin: crate::capability::ExecutionEvidenceOrigin::HostProcess,
+                attestation_id: None,
             }),
         },
         tags: vec![

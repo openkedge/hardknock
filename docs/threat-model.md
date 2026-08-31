@@ -42,6 +42,13 @@ V0.9 targets a malicious or misbehaving agent running ordinary code in one conta
 
 ## Validation status
 
+V0.10 adds a per-tool boundary inside a Reality. Tool definitions are hashed
+and registry entries can be disabled; imported or federated executables remain
+disabled by default. The effective capability set is an intersection, so a
+tool cannot add a network endpoint, writable path, credential, or Effect scope
+that the parent Reality lacks. Each invocation gets its own sandbox lifecycle
+and attestation. Host fallback is explicit and reports no isolation.
+
 The deterministic security suite proves policy-level rejection for traversal, symlinks, dangerous mounts, token tampering/revision/revocation, effect escalation, secret persistence/redaction, and commit bypass. It inspects the exact container create arguments. The benchmark honestly observes the worktree control and host-level Hardknock policy arm.
 
 No Docker/Podman runtime was present for this pass, so claims that require live namespaces, mounts, daemon networking, or a container escape attempt remain unobserved. No PostgreSQL URL was present, so the real adapter's live transaction sequence remains an optional integration test. See [Security benchmark](security-benchmark.md) for denominators and limitations.

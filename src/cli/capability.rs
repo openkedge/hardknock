@@ -4,8 +4,8 @@ use crate::{
     Error, Result,
     capability::*,
     cli::{Cli, Commands},
-    core::{CapabilityManifestId, RealityId},
-    store::{CapabilityStore, Store},
+    core::{CapabilityManifestId, MicroSandboxId, RealityId},
+    store::{CapabilityStore, Store, ToolStore},
 };
 use chrono::{Duration, Utc};
 use clap::Subcommand;
@@ -27,9 +27,10 @@ pub enum CapabilityCommand {
         file: PathBuf,
     },
     Explain {
-        reality: RealityId,
+        #[arg(help = "Reality or micro-sandbox identifier")]
+        subject: String,
         #[arg(long, help = "CapabilityRequest JSON")]
-        request: String,
+        request: Option<String>,
     },
     Audit {
         #[arg(long)]
@@ -71,9 +72,31 @@ pub fn execute(cli: &Cli, store: &Store) -> Result<Value> {
                 "manifest_hash":manifest.hash()?
             }))
         }
-        CapabilityCommand::Explain { reality, request } => {
-            let reality_record = store.reality(reality)?;
-            let manifest = store.effective_capability_manifest(reality)?;
+        CapabilityCommand::Explain { subject, request } => {
+            if let Ok(sandbox_id) = subject.parse::<MicroSandboxId>() {
+                let sandbox = store.micro_sandbox(&sandbox_id)?;
+                return Ok(json!({
+                    "sandbox":sandbox.id,
+                    "reality":sandbox.reality_id,
+                    "tool":sandbox.tool_id,
+                    "runtime":sandbox.runtime,
+                    "created_at":sandbox.created_at,
+                    "expires_at":sandbox.expires_at,
+                    "destroyed_at":sandbox.destroyed_at,
+                    "effective":sandbox.capabilities,
+                    "surface":sandbox.capabilities.surface()
+                }));
+            }
+            let reality: RealityId = subject.parse().map_err(|_| {
+                Error::InvalidInput(
+                    "Capability explain expects a Reality or micro-sandbox identifier".into(),
+                )
+            })?;
+            let request = request.as_deref().ok_or_else(|| {
+                Error::InvalidInput("Reality capability explanation requires --request".into())
+            })?;
+            let reality_record = store.reality(&reality)?;
+            let manifest = store.effective_capability_manifest(&reality)?;
             let request: CapabilityRequest = serde_json::from_str(request)?;
             let evaluation = DenyByDefaultCapabilityPolicy.evaluate(&request, &manifest);
             Ok(json!({
