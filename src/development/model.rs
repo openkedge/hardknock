@@ -343,6 +343,8 @@ pub struct SkillRevision {
     pub evidence: Vec<EvidenceRef>,
     pub parent_revision: Option<u64>,
     pub source_experience: ExperienceId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub behavioral_contract: Option<crate::assurance::BehavioralContractRef>,
 }
 pub type LessonRevision = crate::lesson::Lesson;
 #[derive(Clone, Debug, Serialize, Deserialize)]

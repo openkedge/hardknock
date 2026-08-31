@@ -150,6 +150,7 @@ impl Store {
             }],
             parent_revision: Some(previous),
             source_experience: source.clone(),
+            behavioral_contract: skill.behavioral_contract,
         };
         tx.execute("INSERT INTO skill_revisions(skill_id,revision,created_at,source_experience,data) VALUES(?1,?2,?3,?4,?5)",params![r.skill_id.to_string(),sql_count(r.revision)?,r.created_at.to_rfc3339(),source.to_string(),json(&r)?])?;
         tx.commit()?;

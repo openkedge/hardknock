@@ -315,6 +315,10 @@ pub struct Skill {
     pub maturity: crate::curriculum::SkillMaturity,
     #[serde(default)]
     pub coverage: crate::curriculum::SkillCoverage,
+    /// The current contract binding is revisioned separately. Historical Skill
+    /// and certification records retain the exact contract revision they used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub behavioral_contract: Option<crate::assurance::BehavioralContractRef>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

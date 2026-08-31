@@ -54,6 +54,7 @@ pub enum RecoveryCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum SkillCommand {
+    Certify(super::assurance::CertifyArgs),
     History {
         name: String,
     },
@@ -509,6 +510,7 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
                 },
                 SkillCommand::Harden { .. }
                 | SkillCommand::Package { .. }
+                | SkillCommand::Certify(_)
                 | SkillCommand::History { .. }
                 | SkillCommand::Revise { .. } => {
                     return Err(Error::InvalidInput("Curriculum dispatch failed".into()));

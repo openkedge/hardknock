@@ -1,5 +1,33 @@
 # CLI reference
 
+## Behavioral contracts and assurance
+
+```text
+hardknock contract list
+hardknock contract show <id-or-name>
+hardknock contract validate <id-or-file>
+hardknock contract history <id-or-name>
+hardknock contract diff <id-or-name> --from 1 --to 2
+hardknock contract register .hardknock/contracts/deploy.toml --skill deploy
+
+hardknock skill certify deploy --profile basic-behavior-v1 --dry-run
+hardknock skill certify deploy --profile resilience-basic-v1
+
+hardknock assurance show deploy
+hardknock assurance gaps deploy --profile resilience-basic-v1
+hardknock assurance history deploy
+hardknock assurance diff <certificate-a> <certificate-b>
+hardknock assurance export deploy --profile basic-behavior-v1 --output deploy.hkcert
+hardknock assurance verify deploy.hkcert
+hardknock assurance revoke <certificate-id> --reason "critical regression"
+```
+
+`contract validate FILE` is read-only. `contract register` creates a new
+immutable revision and binding. `skill certify --dry-run` never persists a
+manifest or certificate. A non-dry run persists only when the recommendation
+is `eligible`; blocked and additional-evidence results use distinct exit codes.
+Certification never runs curriculum trials or commits effects automatically.
+
 ## Capability-isolated execution (V0.9)
 
 ```text

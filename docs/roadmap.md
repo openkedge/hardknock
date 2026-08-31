@@ -19,6 +19,7 @@ The local passive learning and active resilience loops are implemented. V0.9 add
 | 18 — Governed external effects | Implemented for deterministic adapters in V0.8 | Effect lifecycle/ledger, transactional Realities, mock HTTP/database/message/shadow adapters, explicit commit authority, receipts, idempotency, reconciliation, compensation, groups and benchmark |
 | 19 — Capability-isolated execution | Implemented in V0.9; live runtime acceptance pending | Immutable manifests, truthful provider requirements, Docker/Podman provider, signed Reality tokens, shell/file proxy, test credential broker, scoped Effect relay, structured PostgreSQL adapter and security benchmark |
 | 20 — Micro-sandboxed tools and attestation | Implemented locally; live container/WASI acceptance pending | Portable tool manifests and registry, Reality ∩ Tool ∩ Grant capability resolution, per-invocation provider lifecycle, lifecycle persistence, execution receipts/attestations, raw exposure benchmark and explicit host/WASI limitations |
+| 21 — Behavioral contracts and empirical assurance | Implemented locally in V0.11 | Contract revisions and observability, three built-in profiles, reproducible evidence manifests, hard Critical/capability blockers, certification lifecycle, curricula for gaps, signed `.hkcert` artifacts and advisory remote verification |
 
 ## Verified acceptance boundaries
 
@@ -37,6 +38,24 @@ V0.9 code and pure security coverage do not retroactively complete V0.3 live acc
 5. Route retry/reflection, candidate, curriculum, recovery, and evaluator commands through the same capability boundary before describing those workflows as isolated.
 
 ## Exact next-phase plan
+
+**V0.12 — Adaptive Agent Runtime and Experience-Guided Control.** Use current
+context, operating envelope, evidence gaps, assurance freshness, effect risk,
+and authority boundaries during live execution to choose among act,
+experiment, recover, replan, request approval, or abstain. Each choice must
+leave new evidence. Assurance status should inform control without becoming an
+automatic permission escalation.
+
+## V0.11 assurance acceptance
+
+The deterministic suite covers happy-path contract evaluation, missing
+evidence, 99 passing trials plus one Critical violation, behaviorally
+successful overprivilege, Skill/contract/tool freshness changes, manifest
+stability, signed artifact tampering, and the remote-authentic/local-uncertified
+boundary. V0.11 is empirical assurance, not formal verification or a public
+certification authority.
+
+## Historical V0.10 plan (implemented)
 
 **V0.10 — Micro-Sandboxes, Portable Capability Tools, and Execution Attestation.** The local foundation is implemented: portable named tools, Reality/tool/grant intersection, short-lived provider lifecycle, credentialless Effect requests, execution attestations, CLI inspection, and raw authority-surface reporting. Live container and WASI acceptance remains below.
 

@@ -22,7 +22,36 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.10 portable capability tools.** Hardknock now narrows authority from a Reality down to each named tool invocation, records a short-lived micro-sandbox lifecycle, and stores execution attestations without copying input secrets. The pure suite does not require Docker, PostgreSQL, or WASI; live container and database results remain optional and explicitly unobserved when their runtimes are absent. See the [V0.10 report](docs/implementation-v010.md), [tools](docs/tools.md), [micro-sandboxes](docs/micro-sandboxes.md), and [execution attestations](docs/execution-attestation.md).
+> **Pre-alpha · V0.11 empirical assurance.** Hardknock now binds a Skill revision to a structured Behavioral Contract, evaluates positive and contradictory evidence under a named Assurance Profile, and can export a signed `.hkcert` artifact. Certification is profile and revision scoped; unknown remains unknown. See the [V0.11 report](docs/implementation-v011.md), [behavioral contracts](docs/behavioral-contracts.md), [assurance](docs/assurance.md), and [artifact semantics](docs/certification-artifacts.md).
+
+## A Skill Should Carry Its Evidence
+
+Agent skills are usually distributed as instructions: “do these steps and trust that they work.” Hardknock can attach a behavioral contract and an evidence manifest describing what the Skill has actually been observed to preserve, how it fails, which capabilities it requires, and which conditions remain unknown.
+
+> **Don't trust a Skill because it sounds reasonable. Ask what it survived.**
+
+> **A passing demo is not an assurance case.**
+
+> **Hardknock certifies evidence against a contract—not confidence against a prompt.**
+
+> **Unknown should remain unknown.**
+
+```text
+Skill + Behavioral Contract + Experiments + Chaos
+      + Operating Envelope + Recovery + Capability Evidence
+      + Execution Attestations
+      = Empirical Assurance
+```
+
+```bash
+hardknock contract register .hardknock/contracts/deploy.toml --skill deploy
+hardknock skill certify deploy --profile resilience-basic-v1 --dry-run
+hardknock assurance gaps deploy --profile resilience-basic-v1
+hardknock assurance export deploy --profile resilience-basic-v1 --output deploy.hkcert
+hardknock assurance verify deploy.hkcert
+```
+
+`Certified` means one specified Skill revision satisfied one specified contract under one named profile and evidence manifest. It does not mean universally correct, bug free, safe in every condition, or mathematically proven. Signed remote certificates authenticate their producer's assertion; they do not establish local certification or install referenced tools.
 
 ## Give the Tool What It Needs — Not What the Agent Has
 

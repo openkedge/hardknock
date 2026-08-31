@@ -17,7 +17,9 @@ use crate::{
     core::{ArtifactRef, ExecutionId, ExecutionRecord, Reality, RealityId},
 };
 
+mod assurance;
 mod capabilities;
+pub use assurance::AssuranceStore;
 mod effects;
 pub use capabilities::{CapabilityStore, token_hash};
 mod experiences;
@@ -111,7 +113,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 13 {
+        if version > 14 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -167,6 +169,10 @@ impl Store {
         if version < 13 {
             tx.execute_batch(include_str!("../migrations/013_tools.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (13)", [])?;
+        }
+        if version < 14 {
+            tx.execute_batch(include_str!("../migrations/014_assurance.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (14)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

@@ -137,7 +137,7 @@ impl Store {
         })?;
         let mut scope = ContextSelector::from_context(&exp.context);
         scope.tags = exp.context.tags.clone();
-        let skill = Skill { id: SkillId::new(), name: name.into(), description: "Manually registered procedure with one local successful observation; replication remains untested".into(), context: scope, procedure: vec![ActionPattern::shell(&replay.script)], evidence: vec![EvidenceRef::Experience { experience_id: exp.id.clone(), relationship: EvidenceRelationship::Supports }], status: SkillStatus::Supported, operating_envelope: None, source_experience: exp.id, maturity: crate::curriculum::SkillMaturity::Supported, coverage: Default::default() };
+        let skill = Skill { id: SkillId::new(), name: name.into(), description: "Manually registered procedure with one local successful observation; replication remains untested".into(), context: scope, procedure: vec![ActionPattern::shell(&replay.script)], evidence: vec![EvidenceRef::Experience { experience_id: exp.id.clone(), relationship: EvidenceRelationship::Supports }], status: SkillStatus::Supported, operating_envelope: None, source_experience: exp.id, maturity: crate::curriculum::SkillMaturity::Supported, coverage: Default::default(), behavioral_contract: None };
         self.connection.execute(
             "INSERT INTO skills(id,name,source_experience_id,data) VALUES(?1,?2,?3,?4)",
             params![

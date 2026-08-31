@@ -8,6 +8,7 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
+pub(crate) mod assurance;
 pub(crate) mod attestation;
 pub(crate) mod capability;
 pub mod curriculum;
@@ -92,6 +93,16 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Define, validate, inspect, and revision behavioral contracts.
+    Contract {
+        #[command(subcommand)]
+        command: assurance::ContractCommand,
+    },
+    /// Evaluate, export, verify, compare, and revoke empirical assurance.
+    Assurance {
+        #[command(subcommand)]
+        command: assurance::AssuranceCommand,
+    },
     /// Register and execute portable, least-authority tools.
     Tool {
         #[command(subcommand)]
@@ -525,6 +536,9 @@ pub enum ExperienceCommand {
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Assurance {
+        result: serde_json::Value,
+    },
     Tools {
         result: serde_json::Value,
     },
@@ -628,6 +642,7 @@ pub enum Response {
 impl Response {
     pub fn exit_code(&self) -> u8 {
         match self {
+            Self::Assurance { result } => assurance::exit_code(result),
             Self::Curriculum { result } => result.exit_code(),
             Self::Experimentation { result } => result.exit_code(),
             Self::Resilience { result } => result.exit_code(),
@@ -676,6 +691,7 @@ impl Response {
             return Ok(());
         }
         match self {
+            Self::Assurance { result } => assurance::print(result, &mut stdout)?,
             Self::Tools { result } | Self::Attestations { result } => {
                 serde_json::to_writer_pretty(&mut stdout, result)?;
                 writeln!(stdout)?;
@@ -1184,6 +1200,14 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             Error::Intervention("Set HARDKNOCK_HOME or --home; HOME is unavailable.".into())
         })?;
     let home = resolve_home(&raw_home)?;
+    if let Commands::Assurance {
+        command: assurance::AssuranceCommand::Verify { file },
+    } = &cli.command
+    {
+        return Ok(Response::Assurance {
+            result: assurance::verify_artifact(file)?,
+        });
+    }
     if matches!(
         cli.command,
         Commands::Bridge { .. }
@@ -1245,6 +1269,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if assurance::handles(&cli.command) {
+        return Ok(Response::Assurance {
+            result: assurance::execute(cli, &store)?,
+        });
+    }
     if tools::handles(&cli.command) {
         return Ok(Response::Tools {
             result: tools::execute(cli, &store, cancel).await?,
@@ -1304,6 +1333,9 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
+        Commands::Contract { .. } | Commands::Assurance { .. } => {
+            Err(Error::InvalidInput("Assurance dispatch failed".into()))
+        }
         Commands::Tool { .. } | Commands::Attestation { .. } => Err(Error::InvalidInput(
             "Tool or attestation dispatch failed".into(),
         )),

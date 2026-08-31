@@ -1,0 +1,29 @@
+{
+  "schema": "hardknock.assurance-benchmark.v1",
+  "environment": "local deterministic Rust test",
+  "network_required": false,
+  "external_model_required": false,
+  "scenarios": {
+    "happy_path": "satisfied",
+    "missing_evidence": "additional_evidence_required",
+    "critical_violation_after_99_successes": "blocked",
+    "overprivileged_success": "blocked",
+    "tool_artifact_change": "review_recommended",
+    "skill_or_contract_revision_change": "invalidated",
+    "artifact_tampering": "invalid",
+    "remote_signature": "authentic_but_not_local_certification"
+  },
+  "mature_manifest": {
+    "experiences": 1000,
+    "experiments": 100,
+    "attestations": 120,
+    "acceptance_gate_seconds": 2.0
+  },
+  "unsupported_claim_rate": 0.0,
+  "critical_violation_certification_escape_rate": 0.0,
+  "limitations": [
+    "fixture results are not production reliability estimates",
+    "no formal proof or hardware-backed attestation",
+    "live container, WASI, and PostgreSQL acceptance remain separate"
+  ]
+}

@@ -111,6 +111,27 @@ identifier!(CapabilityEscalationId, "capability-escalation-");
 identifier!(ToolId, "tool-");
 identifier!(MicroSandboxId, "micro-sandbox-");
 identifier!(ExecutionAttestationId, "attestation-");
+identifier!(BehavioralContractId, "contract-");
+identifier!(BehavioralConditionId, "condition-");
+identifier!(BehavioralInvariantId, "invariant-");
+identifier!(ForbiddenOutcomeId, "forbidden-");
+identifier!(AssuranceProfileId, "assurance-profile-");
+identifier!(SkillCertificationId, "certification-");
+identifier!(EvidenceManifestId, "evidence-manifest-");
+
+impl BehavioralConditionId {
+    /// Stable identity for a canonical condition fingerprint. This is not a
+    /// random evidence identifier, so repeated observability checks can name
+    /// the same clause without storing an extra mutable registry.
+    pub fn from_fingerprint(fingerprint: &str) -> Self {
+        let digest = blake3::hash(fingerprint.as_bytes());
+        let mut bytes = [0_u8; 16];
+        bytes.copy_from_slice(&digest.as_bytes()[..16]);
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        Self(format!("condition-{}", Uuid::from_bytes(bytes)))
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateRef {

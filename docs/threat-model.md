@@ -1,4 +1,22 @@
-# V0.9 threat model
+# V0.11 threat model
+
+## Certification threats
+
+| Attack | Mitigation | Remaining boundary |
+| --- | --- | --- |
+| Cherry-picked successes | Deterministic Skill/profile selection includes in-scope failures and contradictions | Evidence outside the recorded local graph is unknown |
+| Duplicate evidence inflation | Manifest references are sorted and deduplicated; coverage uses distinct configured conditions | Semantically duplicate observations with different IDs need future similarity analysis |
+| Stale certificate | Exact Skill/contract/profile revisions plus tool/runtime hashes and freshness policy | Dependency changes absent from evidence cannot be inferred |
+| Manifest or artifact mutation | Stable BLAKE3 manifest hash and Ed25519 signature over the whole unsigned artifact | A compromised host identity can sign false assertions |
+| Contract weakening/profile downgrade | Immutable revisions, explicit profile versions, and visible contract diff warnings | Legitimate weakening is permitted after disclosure |
+| Capability laundering | Contract maximum and profile capability checks remain separate from behavior | Host observations provide `Observed`, not isolated assurance |
+| Critical failure averaged away | Any required Critical invariant or forbidden outcome blocks deterministically | A failure cannot block if its state/effect was unobservable |
+| Remote trust transitivity | Valid remote `.hkcert` reports authentic but local certification false | Local reproduction remains an explicit later action |
+| Executable substitution | Tool artifact/runtime hashes bind the certificate and changes trigger review | Hardware-backed execution proof is deferred |
+
+The signing key authenticates the producer's assertion. It does not prove the
+producer was honest, the host was uncompromised, the contract was strong, or
+the evidence applies locally.
 
 ## Assets and trust
 

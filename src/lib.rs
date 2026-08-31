@@ -5,6 +5,7 @@
 
 pub mod agent;
 pub mod application;
+pub mod assurance;
 pub mod bridge;
 pub mod budget;
 pub mod cancellation;

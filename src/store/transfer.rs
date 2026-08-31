@@ -50,6 +50,10 @@ impl Store {
             "recoveries",
             "resilience_tests",
             "skills",
+            "behavioral_contract_revisions",
+            "evidence_manifests",
+            "skill_certifications",
+            "certification_revocations",
         ] {
             let count: i64 =
                 self.connection

@@ -1,5 +1,34 @@
 # Architecture
 
+## V0.11 behavioral assurance
+
+```mermaid
+flowchart TD
+  S[Skill revision] --> C[Behavioral Contract revision]
+  C --> E1[Executions and Experiments]
+  C --> E2[Chaos and Recovery]
+  C --> E3[Capabilities and Attestations]
+  E1 --> M[Evidence Manifest]
+  E2 --> M
+  E3 --> M
+  M --> P[Named Assurance Profile]
+  P --> X[Explicit Certification]
+  X --> A[Signed .hkcert artifact]
+```
+
+`assurance::{model,evaluator,artifact}` defines structured deterministic
+conditions, first-class inconclusive results, profile requirements, hard
+Critical blockers, manifest hashing, freshness, and portable signatures.
+Migration 014 stores immutable contract revisions, binding history, evidence
+manifests, certificates, and append-only revocations. `store::assurance`
+selects the Skill-scoped local evidence graph and includes contradictions.
+
+The evidence engine remains primary. Certification interprets evidence already
+created by normal execution, controlled experiments, chaos, recovery,
+transactional effects, and micro-sandboxes. Behavioral success and capability
+discipline are separate dimensions. Artifact authenticity and local trust are
+also separate: a remote valid signature remains advisory.
+
 ## V0.10 tool router and execution attestation
 
 ```mermaid

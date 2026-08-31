@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-use super::Store;
+use super::{AssuranceStore, Store};
 use crate::{Error, Result, core::*, curriculum::*};
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 fn json(v: &impl serde::Serialize) -> Result<String> {
@@ -374,6 +374,7 @@ impl Store {
                 skill.maturity = crate::curriculum::SkillMaturity::Supported;
             }
         }
+        skill.behavioral_contract = self.skill_contract_binding(&skill.id)?;
         let data:Option<String>=self.connection.query_row("SELECT data FROM experience_packages WHERE skill_id=?1 ORDER BY created_at DESC LIMIT 1",[skill.id.to_string()],|r|r.get(0)).optional()?;
         if let Some(data) = data {
             let p: ExperiencePackage = serde_json::from_str(&data)?;

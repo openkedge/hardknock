@@ -160,6 +160,29 @@ impl NodeIdentity {
             bundle,
         })
     }
+
+    /// Sign a domain-separated canonical payload for another Hardknock artifact.
+    pub fn sign_detached(&self, domain: &[u8], payload: &[u8]) -> String {
+        let mut message = Vec::with_capacity(domain.len() + payload.len());
+        message.extend_from_slice(domain);
+        message.extend_from_slice(payload);
+        encode_hex(&self.signing_key.sign(&message).to_bytes())
+    }
+}
+
+pub fn verify_detached(
+    public_key: &str,
+    domain: &[u8],
+    payload: &[u8],
+    signature: &str,
+) -> Result<()> {
+    let key = parse_public_key(public_key)?;
+    let mut message = Vec::with_capacity(domain.len() + payload.len());
+    message.extend_from_slice(domain);
+    message.extend_from_slice(payload);
+    let signature = Signature::from_bytes(&decode_hex::<64>(signature)?);
+    key.verify(&message, &signature)
+        .map_err(|_| Error::InvalidInput("Detached signature invalid".into()))
 }
 
 pub fn read_public_key(path: &Path) -> Result<VerifyingKey> {
