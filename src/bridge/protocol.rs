@@ -125,6 +125,21 @@ pub struct EffectProposal {
     pub hardknock_session_id: String,
     pub request: crate::effects::EffectRequest,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeDecisionRequested {
+    pub hardknock_session_id: String,
+    pub action_id: String,
+    pub action: NormalizedAction,
+    #[serde(default)]
+    pub context: ActionContext,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeDecisionFeedbackReported {
+    pub hardknock_session_id: String,
+    pub feedback: crate::runtime::RuntimeDecisionFeedback,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DecisionAuthority {
@@ -321,6 +336,12 @@ pub enum AgentEvent {
     SessionStarted(SessionStarted),
     ContextRequested(ContextRequested),
     ActionProposed(ActionProposed),
+    RuntimeDecisionRequested(RuntimeDecisionRequested),
+    RuntimeDecisionMade {
+        hardknock_session_id: String,
+        decision_id: crate::core::RuntimeDecisionId,
+    },
+    RuntimeDecisionFeedback(RuntimeDecisionFeedbackReported),
     EffectProposed(EffectProposal),
     /// Capability-token-authenticated effect interface for an isolated Reality.
     /// Transport authentication binds the caller to this exact Reality ID.

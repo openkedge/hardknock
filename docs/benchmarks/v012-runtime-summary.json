@@ -1,0 +1,47 @@
+{
+  "schema": "hardknock.runtime-benchmark.v1",
+  "observed_at": "2026-08-31",
+  "environment": {
+    "platform": "macOS",
+    "build": "debug",
+    "network": false,
+    "external_model": false
+  },
+  "scenarios_per_arm": 60,
+  "arms": {
+    "agent_only": {
+      "task_success_rate": 0.25,
+      "avoided_failure_rate": 0.0,
+      "external_mistake_escape_rate": 0.75
+    },
+    "static_rules": {
+      "task_success_rate": 0.4166666666666667,
+      "avoided_failure_rate": 1.0,
+      "external_mistake_escape_rate": 0.5833333333333334
+    },
+    "hardknock_adaptive_runtime": {
+      "task_success_rate": 1.0,
+      "avoided_failure_rate": 0.9,
+      "unnecessary_intervention_rate": 0.1,
+      "abstention_rate": 0.08333333333333333,
+      "abstention_precision": 1.0,
+      "recovery_success_rate": 1.0,
+      "experiments_per_task": 0.4166666666666667,
+      "experiment_decision_change_rate": 1.0,
+      "time_to_recovery_ms": 20.0,
+      "external_mistake_escape_rate": 0.0
+    }
+  },
+  "latency_ms": {
+    "cached_path": { "median": 0.001208, "p95": 0.001292, "p99": 0.001292, "samples": 1000 },
+    "cached_assurance_summary": { "median": 0.000958, "p95": 0.001, "p99": 0.001, "samples": 1000 },
+    "cached_envelope_summary": { "median": 0.001084, "p95": 0.00125, "p99": 0.001541, "samples": 1000 },
+    "reflex_matching": { "median": 0.002459, "p95": 0.002542, "p99": 0.002583, "samples": 1000 },
+    "synchronous_llm_calls": 0
+  },
+  "limitations": [
+    "Designed deterministic fixture scenarios, not production reliability estimates",
+    "Latency measures policy over materialized hot-cache summaries, not cold SQLite synthesis",
+    "No container startup, external agent, external effect, network, or model latency is included"
+  ]
+}

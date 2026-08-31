@@ -74,6 +74,47 @@ pub struct Config {
     pub development: crate::development::DevelopmentConfig,
     pub federation: crate::federation::FederationConfig,
     pub effects: crate::effects::EffectConfig,
+    pub runtime: RuntimeConfig,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RuntimeConfig {
+    pub mode: crate::runtime::RuntimeAutonomy,
+    pub policy: crate::runtime::RuntimePolicyProfile,
+    pub experiment: RuntimeExperimentConfig,
+    pub external_experience: crate::runtime::ExternalExperienceRuntimePolicy,
+}
+
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self {
+            mode: crate::runtime::RuntimeAutonomy::Advise,
+            policy: crate::runtime::RuntimePolicyProfile::Balanced,
+            experiment: Default::default(),
+            external_experience: Default::default(),
+        }
+    }
+}
+
+impl RuntimeConfig {
+    pub fn policy_config(&self) -> crate::runtime::RuntimePolicyConfig {
+        let mut config = crate::runtime::RuntimePolicyConfig {
+            profile: self.policy,
+            autonomy: self.mode,
+            experiment_mode: self.experiment.mode,
+            external_experience: self.external_experience.clone(),
+            version: crate::runtime::RUNTIME_POLICY_VERSION.into(),
+        };
+        config.refresh_version();
+        config
+    }
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RuntimeExperimentConfig {
+    pub mode: crate::runtime::ExperimentMode,
 }
 impl Config {
     pub fn load(home: &Path) -> Result<Self> {
@@ -99,6 +140,7 @@ impl Config {
         config.development.validate()?;
         config.federation.validate()?;
         config.effects.validate()?;
+        config.runtime.policy_config().validate()?;
         if !(1024..=32768).contains(&b.max_context_bytes)
             || !(1..=5).contains(&b.max_context_lessons)
             || !(1..=10000).contains(&b.max_actions)

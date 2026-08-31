@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::{
-    cache::{ExperienceHotCache, context_response},
+    cache::{
+        ExperienceHotCache, RuntimeEvaluationRequest, bridge_decision_from_runtime,
+        context_response,
+    },
     config::Config,
     privacy::{redact, redact_value},
     protocol::*,
 };
 use crate::{
     Error, Result,
-    core::{ExperienceId, StateRef},
+    core::{ExperienceId, RuntimeDecisionId, StateRef},
     experience::ExperienceContext,
     retrieval::RetrievedLesson,
-    store::{EffectStore, Store},
+    store::{EffectStore, RuntimeStore, Store},
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -94,6 +97,10 @@ enum Job {
         data: Value,
     },
     Complete(Box<Session>, RunRecord),
+    RuntimeDecision(
+        Box<crate::runtime::RuntimeDecisionRecord>,
+        crate::runtime::RuntimePolicyConfig,
+    ),
     Flush(mpsc::Sender<()>),
 }
 
@@ -177,6 +184,9 @@ impl Bridge {
                             }
                         }
                         store.bridge_event(&id, &kind, &data)
+                    }
+                    Job::RuntimeDecision(record, config) => {
+                        store.persist_runtime_decision(&record, config)
                     }
                     Job::Complete(snapshot, mut run) => {
                         store.save_bridge_session(&snapshot)?;
@@ -265,6 +275,21 @@ impl Bridge {
             .map_err(|_| {
                 invalid(
                     "Bridge persistence queue full or unavailable; observation not acknowledged",
+                )
+            })
+    }
+    fn enqueue_runtime_decision(
+        &self,
+        record: crate::runtime::RuntimeDecisionRecord,
+    ) -> Result<()> {
+        self.jobs
+            .try_send(Job::RuntimeDecision(
+                Box::new(record),
+                self.config.runtime.policy_config(),
+            ))
+            .map_err(|_| {
+                invalid(
+                    "Bridge persistence queue full or unavailable; runtime decision not acknowledged",
                 )
             })
     }
@@ -452,13 +477,32 @@ impl Bridge {
                 self.with_session(&proposed.hardknock_session_id.clone(), |s| {
                     if s.ended { return Err(invalid("Session has ended")); }
                     normalize_cwd(&mut proposed.action, s);
-                    let decision = self.cache.read().expect("cache lock").evaluate(&s.context,&proposed,s.consecutive_failures,&self.config.bridge);
                     sanitize_action(&mut proposed.action)?;
                     if let Some(existing) = s.actions.iter().find(|a|a.action_id == proposed.action_id) {
                         if existing.action != proposed.action { return Err(invalid("Action id reused with different action")); }
                         return Ok(serde_json::to_value(&existing.decision)?);
                     }
                     if s.actions.len() >= self.config.bridge.max_actions { return Err(invalid("Session action budget exhausted")); }
+                    let (runtime_context,runtime_evaluation)=self.cache.read().expect("cache lock").evaluate_runtime(RuntimeEvaluationRequest {
+                        context: &s.context,
+                        proposed: &proposed,
+                        failures: s.consecutive_failures,
+                        bridge: &self.config.bridge,
+                        runtime: &self.config.runtime,
+                        agent: &s.agent,
+                        task: &s.task,
+                    })?;
+                    let decision = bridge_decision_from_runtime(&runtime_evaluation,self.config.runtime.mode);
+                    let runtime_record=crate::runtime::RuntimeDecisionRecord {
+                        id: RuntimeDecisionId::new(),
+                        session_id: runtime_context.session_id.clone(),
+                        context_hash: runtime_context.context_hash()?,
+                        context: runtime_context,
+                        decision: runtime_evaluation.decision.clone(),
+                        evaluation: runtime_evaluation,
+                        created_at: Utc::now(),
+                    };
+                    self.enqueue_runtime_decision(runtime_record.clone())?;
                     // Deliver matching action-time advice as well as startup context.
                     if let NormalizedAction::Shell { command, .. } = &proposed.action {
                         for lesson in self.cache.read().expect("cache lock").retrieve(&s.context,&s.task,vec![crate::lesson::ActionPattern::shell(command)]) {
@@ -469,10 +513,37 @@ impl Bridge {
                     s.actions.push(RecordedAction { action_id: proposed.action_id.clone(), action: proposed.action,
                         decision: decision.clone(), result: None, duration_ms: 0, can_intercept: proposed.context.can_intercept });
                     s.revision += 1;
-                    self.enqueue(&s.id,"action_proposed",json!({"action_id":proposed.action_id,"decision":decision}))?;
+                    self.enqueue(&s.id,"action_proposed",json!({"action_id":proposed.action_id,"decision":decision,"runtime_decision_id":runtime_record.id}))?;
                     if matches!(decision,ActionDecision::Warn{..}|ActionDecision::Replan{..}) { self.enqueue(&s.id,"reflex_matched",json!({"action_id":proposed.action_id}))?; }
                     Ok(serde_json::to_value(decision)?)
                 })
+            }
+            AgentEvent::RuntimeDecisionRequested(request) => self.handle(
+                AgentEvent::ActionProposed(ActionProposed {
+                    hardknock_session_id: request.hardknock_session_id,
+                    action_id: request.action_id,
+                    action: request.action,
+                    context: request.context,
+                }),
+            ),
+            AgentEvent::RuntimeDecisionMade { hardknock_session_id, decision_id } => {
+                self.with_session(&hardknock_session_id, |_| Ok(()))?;
+                let store=Store::open(&self.home)?;
+                let record=store.runtime_decision(&decision_id)?;
+                if record.session_id != crate::core::HardknockSessionId::from_external(&hardknock_session_id) {
+                    return Err(invalid("Runtime decision belongs to a different session"));
+                }
+                Ok(serde_json::to_value(record)?)
+            }
+            AgentEvent::RuntimeDecisionFeedback(report) => {
+                self.with_session(&report.hardknock_session_id, |_| Ok(()))?;
+                let store=Store::open(&self.home)?;
+                let record=store.runtime_decision(&report.feedback.decision_id)?;
+                if record.session_id != crate::core::HardknockSessionId::from_external(&report.hardknock_session_id) {
+                    return Err(invalid("Runtime feedback belongs to a different session"));
+                }
+                store.record_runtime_feedback(&report.feedback)?;
+                Ok(json!({"accepted":true,"decision_id":record.id}))
             }
             AgentEvent::ActionCompleted(mut completed) => {
                 valid_id(&completed.action_id)?; validate_action(&completed.action)?;
@@ -490,8 +561,32 @@ impl Bridge {
                     if let Some(result) = &action.result { if result != &completed.result { return Err(invalid("Conflicting duplicate action result")); } return Ok(json!({"accepted":true,"duplicate":true})); }
                     action.result = Some(completed.result); action.duration_ms = completed.duration_ms;
                     s.consecutive_failures = if action.result.as_ref().is_some_and(|r|r.success) { 0 } else { s.consecutive_failures.saturating_add(1) };
+                    let failed_signature=action.result.as_ref().filter(|result|!result.success).and_then(|result|result.error_class.clone());
+                    let completed_action=action.action.clone();
+                    let completed_action_id=action.action_id.clone();
                     s.revision += 1;
                     self.enqueue(&s.id,"action_completed",json!({"action_id":action.action_id,"success":action.result.as_ref().map(|r|r.success)}))?;
+                    if let Some(signature)=failed_signature {
+                        let proposal=ActionProposed{hardknock_session_id:s.id.clone(),action_id:format!("recovery:{completed_action_id}"),action:completed_action,context:Default::default()};
+                        let cache=self.cache.read().expect("cache lock");
+                        let (mut runtime_context,_)=cache.evaluate_runtime(RuntimeEvaluationRequest {
+                            context: &s.context,
+                            proposed: &proposal,
+                            failures: s.consecutive_failures,
+                            bridge: &self.config.bridge,
+                            runtime: &self.config.runtime,
+                            agent: &s.agent,
+                            task: &s.task,
+                        })?;
+                        runtime_context.failure_signature=Some(crate::runtime::FailureSignatureRef{signature:signature.clone()});
+                        runtime_context.available_recovery=cache.matching_recoveries(&s.context,&signature);
+                        runtime_context.relevant_experience.recoveries=runtime_context.available_recovery.iter().map(|recovery|crate::development::ExperienceRef{kind:"recovery".into(),id:recovery.id.to_string(),revision:u64::from(recovery.version)}).collect();
+                        drop(cache);
+                        let runtime_record=Store::open(&self.home)?.record_runtime_decision(&runtime_context,self.config.runtime.policy_config())?;
+                        let guidance=bridge_decision_from_runtime(&runtime_record.evaluation,self.config.runtime.mode);
+                        self.enqueue(&s.id,"recovery_evaluated",json!({"action_id":completed_action_id,"runtime_decision_id":runtime_record.id,"decision":runtime_record.decision.kind()}))?;
+                        return Ok(json!({"accepted":true,"runtime_decision_id":runtime_record.id,"guidance":guidance}));
+                    }
                     Ok(json!({"accepted":true}))
                 })
             }

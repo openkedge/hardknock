@@ -1,0 +1,28 @@
+{
+  "schema": "hardknock.scenario.v1",
+  "name": "unknown-high-risk",
+  "task": { "description": "choose an unvalidated consequential strategy" },
+  "risk": {
+    "severity": "high",
+    "reversibility": "shadowable",
+    "externality": "external_system",
+    "rationale": ["high consequence but safely shadowable"]
+  },
+  "experiments": {
+    "mode": "suggest",
+    "safe_reality_available": true,
+    "effect_safe": true,
+    "budget": { "max_realities": 2, "max_agent_runs": 2 },
+    "budget_remaining": true,
+    "requirements": {
+      "filesystem_isolation": "container",
+      "process_isolation": "container",
+      "network_isolation": "container",
+      "credential_isolation": "container",
+      "effect_gating": true
+    }
+  },
+  "expected_decision": "experiment",
+  "uncontrolled_success": false,
+  "controlled_success": true
+}

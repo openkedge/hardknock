@@ -31,6 +31,7 @@ pub mod process;
 pub mod reflection;
 pub mod resilience;
 pub mod retrieval;
+pub mod runtime;
 pub mod store;
 pub mod tool;
 pub mod tool_benchmark;

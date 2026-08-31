@@ -1,4 +1,43 @@
-# V0.11 threat model
+# V0.12 threat model
+
+## Adaptive runtime threats
+
+The runtime controller is a trusted local policy component, but its evidence,
+agent reports, repository context, external state, and tool outputs may be
+wrong or adversarial. A runtime decision is a recommendation or control
+classification, not a new capability grant.
+
+| Threat | V0.12 control | Remaining boundary |
+| --- | --- | --- |
+| Experience overrides hard policy | Security policy, missing capability, isolation, Effect-adapter, and authority checks precede Experience | A misconfigured permissive policy remains operator error |
+| Retrieved match presented as knowledge | `KnownSupported` requires local support, scope, freshness, and no contradiction/gap | Unobserved context changes cannot be inferred |
+| Stale or out-of-scope certification authorizes action | Exact Skill revision, status, revocation, expiry, profile, action, environment, and risk applicability | Context fingerprints only cover recorded dimensions |
+| Signed remote evidence becomes local authority | Federated signals remain advisory and cannot independently authorize act/recover/replan | Operators may explicitly reproduce and promote them locally |
+| Agent uncertainty derived from private reasoning | Only explicit reports and observable signals are accepted | An agent can omit or misreport uncertainty |
+| One numeric risk score hides dimensions | Severity, reversibility, externality, assurance, Effect risk, authority, and isolation remain separate | Structured adapters can still classify a target incorrectly |
+| Unsafe automatic experiment | Reality availability, Effect safety, budget, duration, and isolation requirements are mandatory | Git worktree experiments retain their documented cooperative boundary |
+| Approval used to launder missing evidence | Approval is selected only for supported preparation with external authority missing; unsupported actions abstain | A user can still authorize risk outside Hardknock |
+| Runtime over-intervenes | Outcome feedback measures unnecessary intervention; false-positive Reflex feedback disables and lowers a new revision | Sparse or dishonest feedback can leave a bad policy uncorrected |
+| Decision record forged or rewritten | Stable context hash, deterministic re-evaluation, immutable policy contents and SQLite triggers | A host user controlling SQLite/filesystem can replace the whole store |
+| Persistence pressure blocks action path | Bounded hot cache and ordered writer; enqueue fails closed when unavailable/full | Host crash after guidance and before queued commit can lose the record |
+| Gap feedback creates runaway autonomous work | Curriculum recommendations set `auto_run: false`; no background daemon | An operator may explicitly start expensive curricula |
+
+The synchronous Bridge path performs deterministic cache lookup and policy
+evaluation without an LLM. This reduces latency and prompt-injection surface,
+but cache freshness and invalidation become trusted implementation concerns.
+CLI/direct-run context synthesis reads current SQLite state. Remote refresh,
+cold container creation, and model latency are not part of the reported hot
+path benchmark.
+
+## Runtime security invariants
+
+1. `ACT` never bypasses capability, isolation, Effect, approval, or commit enforcement.
+2. Hard security denial wins over all Experience and assurance evidence.
+3. Remote advisory evidence cannot independently authorize local action.
+4. `REPLAN`, security block, `REQUIRE_APPROVAL`, and `ABSTAIN` remain distinct.
+5. Replay creates a new record and never edits the original decision.
+6. Decision feedback is evidence about control quality, not proof that the original policy was correct.
+7. Runtime gaps may recommend curriculum but cannot start it automatically.
 
 ## Certification threats
 

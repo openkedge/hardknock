@@ -2,9 +2,13 @@
 use super::{config::BridgeConfig, privacy::redact, protocol::*};
 use crate::{
     Result,
+    capability::{IsolationLevel, RealityRequirements},
+    curriculum::Severity,
+    development::{ActiveExperienceSet, EvidenceState, ExperienceRef},
+    effects::{ExternalityClass, ReversibilityClass},
     experience::ExperienceContext,
     lesson::{ActionPattern, Lesson, LessonStatus},
-    resilience::{Reflex, ReflexStatus},
+    resilience::{Recovery, RecoveryStatus, Reflex, ReflexStatus},
     retrieval::{QueryContext, Recommendation, RetrievedLesson, freshness_score},
     store::Store,
 };
@@ -13,12 +17,24 @@ use crate::{
 pub struct ExperienceHotCache {
     pub lessons: Vec<Lesson>,
     pub reflexes: Vec<Reflex>,
+    pub recoveries: Vec<Recovery>,
     pub freshness:
         std::collections::HashMap<crate::core::LessonId, crate::development::FreshnessBasis>,
     pub development: crate::development::DevelopmentConfig,
     pub reflex_freshness:
         std::collections::HashMap<crate::core::ReflexId, crate::development::FreshnessBasis>,
 }
+
+pub struct RuntimeEvaluationRequest<'a> {
+    pub context: &'a ExperienceContext,
+    pub proposed: &'a ActionProposed,
+    pub failures: u32,
+    pub bridge: &'a BridgeConfig,
+    pub runtime: &'a super::config::RuntimeConfig,
+    pub agent: &'a AgentIdentity,
+    pub task: &'a str,
+}
+
 impl ExperienceHotCache {
     pub fn load(store: &Store) -> Result<Self> {
         let lessons: Vec<_> = store
@@ -32,6 +48,7 @@ impl ExperienceHotCache {
             })
             .collect();
         let reflexes = store.reflexes()?;
+        let recoveries = store.recoveries()?;
         let observations: std::collections::HashMap<_, _> = store
             .reflex_freshness_observations()?
             .into_iter()
@@ -77,6 +94,7 @@ impl ExperienceHotCache {
             development: super::config::Config::load(&store.home)?.development,
             lessons,
             reflexes,
+            recoveries,
             reflex_freshness,
         })
     }
@@ -259,6 +277,401 @@ impl ExperienceHotCache {
             };
         }
         ActionDecision::Continue
+    }
+
+    /// Central adaptive policy path used by native pre-action hooks. Everything
+    /// required here is already in the hot cache; no model or database lookup
+    /// occurs before the controller returns.
+    pub fn evaluate_runtime(
+        &self,
+        request: RuntimeEvaluationRequest<'_>,
+    ) -> Result<(
+        crate::runtime::RuntimeDecisionContext,
+        crate::runtime::RuntimeDecisionEvaluation,
+    )> {
+        use crate::runtime::*;
+        let RuntimeEvaluationRequest {
+            context,
+            proposed,
+            failures,
+            bridge,
+            runtime,
+            agent,
+            task,
+        } = request;
+        let action_pattern = match &proposed.action {
+            NormalizedAction::Shell { command, .. } => Some(ActionPattern::shell(command)),
+            NormalizedAction::FileWrite { path } | NormalizedAction::FileDelete { path } => {
+                Some(ActionPattern::FileOperation {
+                    pattern: path.clone(),
+                })
+            }
+            NormalizedAction::FileRead { .. } => None,
+            action => Some(ActionPattern::Custom {
+                kind: "normalized_action".into(),
+                value: serde_json::to_string(action)?,
+            }),
+        };
+        let query = QueryContext::new(context, task, action_pattern.iter().cloned().collect());
+        let lessons = self.retrieve(context, task, action_pattern.iter().cloned().collect());
+        let mut stale = false;
+        let mut contradicted = false;
+        for lesson in &self.lessons {
+            if !lesson.context_match.matches(context)
+                || action_pattern.as_ref().is_some_and(|action| {
+                    lesson.avoid.as_ref() != Some(action) && lesson.prefer.as_ref() != Some(action)
+                })
+            {
+                continue;
+            }
+            if let Some(basis) = self.freshness.get(&lesson.id) {
+                let health = crate::development::assess_freshness(
+                    basis,
+                    &query,
+                    None,
+                    chrono::Utc::now(),
+                    &self.development,
+                );
+                stale |= health.state == EvidenceState::Stale;
+                contradicted |= health.state == EvidenceState::Contradicted;
+            }
+        }
+        let mut reflexes = Vec::new();
+        let mut advisory_reflexes = Vec::new();
+        let mut reflex_items = Vec::new();
+        for reflex in self.reflexes.iter().filter(|reflex| {
+            let trigger = &reflex.trigger;
+            matches!(
+                reflex.status,
+                ReflexStatus::Active | ReflexStatus::Supported
+            ) && trigger.context.matches(context)
+                && action_pattern.as_ref() == Some(&trigger.proposed_action)
+                && trigger
+                    .repeated_failures
+                    .is_none_or(|required| failures >= required)
+                && (!trigger.no_state_change || proposed.context.no_state_change)
+                && (!trigger.config_changed || proposed.context.config_changed)
+        }) {
+            let reference = ReflexRef {
+                id: reflex.id.clone(),
+                version: reflex.version,
+            };
+            if reflex.status == ReflexStatus::Active {
+                reflexes.push(reference);
+            } else {
+                advisory_reflexes.push(reference);
+            }
+            reflex_items.push(ExperienceRef {
+                kind: "reflex".into(),
+                id: reflex.id.to_string(),
+                revision: u64::from(reflex.version),
+            });
+        }
+        let risk = match proposed.action {
+            NormalizedAction::FileRead { .. } => RuntimeRiskAssessment {
+                severity: Severity::Informational,
+                ..Default::default()
+            },
+            NormalizedAction::Shell { .. } | NormalizedAction::FileWrite { .. } => {
+                RuntimeRiskAssessment::default()
+            }
+            NormalizedAction::FileDelete { .. } | NormalizedAction::ToolCall { .. } => {
+                RuntimeRiskAssessment {
+                    severity: Severity::Medium,
+                    reversibility: ReversibilityClass::Compensatable,
+                    externality: ExternalityClass::HostLocal,
+                    assurance_requirement: None,
+                    effect_risk: None,
+                    rationale: vec![
+                        "Mutation or tool call requires context-sensitive review".into(),
+                    ],
+                }
+            }
+            NormalizedAction::Network { .. } => RuntimeRiskAssessment {
+                severity: Severity::High,
+                reversibility: ReversibilityClass::Unknown,
+                externality: ExternalityClass::ExternalSystem,
+                assurance_requirement: None,
+                effect_risk: None,
+                rationale: vec!["Direct network action may create an external effect".into()],
+            },
+            NormalizedAction::Custom { .. } => RuntimeRiskAssessment {
+                severity: Severity::Medium,
+                reversibility: ReversibilityClass::Unknown,
+                externality: ExternalityClass::Unknown,
+                assurance_requirement: None,
+                effect_risk: None,
+                rationale: vec!["Custom action has no structured risk adapter".into()],
+            },
+        };
+        let blocked = action_pattern
+            .as_ref()
+            .and_then(ActionPattern::shell_script)
+            .is_some_and(|command| {
+                bridge
+                    .policy
+                    .blocked_shell_commands
+                    .iter()
+                    .any(|blocked| blocked.trim() == command.trim())
+            });
+        let approval = action_pattern
+            .as_ref()
+            .and_then(ActionPattern::shell_script)
+            .is_some_and(|command| {
+                bridge
+                    .policy
+                    .approval_shell_commands
+                    .iter()
+                    .any(|required| required.trim() == command.trim())
+            });
+        let experiment = ExperimentCapabilitySummary {
+            mode: runtime.experiment.mode,
+            safe_reality_available: matches!(proposed.action, NormalizedAction::Shell { .. }),
+            // Git worktrees do not virtualize arbitrary external effects. A
+            // shell action can only be suggested, never auto-run by this hook.
+            effect_safe: matches!(proposed.action, NormalizedAction::Shell { .. }),
+            budget: bridge.experiment_budget.clone(),
+            budget_remaining: bridge.experiment_budget.max_realities > 0,
+            requirements: RealityRequirements {
+                filesystem_isolation: IsolationLevel::Cooperative,
+                process_isolation: IsolationLevel::None,
+                network_isolation: IsolationLevel::None,
+                credential_isolation: IsolationLevel::None,
+                effect_gating: false,
+            },
+        };
+        let local_supported = !lessons.is_empty();
+        let known_failure_precursor = action_pattern.as_ref().is_some_and(|action| {
+            lessons
+                .iter()
+                .any(|retrieved| retrieved.lesson.avoid.as_ref() == Some(action))
+        }) && !stale
+            && !contradicted;
+        let mut uncertainty_reasons = Vec::new();
+        if !local_supported {
+            uncertainty_reasons.push(UncertaintyReason::MissingExperience);
+        }
+        if contradicted {
+            uncertainty_reasons.push(UncertaintyReason::ContradictoryEvidence);
+        }
+        if stale {
+            uncertainty_reasons.push(UncertaintyReason::FailedPrediction);
+        }
+        let decision_context = RuntimeDecisionContext {
+            session_id: crate::core::HardknockSessionId::from_external(
+                &proposed.hardknock_session_id,
+            ),
+            agent: crate::core::AgentIdentity {
+                kind: agent.name.clone(),
+                executable: format!("bridge:{}", agent.name),
+                version: agent.version.clone(),
+                model: agent.model.clone(),
+            },
+            task: TaskDescriptor {
+                description: task.into(),
+                family: None,
+                tags: context.tags.clone(),
+            },
+            query_context: query,
+            proposed_action: Some(proposed.action.clone()),
+            proposed_effect: None,
+            relevant_experience: ActiveExperienceSet {
+                lessons,
+                reflexes: reflex_items,
+                recoveries: Vec::new(),
+            },
+            assurance: Default::default(),
+            operating_envelope: None,
+            capability_context: CapabilityContext {
+                available: Vec::new(),
+                missing: Vec::new(),
+                required_available: true,
+                commit_authority: false,
+                effect_adapter_available: true,
+                isolation_sufficient: risk.severity < Severity::High,
+                isolation_level: IsolationLevel::Cooperative,
+                governance: GovernanceContext {
+                    hard_policy_blocked: blocked,
+                    block_reason: blocked
+                        .then(|| "Exact command forbidden by local user policy".into()),
+                    approval_required: approval,
+                    approval_reason: approval
+                        .then(|| "Exact command requires user approval under local policy".into()),
+                },
+            },
+            risk,
+            uncertainty: RuntimeUncertainty {
+                level: if contradicted || stale || !local_supported {
+                    UncertaintyLevel::High
+                } else {
+                    UncertaintyLevel::Low
+                },
+                reasons: uncertainty_reasons,
+                candidate_strategies: Vec::new(),
+            },
+            available_recovery: Vec::new(),
+            available_experiments: experiment,
+            knowledge_signals: KnowledgeSignals {
+                local_supported,
+                local_contradicted: contradicted,
+                evidence_stale: stale,
+                context_in_scope: true,
+                validated_skill: false,
+                applicable_lesson: local_supported,
+                known_failure_precursor,
+                remote_advisory_only: false,
+                known_gap_matches: false,
+            },
+            applicable_skills: Vec::new(),
+            matched_reflexes: reflexes,
+            advisory_reflexes,
+            failure_signature: None,
+            known_unknowns: Vec::new(),
+            externally_supported: false,
+            tool_candidates: Vec::new(),
+        };
+        let evaluation = DeterministicRuntimeController::with_config(runtime.policy_config())?
+            .evaluate(&decision_context)?;
+        Ok((decision_context, evaluation))
+    }
+
+    pub fn matching_recoveries(
+        &self,
+        context: &ExperienceContext,
+        signature: &str,
+    ) -> Vec<crate::runtime::RecoveryRef> {
+        let stale_after = chrono::Duration::days(i64::from(self.development.stale_after_days));
+        self.recoveries
+            .iter()
+            .filter(|recovery| {
+                matches!(
+                    recovery.status,
+                    RecoveryStatus::Supported | RecoveryStatus::Validated
+                ) && recovery.failure_signature.signature == signature
+                    && recovery.context.matches(context)
+            })
+            .take(self.development.max_recoveries)
+            .map(|recovery| crate::runtime::RecoveryRef {
+                id: recovery.id.clone(),
+                version: recovery.version,
+                failure_signature: recovery.failure_signature.signature.clone(),
+                confidence: recovery.confidence,
+                fresh: chrono::Utc::now().signed_duration_since(recovery.updated_at) <= stale_after,
+                scope_matches: true,
+            })
+            .collect()
+    }
+}
+
+pub fn bridge_decision_from_runtime(
+    evaluation: &crate::runtime::RuntimeDecisionEvaluation,
+    autonomy: crate::runtime::RuntimeAutonomy,
+) -> ActionDecision {
+    use crate::runtime::{GovernanceDisposition, RuntimeAutonomy, RuntimeDecision};
+    let evidence = evaluation
+        .evidence
+        .iter()
+        .filter_map(|reference| match reference {
+            crate::runtime::EvidenceRef::Lesson(reference) => Some(EvidenceRef {
+                id: reference.id.to_string(),
+                kind: "lesson".into(),
+            }),
+            crate::runtime::EvidenceRef::Reflex(reference) => Some(EvidenceRef {
+                id: reference.id.to_string(),
+                kind: "reflex".into(),
+            }),
+            crate::runtime::EvidenceRef::Recovery { id, .. } => Some(EvidenceRef {
+                id: id.to_string(),
+                kind: "recovery".into(),
+            }),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if evaluation.governance == GovernanceDisposition::SecurityBlocked {
+        return ActionDecision::Block {
+            reason: "Hard policy or capability authority overrides runtime experience".into(),
+            authority: DecisionAuthority::UserPolicy,
+        };
+    }
+    if autonomy == RuntimeAutonomy::Observe {
+        return ActionDecision::Continue;
+    }
+    match &evaluation.decision {
+        RuntimeDecision::Act(decision) => match &decision.warning {
+            None => ActionDecision::Continue,
+            Some(_) if evidence.is_empty() => ActionDecision::Continue,
+            Some(warning) if evidence.iter().any(|item| item.kind == "reflex") => {
+                ActionDecision::Warn {
+                    message: warning.clone(),
+                    evidence,
+                }
+            }
+            Some(warning) => ActionDecision::Advise {
+                message: warning.clone(),
+                evidence,
+            },
+        },
+        RuntimeDecision::Experiment(decision) => ActionDecision::Advise {
+            message: format!(
+                "Hardknock recommends a bounded experiment: {}",
+                decision.reason
+            ),
+            evidence,
+        },
+        // Active Reflex interception predates the autonomy setting. Preserve
+        // that established Bridge contract while other V0.12 replans remain
+        // advisory unless adaptive/governed mode is explicitly configured.
+        RuntimeDecision::Replan(decision) if !decision.matched_reflexes.is_empty() => {
+            ActionDecision::Replan {
+                reason: decision.reason.clone(),
+                evidence,
+            }
+        }
+        // The legacy Bridge contract delivered matching Lessons as advice;
+        // preserve that wire behavior while the durable runtime record retains
+        // the stronger, explicit REPLAN classification.
+        RuntimeDecision::Replan(decision)
+            if decision.matched_reflexes.is_empty() && !decision.relevant_lessons.is_empty() =>
+        {
+            ActionDecision::Advise {
+                message: format!("Hardknock recommends replanning: {}", decision.reason),
+                evidence,
+            }
+        }
+        RuntimeDecision::Replan(decision) if autonomy == RuntimeAutonomy::Advise => {
+            ActionDecision::Advise {
+                message: format!("Hardknock recommends replanning: {}", decision.reason),
+                evidence,
+            }
+        }
+        RuntimeDecision::Replan(decision) => ActionDecision::Replan {
+            reason: decision.reason.clone(),
+            evidence,
+        },
+        RuntimeDecision::Recover(decision) => ActionDecision::Advise {
+            message: format!(
+                "Known failure matched; apply Recovery {}",
+                decision.recovery.id
+            ),
+            evidence,
+        },
+        RuntimeDecision::RequireApproval(decision) => ActionDecision::RequireApproval {
+            reason: decision.reason.clone(),
+            evidence,
+        },
+        RuntimeDecision::Abstain(decision) if autonomy == RuntimeAutonomy::Governed => {
+            ActionDecision::Block {
+                reason: format!("Hardknock abstained: {:?}", decision.reason),
+                authority: DecisionAuthority::Experience,
+            }
+        }
+        RuntimeDecision::Abstain(decision) => ActionDecision::Warn {
+            message: format!(
+                "Hardknock lacks enough evidence to proceed safely: {:?}",
+                decision.reason
+            ),
+            evidence,
+        },
     }
 }
 pub fn context_response(

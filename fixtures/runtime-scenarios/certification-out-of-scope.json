@@ -1,0 +1,36 @@
+{
+  "schema": "hardknock.scenario.v1",
+  "name": "certification-out-of-scope",
+  "task": { "description": "use a staging-certified skill in production" },
+  "knowledge": {
+    "local_supported": true,
+    "local_contradicted": false,
+    "evidence_stale": false,
+    "context_in_scope": false,
+    "validated_skill": true,
+    "applicable_lesson": true,
+    "remote_advisory_only": false,
+    "known_gap_matches": false
+  },
+  "risk": {
+    "severity": "medium",
+    "reversibility": "shadowable",
+    "externality": "external_system",
+    "rationale": ["certificate scope is staging, current target is production"]
+  },
+  "experiments": {
+    "mode": "suggest",
+    "safe_reality_available": true,
+    "effect_safe": true,
+    "budget": { "max_realities": 2, "max_agent_runs": 2 },
+    "budget_remaining": true,
+    "requirements": {
+      "filesystem_isolation": "container",
+      "process_isolation": "container",
+      "network_isolation": "none",
+      "credential_isolation": "container",
+      "effect_gating": true
+    }
+  },
+  "expected_decision": "experiment"
+}

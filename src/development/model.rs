@@ -254,6 +254,8 @@ pub struct ExperienceProfile {
     pub policy_versions: BTreeMap<String, String>,
     pub policy_hash: String,
     pub contributing_agents: Vec<AgentIdentity>,
+    #[serde(default)]
+    pub runtime_control: crate::runtime::RuntimeDevelopmentMetrics,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ExperienceArtifactCounts {
@@ -275,6 +277,8 @@ pub struct ProfileSnapshot {
     pub evidence_ids: Vec<ExperienceId>,
     pub policy_hash: String,
     pub policy_versions: BTreeMap<String, String>,
+    #[serde(default)]
+    pub runtime_control: crate::runtime::RuntimeDevelopmentMetrics,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -310,15 +314,23 @@ pub struct GrowthReport {
     pub regressions: Vec<DevelopmentRegression>,
     pub median_recovery_ms: NumericChange,
     pub hardened_skills: NumericChange,
+    #[serde(default)]
+    pub runtime_adaptation: RuntimeGrowth,
     pub note: String,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct NumericChange {
     pub previous: Option<f64>,
     pub current: Option<f64>,
     pub delta: Option<f64>,
     pub previous_samples: u64,
     pub current_samples: u64,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct RuntimeGrowth {
+    pub experiments_per_task: NumericChange,
+    pub unnecessary_intervention_rate: NumericChange,
+    pub recovery_success_rate: NumericChange,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DevelopmentEpisode {

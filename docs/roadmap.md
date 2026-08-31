@@ -20,12 +20,13 @@ The local passive learning and active resilience loops are implemented. V0.9 add
 | 19 — Capability-isolated execution | Implemented in V0.9; live runtime acceptance pending | Immutable manifests, truthful provider requirements, Docker/Podman provider, signed Reality tokens, shell/file proxy, test credential broker, scoped Effect relay, structured PostgreSQL adapter and security benchmark |
 | 20 — Micro-sandboxed tools and attestation | Implemented locally; live container/WASI acceptance pending | Portable tool manifests and registry, Reality ∩ Tool ∩ Grant capability resolution, per-invocation provider lifecycle, lifecycle persistence, execution receipts/attestations, raw exposure benchmark and explicit host/WASI limitations |
 | 21 — Behavioral contracts and empirical assurance | Implemented locally in V0.11 | Contract revisions and observability, three built-in profiles, reproducible evidence manifests, hard Critical/capability blockers, certification lifecycle, curricula for gaps, signed `.hkcert` artifacts and advisory remote verification |
+| 22 — Adaptive runtime control | Implemented locally in V0.12 | Six typed decisions, knowledge/risk/uncertainty classification, policy profiles and precedence, Assurance/Envelope/Reflex/Recovery integration, immutable replay and feedback, runtime gaps, CLI and 60-scenario benchmark |
 
 ## Verified acceptance boundaries
 
 The V0.1 fixtures retain observed transfer on distinct task B, scope rejection on C, and controlled contradiction on D. V0.2 observes the explicit retry delay points 0/100/500ms PASS, 1000ms DEGRADED, and 2000ms FAIL. A paired Reflex test replans after three failures and succeeds; a transient three-failure negative case identifies a false positive. Stale simulated credentials and planned/config generation drift demonstrate failure reproduction and restoration. Source repositories remain unchanged.
 
-See [the V0.2 report](implementation-v02.md), [transfer report](implementation-transfer.md), and historical [Milestones 3–6 report](implementation-phase-3-6.md). Local verification is on macOS; configured Linux/macOS CI is not a report of a remote CI run. No external model is required by the test suite.
+See [the V0.12 report](implementation-v012.md), [V0.2 report](implementation-v02.md), [transfer report](implementation-transfer.md), and historical [Milestones 3–6 report](implementation-phase-3-6.md). Local verification is on macOS; configured Linux/macOS CI is not a report of a remote CI run. No external model is required by the default test suite.
 
 ## Remaining V0.9 runtime acceptance
 
@@ -39,12 +40,17 @@ V0.9 code and pure security coverage do not retroactively complete V0.3 live acc
 
 ## Exact next-phase plan
 
-**V0.12 — Adaptive Agent Runtime and Experience-Guided Control.** Use current
-context, operating envelope, evidence gaps, assurance freshness, effect risk,
-and authority boundaries during live execution to choose among act,
-experiment, recover, replan, request approval, or abstain. Each choice must
-leave new evidence. Assurance status should inform control without becoming an
-automatic permission escalation.
+**V0.13 — Multi-Agent Experience Coordination and Epistemic Diversity.** Use
+independent proposals and their evidence to surface correlated assumptions,
+meaningful disagreement, and missing perspectives. Preserve agent and evidence
+provenance; agreement must not become authority, and remote experience must
+remain scope- and trust-gated. Begin with deterministic matched scenarios and
+bounded comparison rather than a distributed quorum or autonomous council.
+
+V0.12 runtime acceptance is documented in [the implementation
+report](implementation-v012.md). The local deterministic suite demonstrates
+all six decisions, both directions of learning, staleness, scoped assurance,
+advisory federation, false-positive correction, and security precedence.
 
 ## V0.11 assurance acceptance
 

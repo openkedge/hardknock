@@ -1,7 +1,7 @@
 [package]
 name = "hardknock"
 default-run = "hardknock"
-version = "0.11.0-dev.1"
+version = "0.12.0-dev.1"
 edition = "2024"
 license = "Apache-2.0"
 description = "Agent experience infrastructure for safe experimentation, empirical learning, and resilience"

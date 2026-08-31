@@ -1,5 +1,42 @@
 # CLI reference
 
+## V0.12 adaptive runtime control
+
+```text
+hardknock runtime status
+hardknock runtime audit [--limit 100]
+hardknock runtime gaps
+hardknock runtime policy
+hardknock runtime benchmark
+
+hardknock decision list [--limit 100]
+hardknock decision show <decision-id>
+hardknock decision replay <decision-id> [--policy developer|balanced|conservative]
+hardknock decision simulate --scenario <scenario.json> [--policy PROFILE] [--no-record]
+hardknock decision simulate --action <shell> [--risk LEVEL] [--knowledge STATE] [--testable] [--no-record]
+hardknock decision compare --scenario <scenario.json> [--policies balanced,conservative]
+hardknock decision feedback <decision-id> --outcome OUTCOME [--experience ID] [--agent-disagreed]
+hardknock why --decision <decision-id>
+hardknock run --runtime-mode observe|advise|adaptive|governed [existing run options]
+```
+
+Risk levels are `informational`, `low`, `medium`, `high`, and `critical`. Simulation knowledge values are `supported`, `contradicted`, `stale`, `unknown`, and `out-of-scope`. Feedback outcomes are `successful`, `failed`, `avoided-failure`, `unnecessary-intervention`, and `inconclusive`.
+
+Simulation records a decision unless `--no-record` is supplied. Compare is read-only and never executes or persists a proposed action. Replay uses current local evidence and policy, writes a new decision, and never mutates the original. Runtime benchmark executes deterministic in-memory scenarios without a network or external model.
+
+Configuration defaults to advisory control with balanced policy and suggested experiments:
+
+```toml
+[runtime]
+mode = "advise"
+policy = "balanced"
+
+[runtime.experiment]
+mode = "suggest"
+```
+
+In adaptive and governed direct runs, a non-`ACT` decision prevents the task command from starting. Observe and advise expose the decision without using it as a direct-run execution gate. `ACT` still passes through ordinary capability, sandbox, Effect, and approval enforcement. See [runtime control](runtime-control.md).
+
 ## Behavioral contracts and assurance
 
 ```text
@@ -325,7 +362,7 @@ Cancellation terminates the active process group, records available evidence, an
 
 ## Deferred commands
 
-Autonomous skill synthesis and arbitrary action interception remain deferred. `try` and `benchmark longitudinal` are implemented; see [agent experiments](agent-experiments.md) and [persistent development](development.md). Native integration commands remain a preview with live acceptance pending. The generic adapter has a tested context-file contract; see [agent integration](agent-integration.md).
+Autonomous skill synthesis and universal action interception remain deferred. V0.12 intercepts actions reported through the native Bridge and gates direct `hardknock run`; it does not transparently intercept arbitrary shell, syscall, or external API activity. `try` and `benchmark longitudinal` are implemented; see [agent experiments](agent-experiments.md) and [persistent development](development.md). Native integration commands remain a preview with live acceptance pending. The generic adapter has a tested context-file contract; see [agent integration](agent-integration.md).
 
 ## V0.10 tools and attestations
 

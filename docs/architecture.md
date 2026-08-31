@@ -1,5 +1,44 @@
 # Architecture
 
+## V0.12 adaptive runtime control
+
+```mermaid
+flowchart TD
+  A[Agent proposed action] --> C[RuntimeDecisionContext]
+  X[Experience and envelope] --> C
+  Q[Assurance and contract] --> C
+  G[Risk, capabilities, authority] --> C
+  C --> K[Knowledge classifier]
+  K --> P[Versioned deterministic policy]
+  P --> D{Decision}
+  D --> A1[ACT]
+  D --> A2[EXPERIMENT]
+  D --> A3[REPLAN]
+  D --> A4[RECOVER]
+  D --> A5[REQUIRE APPROVAL]
+  D --> A6[ABSTAIN]
+  D --> O[Observed outcome]
+  O --> F[Feedback, profile, gaps, curriculum]
+```
+
+`runtime::context` synthesizes full store-backed contexts for direct runs,
+simulation, and replay. The Bridge builds a bounded equivalent from its hot
+Lesson, Reflex, and Recovery cache before native action execution. Both paths
+use `DeterministicRuntimeController`; no adapter owns a separate decision
+matrix and no synchronous model call is made.
+
+The Bridge constructs the decision and immutable record on the request path,
+then sends that record to its ordered persistence worker. `store::runtime`
+re-evaluates it against the exact policy configuration and verifies its
+context hash before committing. This preserves the hot action path without
+trusting caller-supplied decision contents.
+
+Hard security policy, capability availability, isolation, Effect adapters,
+and commit authority remain separate enforcement layers. Experience can
+recommend, replan, recover, request approval, or abstain; it cannot grant
+authority. See [runtime control](runtime-control.md) and [decision
+records](decision-records.md).
+
 ## V0.11 behavioral assurance
 
 ```mermaid
@@ -254,6 +293,12 @@ The adapter API remains compatible: context preparation wraps command execution 
 | `007_agent_experiments.sql` | Immutable structured requests, candidates/results, variables, relations, progress and candidate-Experience uniqueness |
 | `008_curriculum.sql` | Bounded curricula, goals/trials, task families, evidence gaps, Skill coverage/usage and package snapshots |
 | `009_development.sql` | Compact canonical observation view, derived profiles, immutable snapshots/episodes, Skill/package revisions, revalidation, regressions and benchmark records |
+| `010_federation.sql` | Node identities, peers, signed bundles/imports, trust decisions, provenance, conflicts, and reproduction |
+| `011_effects.sql` | Transactional Effect lifecycle, prepared state, authorization, receipts, compensation, groups, and reconciliation |
+| `012_capabilities.sql` | Capability manifests, grants, tokens, credentials, audit decisions, provider truth, and benchmark reports |
+| `013_tools.sql` | Portable tools, registry history, micro-sandbox lifecycle, receipts, attestations, and replay |
+| `014_assurance.sql` | Behavioral Contracts, evidence manifests, certification history/revocation, and signed artifact metadata |
+| `015_runtime.sql` | Runtime decisions, policy versions, reasons, evidence links, feedback, abstentions, and control events |
 
 Foreign keys represent Lesson → source Experience/Hypothesis, Experiment → Lesson/Hypothesis/source, Trial → Experiment/Reality/Execution/Evaluation/Experience, and Trial → artifacts. Store validation checks the structured records agree with these links. Triggers reject updates/deletes of immutable history. Terminal experiments cannot be rewritten. Lessons use checked versions; updates preserve creation time and existing evidence. Changing the tested claim, scope, or commands requires a new hypothesis; a rationale can be revised through the store API.
 

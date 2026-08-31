@@ -9,7 +9,7 @@ use crate::{
     experience::{ExperienceContext, Outcome},
     lesson::{EvidenceRef, EvidenceRelationship, Lesson, LessonStatus},
     retrieval::{DeterministicRetriever, LessonRetriever, QueryContext, RetrievalOptions},
-    store::{CurriculumStore, Store},
+    store::{CurriculumStore, RuntimeStore, Store},
 };
 use chrono::{DateTime, Duration, Utc};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -1138,6 +1138,7 @@ impl EvidenceProfileBuilder<'_> {
             .to_hex()
             .to_string(),
             contributing_agents: agents.into_values().collect(),
+            runtime_control: self.store.runtime_development_metrics()?,
         })
     }
 }

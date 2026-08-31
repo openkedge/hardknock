@@ -22,7 +22,39 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.11 empirical assurance.** Hardknock now binds a Skill revision to a structured Behavioral Contract, evaluates positive and contradictory evidence under a named Assurance Profile, and can export a signed `.hkcert` artifact. Certification is profile and revision scoped; unknown remains unknown. See the [V0.11 report](docs/implementation-v011.md), [behavioral contracts](docs/behavioral-contracts.md), [assurance](docs/assurance.md), and [artifact semantics](docs/certification-artifacts.md).
+> **Pre-alpha · V0.12 adaptive runtime control.** Hardknock now combines scoped Experience, assurance, operating envelopes, risk, capabilities, and authority to select `ACT`, `EXPERIMENT`, `REPLAN`, `RECOVER`, `REQUIRE_APPROVAL`, or `ABSTAIN`. Decisions are deterministic, versioned, durable, explainable, and open to outcome feedback. See the [V0.12 report](docs/implementation-v012.md), [runtime control](docs/runtime-control.md), [policy profiles](docs/runtime-policies.md), and [abstention](docs/abstention.md).
+
+## Knowing When Not to Act Is Part of Learning
+
+An experienced operator does not respond to every unfamiliar situation by confidently choosing a command. Sometimes the right move is to use a known procedure. Sometimes it is to compare approaches safely. Sometimes it is to recover, replan, ask for authority, or admit that the evidence is insufficient.
+
+```text
+Known and supported                  → ACT
+Uncertain but safely testable        → EXPERIMENT
+Known precursor to failure           → REPLAN
+Known failure with scoped recovery   → RECOVER
+Consequential and authority-gated    → REQUIRE APPROVAL
+Critical unknown without safe test   → ABSTAIN
+```
+
+**Experience should change what an agent does next.**
+
+**Knowing when to experiment is itself a learned capability.**
+
+**An agent that never says “I don't know” has not learned the boundary of its experience.**
+
+**Hardknock turns uncertainty into a control decision.**
+
+```bash
+hardknock decision simulate --action 'make deploy' --risk medium --testable
+hardknock decision compare --scenario fixtures/runtime-scenarios/unknown-high-risk.json
+hardknock decision list
+hardknock why --decision decision-<uuid>
+hardknock runtime audit
+hardknock runtime benchmark
+```
+
+Runtime policy does not grant capabilities, satisfy assurance, or create Effect commit authority. Hard security policy always wins. The default `advise` mode does not gate ordinary runs; select `adaptive` or `governed` explicitly for runtime control. Existing active-Reflex Bridge interception is preserved. Policy comparison and simulation execute no proposed action.
 
 ## A Skill Should Carry Its Evidence
 
@@ -100,7 +132,7 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
-V0.4 adds `hardknock try`, structured agent requests, explicit budgets, equivalent-state verification, bounded parallel candidates, comparison quality, replay/lineage, cancellation, and patch export. V0.5 adds curricula, Skill coverage/maturity, Experience Packages, and a held-out resilience benchmark. V0.6 adds persistent development profiles, immutable history, freshness-aware retrieval, and measured learning across episodes. V0.7 adds signed evidence federation; V0.8 adds governed transactional Effects; V0.9 adds explicit execution authority and a container provider. See the [CLI reference](docs/cli.md), [development guide](docs/development.md), and [next phase](docs/roadmap.md).
+V0.4 adds agent-native experiments; V0.5 adds curricula; V0.6 adds development profiles; V0.7 adds signed evidence federation; V0.8 adds transactional Effects; V0.9 adds capability-isolated execution; V0.10 adds portable micro-sandbox tools and attestations; V0.11 adds behavioral contracts and empirical certification; V0.12 adds evidence-guided runtime control. See the [CLI reference](docs/cli.md), [runtime guide](docs/runtime-control.md), [development guide](docs/development.md), and [roadmap](docs/roadmap.md).
 
 ## A Sandbox Can't Unsend an Email
 
@@ -828,12 +860,13 @@ The broader release goals below include work beyond the implemented local loop. 
 | **V0.4 — Agent-Native Experimentation** | Implemented for trusted local alternatives; bounded requests, quality, evidence, replay and cancellation |
 | **V0.5 — Skill Hardening and Autonomous Curriculum** | Implemented locally: evidence-gap plans, bounded trials, coverage/maturity, packages, held-out benchmark |
 | **V0.6 — Persistent Agent Development** | Implemented locally: profiles, snapshots, revisions, freshness, revalidation, longitudinal and model-transfer fixtures |
-| **V0.7 — Experience Federation and Team Learning** | Next: explicit sharing, trust review, provenance and conflict handling; no automatic federation yet |
-| **Later — External-effect virtualization** | Explore explicit semantics for selected external systems, without claiming universal rollback |
+| **V0.7–V0.11 — Federation through empirical assurance** | Implemented local evidence federation, transactional Effects, capability isolation, portable tools, attestations, contracts, and certification |
+| **V0.12 — Adaptive Runtime Control** | Implemented deterministic evidence-guided control, approval/abstention, replay, feedback, curriculum gaps, and a 60-scenario benchmark |
+| **V0.13 — Multi-Agent Epistemic Diversity** | Next: compare independent proposals and evidence without turning agreement into authority |
 
 ## Project status
 
-Hardknock is a **pre-alpha empirical learning prototype**. The retrieval, retry, transfer-validation, and local resilience loops are implemented and tested. It builds from source; no release package is published. CI is configured for Linux and macOS; local verification was on macOS.
+Hardknock is a **pre-alpha empirical learning prototype**. The local learning, resilience, assurance, and adaptive runtime-control loops are implemented and tested. It builds from source; no release package is published. CI is configured for Linux and macOS; this V0.12 pass was verified locally on macOS.
 
 The fixtures demonstrate limited transfer from one task to a related, distinct repository. They do not establish general agent performance or universal causal claims. APIs, command syntax, and schemas remain subject to change.
 

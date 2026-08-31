@@ -18,6 +18,7 @@ mod experimentation;
 mod federation;
 pub mod integrations;
 mod resilience;
+pub(crate) mod runtime;
 pub(crate) mod tools;
 use resilience::{ChaosCommand, EnvelopeCommand, RecoveryCommand, ReflexCommand, SkillCommand};
 
@@ -93,6 +94,16 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Inspect adaptive runtime configuration, outcomes, gaps, and benchmarks.
+    Runtime {
+        #[command(subcommand)]
+        command: runtime::RuntimeCommand,
+    },
+    /// Simulate, compare, replay, and audit evidence-guided decisions.
+    Decision {
+        #[command(subcommand)]
+        command: runtime::DecisionCommand,
+    },
     /// Define, validate, inspect, and revision behavioral contracts.
     Contract {
         #[command(subcommand)]
@@ -227,6 +238,8 @@ pub enum Commands {
         experience: Option<ExperienceId>,
         #[arg(long, conflicts_with = "experience")]
         experiment: Option<ExperimentId>,
+        #[arg(long, conflicts_with_all = ["experience", "experiment"])]
+        decision: Option<crate::core::RuntimeDecisionId>,
     },
     /// Count recorded evidence and Lesson states.
     Status,
@@ -272,6 +285,12 @@ pub struct RunArgs {
     pub image: Option<String>,
     #[arg(long, help = "Maximum additional executions shared by controlled trials and retries", value_parser = clap::value_parser!(u32).range(0..=100))]
     pub experience_budget: Option<u32>,
+    #[arg(
+        long,
+        value_enum,
+        help = "Override configured runtime autonomy for this run"
+    )]
+    pub runtime_mode: Option<crate::runtime::RuntimeAutonomy>,
     #[arg(
         long,
         help = "Command template with exactly one complete {task} argument; no implicit shell"
@@ -536,6 +555,9 @@ pub enum ExperienceCommand {
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Runtime {
+        result: serde_json::Value,
+    },
     Assurance {
         result: serde_json::Value,
     },
@@ -581,6 +603,8 @@ pub enum Response {
         counts: serde_json::Value,
     },
     RunCompleted {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        runtime_decision: Option<Box<crate::runtime::RuntimeDecisionRecord>>,
         execution: Box<ExecutionRecord>,
         reality: Box<Reality>,
         experience: Box<Experience>,
@@ -691,6 +715,7 @@ impl Response {
             return Ok(());
         }
         match self {
+            Self::Runtime { result } => runtime::print(result, &mut stdout)?,
             Self::Assurance { result } => assurance::print(result, &mut stdout)?,
             Self::Tools { result } | Self::Attestations { result } => {
                 serde_json::to_writer_pretty(&mut stdout, result)?;
@@ -708,6 +733,7 @@ impl Response {
             Self::Integration { .. } => {}
             Self::Resilience { result } => result.print(&mut stdout)?,
             Self::RunCompleted {
+                runtime_decision,
                 execution,
                 reality,
                 experience,
@@ -717,6 +743,15 @@ impl Response {
                 retry_stop_reason,
                 ..
             } => {
+                if let Some(runtime_decision) = runtime_decision {
+                    writeln!(
+                        stdout,
+                        "Runtime: {:?} · knowledge {:?} · {}",
+                        runtime_decision.decision.kind(),
+                        runtime_decision.evaluation.knowledge,
+                        runtime_decision.id
+                    )?;
+                }
                 writeln!(
                     stdout,
                     "{}Dojo · {}",
@@ -1269,6 +1304,19 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if runtime::handles(&cli.command)
+        || matches!(
+            cli.command,
+            Commands::Why {
+                decision: Some(_),
+                ..
+            }
+        )
+    {
+        return Ok(Response::Runtime {
+            result: runtime::execute(cli, &store)?,
+        });
+    }
     if assurance::handles(&cli.command) {
         return Ok(Response::Assurance {
             result: assurance::execute(cli, &store)?,
@@ -1333,6 +1381,9 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
+        Commands::Runtime { .. } | Commands::Decision { .. } => {
+            Err(Error::InvalidInput("Runtime dispatch failed".into()))
+        }
         Commands::Contract { .. } | Commands::Assurance { .. } => {
             Err(Error::InvalidInput("Assurance dispatch failed".into()))
         }
@@ -1414,6 +1465,121 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                     .map(|s| ActionPattern::shell(s))
                     .collect()
             };
+            let runtime_configuration = crate::bridge::config::Config::load(&store.home)?.runtime;
+            let mut runtime_policy = runtime_configuration.policy_config();
+            if let Some(mode) = args.runtime_mode {
+                runtime_policy.autonomy = mode;
+            }
+            let runtime_context = {
+                let experience_context = ExperienceContext::capture(
+                    &state,
+                    &state.repo_path,
+                    EnvironmentMode::Controlled,
+                )?;
+                let query_context =
+                    QueryContext::new(&experience_context, &args.task, actions.clone());
+                let proposed_action =
+                    actions
+                        .first()
+                        .and_then(ActionPattern::shell_script)
+                        .map(|command| crate::bridge::protocol::NormalizedAction::Shell {
+                            command: command.into(),
+                            cwd: state.repo_path.to_string_lossy().into(),
+                        });
+                crate::runtime::RuntimeContextSynthesizer { store: &store }.synthesize(
+                    crate::runtime::RuntimeContextRequest {
+                        external_session_id: format!("cli-run:{}:{}", state.git_commit, args.task),
+                        agent: agent.clone(),
+                        task: crate::runtime::TaskDescriptor {
+                            description: args.task.clone(),
+                            family: None,
+                            tags: experience_context.tags.clone(),
+                        },
+                        query_context,
+                        proposed_action,
+                        proposed_effect: None,
+                        risk: None,
+                        capability_context: crate::runtime::CapabilityContext {
+                            required_available: true,
+                            commit_authority: false,
+                            effect_adapter_available: true,
+                            isolation_sufficient: true,
+                            isolation_level: if args.provider == RealityProviderChoice::Container {
+                                crate::capability::IsolationLevel::Container
+                            } else {
+                                crate::capability::IsolationLevel::Cooperative
+                            },
+                            ..Default::default()
+                        },
+                        failure_signature: None,
+                        consecutive_failures: 0,
+                        no_state_change: false,
+                        config_changed: false,
+                        candidate_strategies: Vec::new(),
+                        experiment_capability: crate::runtime::ExperimentCapabilitySummary {
+                            mode: runtime_policy.experiment_mode,
+                            safe_reality_available: true,
+                            effect_safe: true,
+                            budget: crate::budget::ExperienceBudget {
+                                max_realities: args.experience_budget.unwrap_or(2) as usize,
+                                max_agent_runs: args.experience_budget.unwrap_or(2) as usize,
+                                ..Default::default()
+                            },
+                            budget_remaining: args.experience_budget != Some(0),
+                            requirements: crate::capability::RealityRequirements {
+                                filesystem_isolation: if args.provider
+                                    == RealityProviderChoice::Container
+                                {
+                                    crate::capability::IsolationLevel::Container
+                                } else {
+                                    crate::capability::IsolationLevel::Cooperative
+                                },
+                                process_isolation: if args.provider
+                                    == RealityProviderChoice::Container
+                                {
+                                    crate::capability::IsolationLevel::Container
+                                } else {
+                                    crate::capability::IsolationLevel::None
+                                },
+                                network_isolation: crate::capability::IsolationLevel::None,
+                                credential_isolation: if args.provider
+                                    == RealityProviderChoice::Container
+                                {
+                                    crate::capability::IsolationLevel::Container
+                                } else {
+                                    crate::capability::IsolationLevel::None
+                                },
+                                effect_gating: args.provider == RealityProviderChoice::Container,
+                            },
+                        },
+                        known_unknowns: Vec::new(),
+                        externally_supported: false,
+                        envelope_position: None,
+                    },
+                )?
+            };
+            let runtime_record = crate::store::RuntimeStore::record_runtime_decision(
+                &store,
+                &runtime_context,
+                runtime_policy.clone(),
+            )?;
+            if matches!(
+                runtime_policy.autonomy,
+                crate::runtime::RuntimeAutonomy::Adaptive
+                    | crate::runtime::RuntimeAutonomy::Governed
+            ) && !matches!(
+                runtime_record.decision,
+                crate::runtime::RuntimeDecision::Act(_)
+            ) {
+                return Ok(Response::Runtime {
+                    result: serde_json::json!({
+                        "kind":"decision_simulation",
+                        "recorded":true,
+                        "execution_started":false,
+                        "record":runtime_record,
+                    }),
+                });
+            }
             let request = RunRequest {
                 state,
                 goal: args.task.clone(),
@@ -1467,6 +1633,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                 )
                 .await?;
                 return Ok(Response::RunCompleted {
+                    runtime_decision: Some(Box::new(runtime_record)),
                     execution: Box::new(run.execution),
                     reality: Box::new(run.reality),
                     experience: Box::new(run.experience),
@@ -1499,6 +1666,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             )
             .await?;
             Ok(Response::RunCompleted {
+                runtime_decision: Some(Box::new(runtime_record)),
                 execution: Box::new(cycle.initial.execution),
                 reality: Box::new(cycle.initial.reality),
                 experience: Box::new(cycle.initial.experience),

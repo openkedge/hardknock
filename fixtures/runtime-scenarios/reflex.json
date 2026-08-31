@@ -1,0 +1,13 @@
+{
+  "schema": "hardknock.scenario.v1",
+  "name": "reflex",
+  "task": { "description": "avoid a known failure precursor" },
+  "reflexes": [{
+    "id": "reflex-00000000-0000-4000-8000-000000000001",
+    "version": 1
+  }],
+  "expected_decision": "replan",
+  "expected_outcome": "avoided_failure",
+  "uncontrolled_success": false,
+  "controlled_success": true
+}

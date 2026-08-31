@@ -238,7 +238,9 @@ pub fn compare_snapshots(
         previous_samples,
         current_samples,
     };
-    GrowthReport{from:a.id.clone(),to:b.id.clone(),comparisons,regressions,median_recovery_ms:change(a.metrics.median_time_to_recovery_ms.map(|v|v as f64),b.metrics.median_time_to_recovery_ms.map(|v|v as f64),a.metrics.recovery_latency_samples,b.metrics.recovery_latency_samples),hardened_skills:change(Some(a.metrics.hardened_skill_count as f64),Some(b.metrics.hardened_skill_count as f64),a.artifact_counts.skills,b.artifact_counts.skills),note:"Observed behavior and evidence, not general intelligence or causal proof. Task mixes may differ even in disjoint windows. Latency and inventory changes are descriptive, not a trend claim.".into()}
+    let runtime_samples =
+        |metrics: &crate::runtime::RuntimeDevelopmentMetrics| metrics.decisions.values().sum();
+    GrowthReport{from:a.id.clone(),to:b.id.clone(),comparisons,regressions,median_recovery_ms:change(a.metrics.median_time_to_recovery_ms.map(|v|v as f64),b.metrics.median_time_to_recovery_ms.map(|v|v as f64),a.metrics.recovery_latency_samples,b.metrics.recovery_latency_samples),hardened_skills:change(Some(a.metrics.hardened_skill_count as f64),Some(b.metrics.hardened_skill_count as f64),a.artifact_counts.skills,b.artifact_counts.skills),runtime_adaptation:RuntimeGrowth{experiments_per_task:change(a.runtime_control.experiments_per_task,b.runtime_control.experiments_per_task,runtime_samples(&a.runtime_control),runtime_samples(&b.runtime_control)),unnecessary_intervention_rate:change(a.runtime_control.unnecessary_intervention_rate,b.runtime_control.unnecessary_intervention_rate,a.runtime_control.avoided_failures+a.runtime_control.unnecessary_interventions,b.runtime_control.avoided_failures+b.runtime_control.unnecessary_interventions),recovery_success_rate:change(a.runtime_control.recovery_success_rate,b.runtime_control.recovery_success_rate,a.runtime_control.decisions.get(&crate::runtime::RuntimeDecisionKind::Recover).copied().unwrap_or(0),b.runtime_control.decisions.get(&crate::runtime::RuntimeDecisionKind::Recover).copied().unwrap_or(0))},note:"Observed behavior and evidence, not general intelligence or causal proof. Task mixes may differ even in disjoint windows. Runtime adaptation is based on recorded decisions and feedback; it is descriptive, not automatic policy learning.".into()}
 }
 pub trait ExperiencePromotionPolicy {
     fn evaluate(&self, lesson: &Lesson) -> PromotionDecision;
@@ -296,5 +298,6 @@ pub fn snapshot(profile: &ExperienceProfile) -> ProfileSnapshot {
         evidence_ids: profile.evidence_ids.clone(),
         policy_hash: profile.policy_hash.clone(),
         policy_versions: profile.policy_versions.clone(),
+        runtime_control: profile.runtime_control.clone(),
     }
 }

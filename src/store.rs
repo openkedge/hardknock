@@ -33,6 +33,8 @@ mod curriculum;
 mod development;
 mod learning;
 mod resilience;
+mod runtime;
+pub use runtime::RuntimeStore;
 mod tools;
 mod transfer;
 pub use curriculum::CurriculumStore;
@@ -113,7 +115,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 14 {
+        if version > 15 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -173,6 +175,10 @@ impl Store {
         if version < 14 {
             tx.execute_batch(include_str!("../migrations/014_assurance.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (14)", [])?;
+        }
+        if version < 15 {
+            tx.execute_batch(include_str!("../migrations/015_runtime.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (15)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

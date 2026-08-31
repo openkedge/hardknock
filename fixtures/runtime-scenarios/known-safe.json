@@ -1,0 +1,18 @@
+{
+  "schema": "hardknock.scenario.v1",
+  "name": "known-safe",
+  "task": { "description": "apply a familiar reversible change" },
+  "knowledge": {
+    "local_supported": true,
+    "local_contradicted": false,
+    "evidence_stale": false,
+    "context_in_scope": true,
+    "validated_skill": true,
+    "applicable_lesson": true,
+    "remote_advisory_only": false,
+    "known_gap_matches": false
+  },
+  "expected_decision": "act",
+  "uncontrolled_success": true,
+  "controlled_success": true
+}

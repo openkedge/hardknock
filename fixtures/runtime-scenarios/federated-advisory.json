@@ -1,0 +1,37 @@
+{
+  "schema": "hardknock.scenario.v1",
+  "name": "federated-advisory",
+  "task": { "description": "evaluate a remote-only advisory strategy" },
+  "knowledge": {
+    "local_supported": false,
+    "local_contradicted": false,
+    "evidence_stale": false,
+    "context_in_scope": true,
+    "validated_skill": false,
+    "applicable_lesson": false,
+    "remote_advisory_only": true,
+    "known_gap_matches": false
+  },
+  "externally_supported": true,
+  "risk": {
+    "severity": "medium",
+    "reversibility": "shadowable",
+    "externality": "host_local",
+    "rationale": ["remote evidence has not been locally validated"]
+  },
+  "experiments": {
+    "mode": "suggest",
+    "safe_reality_available": true,
+    "effect_safe": true,
+    "budget": { "max_realities": 2, "max_agent_runs": 2 },
+    "budget_remaining": true,
+    "requirements": {
+      "filesystem_isolation": "container",
+      "process_isolation": "container",
+      "network_isolation": "none",
+      "credential_isolation": "container",
+      "effect_gating": true
+    }
+  },
+  "expected_decision": "experiment"
+}

@@ -54,6 +54,9 @@ impl Store {
             "evidence_manifests",
             "skill_certifications",
             "certification_revocations",
+            "runtime_decisions",
+            "runtime_decision_feedback",
+            "runtime_abstentions",
         ] {
             let count: i64 =
                 self.connection

@@ -1,0 +1,17 @@
+{
+  "schema": "hardknock.scenario.v1",
+  "name": "known-failure",
+  "task": { "description": "recover a known stale credential failure" },
+  "failure_signature": { "signature": "stale_credential" },
+  "recoveries": [{
+    "id": "recovery-00000000-0000-4000-8000-000000000001",
+    "version": 1,
+    "failure_signature": "stale_credential",
+    "confidence": 0.9,
+    "fresh": true,
+    "scope_matches": true
+  }],
+  "expected_decision": "recover",
+  "uncontrolled_success": false,
+  "controlled_success": true
+}
