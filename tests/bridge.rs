@@ -766,13 +766,17 @@ async fn bridge_shutdown_cancels_and_reaps_a_running_evaluator() {
         Err(nix::errno::Errno::ESRCH)
     );
     let store = Store::open(&f.home).unwrap();
-    assert_eq!(
-        store
-            .experience(&run["experience_id"].as_str().unwrap().parse().unwrap())
-            .unwrap()
-            .outcome,
-        Outcome::Interrupted
-    );
+    let experience_id = run["experience_id"].as_str().unwrap().parse().unwrap();
+    let experience = store.experience(&experience_id).unwrap_or_else(|error| {
+        panic!(
+            "{error}; runs={:?}; events={:?}",
+            store
+                .bridge_runs(session["hardknock_session_id"].as_str().unwrap())
+                .unwrap(),
+            store.bridge_events(0).unwrap()
+        )
+    });
+    assert_eq!(experience.outcome, Outcome::Interrupted);
     assert!(!f.home.join("run/bridge-token").exists());
 }
 

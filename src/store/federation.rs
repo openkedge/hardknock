@@ -2,7 +2,78 @@
 use super::Store;
 use crate::{Error, Result, core::*, federation::*};
 use chrono::Utc;
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
+
+fn save_federation_bundle(
+    connection: &Connection,
+    signed: &SignedExperienceBundle,
+    direction: &str,
+    authenticity: AuthenticityStatus,
+    path: Option<&str>,
+) -> Result<bool> {
+    let existing: Option<String> = connection
+        .query_row(
+            "SELECT payload_hash FROM federation_bundles WHERE id=?1",
+            [signed.manifest.bundle_id.to_string()],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(hash) = existing {
+        if hash != signed.payload_hash {
+            return Err(Error::InvalidInput("Bundle ID collision".into()));
+        }
+        return Ok(false);
+    }
+    connection.execute("INSERT INTO federation_bundles(id,direction,producer,created_at,recorded_at,payload_hash,authenticity,path,data) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![signed.manifest.bundle_id.to_string(),direction,signed.manifest.producer.to_string(),signed.manifest.created_at.to_rfc3339(),Utc::now().to_rfc3339(),signed.payload_hash,serde_json::to_value(authenticity)?.as_str(),path,serde_json::to_string(signed)?])?;
+    Ok(true)
+}
+
+fn save_federated_object(
+    connection: &Connection,
+    object: &FederatedObject,
+) -> Result<(FederatedObjectId, bool)> {
+    let existing:Option<String>=connection.query_row("SELECT id FROM federated_objects WHERE origin_node=?1 AND origin_object_id=?2 AND lineage_hash=?3",params![object.identity.origin_node.to_string(),object.identity.origin_object_id,object.identity.lineage_hash],|r|r.get(0)).optional()?;
+    if let Some(id) = existing {
+        return Ok((id.parse()?, false));
+    }
+    connection.execute("INSERT INTO federated_objects(id,origin_node,origin_object_id,origin_bundle,object_type,lineage_hash,state,context_score,created_at,data) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![object.id.to_string(),object.identity.origin_node.to_string(),object.identity.origin_object_id,object.origin_bundle.to_string(),object.object_type,object.identity.lineage_hash,serde_json::to_value(object.state)?.as_str(),object.trust.context_compatibility.score,object.received_at.to_rfc3339(),serde_json::to_string(object)?])?;
+    Ok((object.id.clone(), true))
+}
+
+fn save_provenance_graph(connection: &Connection, graph: &ProvenanceGraph) -> Result<()> {
+    for node in &graph.nodes {
+        connection.execute("INSERT INTO federation_provenance_nodes(id,kind,lineage_hash,data) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO NOTHING",params![node.id.to_string(),serde_json::to_value(node.kind)?.as_str(),node.lineage_hash,serde_json::to_string(node)?])?;
+    }
+    for edge in &graph.edges {
+        connection.execute("INSERT INTO federation_provenance_edges(source,target,relationship,data) VALUES(?1,?2,?3,?4) ON CONFLICT DO NOTHING",params![edge.source.to_string(),edge.target.to_string(),serde_json::to_value(edge.relationship)?.as_str(),serde_json::to_string(edge)?])?;
+    }
+    Ok(())
+}
+
+fn audit(
+    connection: &Connection,
+    event: &str,
+    subject: Option<&str>,
+    detail: &str,
+) -> Result<FederationAuditEntry> {
+    let entry = FederationAuditEntry {
+        id: FederationAuditId::new().to_string(),
+        event: event.into(),
+        at: Utc::now(),
+        subject: subject.map(Into::into),
+        detail: detail.into(),
+    };
+    connection.execute(
+        "INSERT INTO federation_audit(id,event,created_at,data) VALUES(?1,?2,?3,?4)",
+        params![
+            entry.id,
+            event,
+            entry.at.to_rfc3339(),
+            serde_json::to_string(&entry)?
+        ],
+    )?;
+    Ok(entry)
+}
 
 impl Store {
     pub fn save_experience_node(&self, node: &ExperienceNode) -> Result<ExperienceNode> {
@@ -123,22 +194,7 @@ impl Store {
         authenticity: AuthenticityStatus,
         path: Option<&str>,
     ) -> Result<bool> {
-        let existing: Option<String> = self
-            .connection
-            .query_row(
-                "SELECT payload_hash FROM federation_bundles WHERE id=?1",
-                [signed.manifest.bundle_id.to_string()],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if let Some(hash) = existing {
-            if hash != signed.payload_hash {
-                return Err(Error::InvalidInput("Bundle ID collision".into()));
-            }
-            return Ok(false);
-        }
-        self.connection.execute("INSERT INTO federation_bundles(id,direction,producer,created_at,recorded_at,payload_hash,authenticity,path,data) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",params![signed.manifest.bundle_id.to_string(),direction,signed.manifest.producer.to_string(),signed.manifest.created_at.to_rfc3339(),Utc::now().to_rfc3339(),signed.payload_hash,serde_json::to_value(authenticity)?.as_str(),path,serde_json::to_string(signed)?])?;
-        Ok(true)
+        save_federation_bundle(&self.connection, signed, direction, authenticity, path)
     }
     pub fn federation_bundle(&self, id: &BundleId) -> Result<SignedExperienceBundle> {
         self.get(
@@ -150,12 +206,7 @@ impl Store {
         &self,
         object: &FederatedObject,
     ) -> Result<(FederatedObjectId, bool)> {
-        let existing:Option<String>=self.connection.query_row("SELECT id FROM federated_objects WHERE origin_node=?1 AND origin_object_id=?2 AND lineage_hash=?3",params![object.identity.origin_node.to_string(),object.identity.origin_object_id,object.identity.lineage_hash],|r|r.get(0)).optional()?;
-        if let Some(id) = existing {
-            return Ok((id.parse()?, false));
-        }
-        self.connection.execute("INSERT INTO federated_objects(id,origin_node,origin_object_id,origin_bundle,object_type,lineage_hash,state,context_score,created_at,data) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",params![object.id.to_string(),object.identity.origin_node.to_string(),object.identity.origin_object_id,object.origin_bundle.to_string(),object.object_type,object.identity.lineage_hash,serde_json::to_value(object.state)?.as_str(),object.trust.context_compatibility.score,object.received_at.to_rfc3339(),serde_json::to_string(object)?])?;
-        Ok((object.id.clone(), true))
+        save_federated_object(&self.connection, object)
     }
     pub fn federated_object(&self, id: &FederatedObjectId) -> Result<FederatedObject> {
         self.get(
@@ -229,14 +280,50 @@ impl Store {
             &self.connection,
             rusqlite::TransactionBehavior::Immediate,
         )?;
-        for node in &graph.nodes {
-            tx.execute("INSERT INTO federation_provenance_nodes(id,kind,lineage_hash,data) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO NOTHING",params![node.id.to_string(),serde_json::to_value(node.kind)?.as_str(),node.lineage_hash,serde_json::to_string(node)?])?;
-        }
-        for edge in &graph.edges {
-            tx.execute("INSERT INTO federation_provenance_edges(source,target,relationship,data) VALUES(?1,?2,?3,?4) ON CONFLICT DO NOTHING",params![edge.source.to_string(),edge.target.to_string(),serde_json::to_value(edge.relationship)?.as_str(),serde_json::to_string(edge)?])?;
-        }
+        save_provenance_graph(&tx, graph)?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// Persist a fully validated incoming bundle and its advisory objects atomically.
+    ///
+    /// Import used to commit the bundle, remote provenance, each object, and each
+    /// local provenance edge separately. Besides allowing partial imports after an
+    /// I/O failure, that made a ten-object bundle require roughly a dozen durable
+    /// SQLite commits. Keep cryptographic and payload validation in the service,
+    /// then publish the complete import in one transaction here.
+    pub(crate) fn import_federation_bundle(
+        &self,
+        signed: &SignedExperienceBundle,
+        authenticity: AuthenticityStatus,
+        objects: &[(FederatedObject, ProvenanceGraph)],
+    ) -> Result<Vec<(FederatedObjectId, bool)>> {
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        save_federation_bundle(&tx, signed, "received", authenticity, None)?;
+        save_provenance_graph(&tx, &signed.bundle.provenance)?;
+        let mut results = Vec::with_capacity(objects.len());
+        for (object, local_provenance) in objects {
+            let result = save_federated_object(&tx, object)?;
+            if result.1 {
+                save_provenance_graph(&tx, local_provenance)?;
+            }
+            results.push(result);
+        }
+        let imported = results.iter().filter(|(_, new)| *new).count();
+        let duplicates = results.len() - imported;
+        audit(
+            &tx,
+            "bundle_imported",
+            Some(&signed.manifest.bundle_id.to_string()),
+            &format!(
+                "{imported} advisory objects imported; {duplicates} duplicate lineage objects suppressed"
+            ),
+        )?;
+        tx.commit()?;
+        Ok(results)
     }
     pub fn provenance_graph(&self, selector: &str) -> Result<ProvenanceGraph> {
         let start:Option<String>=self.connection.query_row("SELECT id FROM federation_provenance_nodes WHERE id=?1 OR json_extract(data,'$.external_id')=?1 ORDER BY id LIMIT 1",[selector],|r|r.get(0)).optional()?;
@@ -287,23 +374,7 @@ impl Store {
         subject: Option<&str>,
         detail: &str,
     ) -> Result<FederationAuditEntry> {
-        let entry = FederationAuditEntry {
-            id: FederationAuditId::new().to_string(),
-            event: event.into(),
-            at: Utc::now(),
-            subject: subject.map(Into::into),
-            detail: detail.into(),
-        };
-        self.connection.execute(
-            "INSERT INTO federation_audit(id,event,created_at,data) VALUES(?1,?2,?3,?4)",
-            params![
-                entry.id,
-                event,
-                entry.at.to_rfc3339(),
-                serde_json::to_string(&entry)?
-            ],
-        )?;
-        Ok(entry)
+        audit(&self.connection, event, subject, detail)
     }
     pub fn federation_audit(&self) -> Result<Vec<FederationAuditEntry>> {
         self.list("SELECT data FROM federation_audit ORDER BY sequence")

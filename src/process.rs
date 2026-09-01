@@ -97,23 +97,28 @@ impl ProcessRunner {
             pid,
             "Started agent process (arguments and environment omitted)"
         );
-        let (status, exit) = tokio::select! {
+        let (status, exit, group_already_killed) = tokio::select! {
             biased;
             _ = cancel => {
                 group.kill()?;
-                (ProcessStatus::Interrupted, child.wait().await?)
+                (ProcessStatus::Interrupted, child.wait().await?, true)
             }
             _ = tokio::time::sleep(timeout) => {
                 group.kill()?;
-                (ProcessStatus::TimedOut, child.wait().await?)
+                (ProcessStatus::TimedOut, child.wait().await?, true)
             }
             exit = child.wait() => {
                 let exit = exit?;
-                (if exit.success() { ProcessStatus::Succeeded } else { ProcessStatus::Failed }, exit)
+                (if exit.success() { ProcessStatus::Succeeded } else { ProcessStatus::Failed }, exit, false)
             }
         };
-        // Do not let ordinary background descendants outlive a disposable run.
-        group.kill()?;
+        // Do not let ordinary background descendants outlive a disposable run. A
+        // cancelled or timed-out group was already killed before the leader was
+        // reaped; signalling that now-empty group again can spuriously return
+        // EPERM on macOS and must not turn an interrupted evaluation into an error.
+        if !group_already_killed {
+            group.kill()?;
+        }
         group.0 = None;
         drop(group);
         let action = ActionRecord {

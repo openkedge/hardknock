@@ -772,14 +772,8 @@ impl FederationService for LocalFederationService<'_> {
             .as_ref()
             .map(|p| p.trust)
             .unwrap_or(ProducerTrust::Unknown);
-        self.store
-            .save_federation_bundle(&signed, "received", authenticity, None)?;
-        self.store
-            .save_provenance_graph(&signed.bundle.provenance)?;
-        let mut imported = 0;
-        let mut duplicates = 0;
-        let mut object_ids = vec![];
         let local_node = self.identity()?.node;
+        let mut candidates = Vec::new();
         for (kind, identity, context, mut value) in portable_values(&signed.bundle)? {
             if kind == "reflex" {
                 value["effective_response"] = serde_json::json!(ReflexResponse::Advise);
@@ -808,33 +802,31 @@ impl FederationService for LocalFederationService<'_> {
                 object: value,
                 received_at: Utc::now(),
             };
-            let (id, new) = self.store.save_federated_object(&object)?;
-            object_ids.push(id.clone());
-            if new {
-                imported += 1;
-                let remote = provenance_ref_for(&object.object)?;
-                let local_prov = Self::provenance_id(&(local_node.id.clone(), id.to_string()))?;
-                let graph = ProvenanceGraph {
-                    nodes: vec![ProvenanceNode {
-                        id: local_prov.clone(),
-                        kind: provenance_kind(kind)?,
-                        external_id: id.to_string(),
-                        node: local_node.id.clone(),
-                        lineage_hash: Some(identity.lineage_hash.clone()),
-                        summary: format!("External {kind}; advisory"),
-                    }],
-                    edges: vec![ProvenanceEdge {
-                        source: local_prov,
-                        target: remote,
-                        relationship: ProvenanceRelationship::ImportedFrom,
-                    }],
-                };
-                self.store.save_provenance_graph(&graph)?;
-            } else {
-                duplicates += 1;
-            }
+            let remote = provenance_ref_for(&object.object)?;
+            let local_prov = Self::provenance_id(&(local_node.id.clone(), object.id.to_string()))?;
+            let graph = ProvenanceGraph {
+                nodes: vec![ProvenanceNode {
+                    id: local_prov.clone(),
+                    kind: provenance_kind(kind)?,
+                    external_id: object.id.to_string(),
+                    node: local_node.id.clone(),
+                    lineage_hash: Some(identity.lineage_hash.clone()),
+                    summary: format!("External {kind}; advisory"),
+                }],
+                edges: vec![ProvenanceEdge {
+                    source: local_prov,
+                    target: remote,
+                    relationship: ProvenanceRelationship::ImportedFrom,
+                }],
+            };
+            candidates.push((object, graph));
         }
-        self.store.audit("bundle_imported",Some(&signed.manifest.bundle_id.to_string()),&format!("{imported} advisory objects imported; {duplicates} duplicate lineage objects suppressed"))?;
+        let stored = self
+            .store
+            .import_federation_bundle(&signed, authenticity, &candidates)?;
+        let imported = stored.iter().filter(|(_, new)| *new).count();
+        let duplicates = stored.len() - imported;
+        let object_ids: Vec<_> = stored.into_iter().map(|(id, _)| id).collect();
         Ok(ImportReport {
             bundle_id: signed.manifest.bundle_id,
             producer: signed.signer,
