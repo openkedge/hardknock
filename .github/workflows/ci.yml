@@ -63,6 +63,11 @@ jobs:
         run: >-
           cargo test --locked --release --test bridge
           cache_reflex_mapping_scope_and_thousand_rule_latency -- --exact --nocapture
+      - name: Enforce release federation import latency budget
+        run: >-
+          cargo test --locked --release --test federation
+          thousand_bundles_and_ten_thousand_external_objects_remain_practical
+          -- --exact --nocapture
 
   integration-container:
     runs-on: ubuntu-latest
