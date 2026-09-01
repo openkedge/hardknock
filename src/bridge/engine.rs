@@ -504,10 +504,12 @@ impl Bridge {
                     };
                     self.enqueue_runtime_decision(runtime_record.clone())?;
                     // Deliver matching action-time advice as well as startup context.
-                    if let NormalizedAction::Shell { command, .. } = &proposed.action {
-                        for lesson in self.cache.read().expect("cache lock").retrieve(&s.context,&s.task,vec![crate::lesson::ActionPattern::shell(command)]) {
-                            if let Some(current) = s.delivered.iter_mut().find(|l|l.lesson.id == lesson.lesson.id) { if f64::from(lesson.relevance) > f64::from(current.relevance) { *current = lesson; } }
-                            else if proposed.context.can_intercept && decision.references_lesson(&lesson.lesson.id.to_string()) { s.delivered.push(lesson); }
+                    if matches!(&proposed.action, NormalizedAction::Shell { .. }) {
+                        // Runtime evaluation already ranked this exact context/action. Reuse its
+                        // bounded result instead of scanning and sorting the hot cache twice.
+                        for lesson in &runtime_record.context.relevant_experience.lessons {
+                            if let Some(current) = s.delivered.iter_mut().find(|l|l.lesson.id == lesson.lesson.id) { if f64::from(lesson.relevance) > f64::from(current.relevance) { *current = lesson.clone(); } }
+                            else if proposed.context.can_intercept && decision.references_lesson(&lesson.lesson.id.to_string()) { s.delivered.push(lesson.clone()); }
                         }
                     }
                     s.actions.push(RecordedAction { action_id: proposed.action_id.clone(), action: proposed.action,

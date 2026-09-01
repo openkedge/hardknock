@@ -50,6 +50,20 @@ jobs:
         run: rustup toolchain install stable --profile minimal
       - run: cargo test --locked --tests
 
+  performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Enforce release Bridge latency budget
+        run: >-
+          cargo test --locked --release --test bridge
+          cache_reflex_mapping_scope_and_thousand_rule_latency -- --exact --nocapture
+
   integration-container:
     runs-on: ubuntu-latest
     timeout-minutes: 20
