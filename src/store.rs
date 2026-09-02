@@ -21,10 +21,12 @@ mod assurance;
 mod capabilities;
 pub use assurance::AssuranceStore;
 mod effects;
+mod epistemic;
 pub use capabilities::{CapabilityStore, token_hash};
 mod experiences;
 mod experiments;
 pub use effects::EffectStore;
+pub use epistemic::EpistemicStore;
 mod federation;
 pub use experiences::{ExperienceQuery, ExperienceStore, ExperienceSummary};
 pub use experiments::ExperimentStore;
@@ -115,7 +117,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 15 {
+        if version > 16 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -179,6 +181,10 @@ impl Store {
         if version < 15 {
             tx.execute_batch(include_str!("../migrations/015_runtime.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (15)", [])?;
+        }
+        if version < 16 {
+            tx.execute_batch(include_str!("../migrations/016_epistemic.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (16)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

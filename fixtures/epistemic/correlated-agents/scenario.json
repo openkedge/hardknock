@@ -1,0 +1,1 @@
+{"agents":3,"shared_source":"shared-advice.txt","recommendation":"core-first","expected_diversity":"low","challenge":"blind-controlled-trial","controlled_result":{"core-first":"fail","plugin-first":"pass"}}

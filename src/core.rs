@@ -121,6 +121,10 @@ identifier!(EvidenceManifestId, "evidence-manifest-");
 identifier!(HardknockSessionId, "session-");
 identifier!(RuntimeDecisionId, "decision-");
 identifier!(RuntimePolicyVersionId, "runtime-policy-");
+identifier!(ClaimId, "claim-");
+identifier!(EvidencePathId, "evidence-path-");
+identifier!(EpistemicFaultDomainId, "fault-domain-");
+identifier!(EvidenceSessionId, "evidence-session-");
 
 impl BehavioralConditionId {
     /// Stable identity for a canonical condition fingerprint. This is not a

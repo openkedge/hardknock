@@ -13,7 +13,7 @@ use crate::{
     core::{ExperienceId, RuntimeDecisionId, StateRef},
     experience::ExperienceContext,
     retrieval::RetrievedLesson,
-    store::{EffectStore, RuntimeStore, Store},
+    store::{EffectStore, EpistemicStore, RuntimeStore, Store},
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -546,6 +546,41 @@ impl Bridge {
                 }
                 store.record_runtime_feedback(&report.feedback)?;
                 Ok(json!({"accepted":true,"decision_id":record.id}))
+            }
+            AgentEvent::EvidenceRequested(request) => {
+                self.with_session(&request.hardknock_session_id, |_| Ok(()))?;
+                let store = Store::open(&self.home)?;
+                Ok(serde_json::to_value(store.epistemic_report(&request.claim_id)?)?)
+            }
+            AgentEvent::EvidencePathReported(report) => {
+                let session = self.with_session(&report.hardknock_session_id, |session| Ok(session.clone()))?;
+                let crate::epistemic::EvidenceSource::Agent { identity } = &report.path.source else {
+                    return Err(invalid("Agent Bridge reports may only submit agent-generated EvidencePaths"));
+                };
+                if identity.kind != session.agent.name {
+                    return Err(invalid("EvidencePath agent identity does not match the authenticated session"));
+                }
+                if report.path.context.repository.as_ref().is_some_and(|repository| {
+                    repository != &session.starting_state.repo_path.display().to_string()
+                }) {
+                    return Err(invalid("EvidencePath repository does not match the authenticated session"));
+                }
+                let store = Store::open(&self.home)?;
+                let path = store.insert_evidence_path(&report.path)?;
+                self.enqueue(&report.hardknock_session_id, "evidence_path_reported", json!({"path_id":path.id,"claim_id":path.claim.id}))?;
+                Ok(json!({"accepted":true,"path":path}))
+            }
+            AgentEvent::EvidenceChallengeRequested(request) => {
+                self.with_session(&request.hardknock_session_id, |_| Ok(()))?;
+                let report = Store::open(&self.home)?.epistemic_report(&request.claim_id)?;
+                Ok(json!({"claim":report.claim,"plan":report.challenge}))
+            }
+            AgentEvent::EvidenceAssessmentUpdated(report) => {
+                self.with_session(&report.hardknock_session_id, |_| Ok(()))?;
+                let store = Store::open(&self.home)?;
+                store.record_fused_assessment(&report.assessment)?;
+                self.enqueue(&report.hardknock_session_id, "evidence_assessment_updated", json!({"claim_id":report.assessment.claim,"status":report.assessment.status}))?;
+                Ok(json!({"accepted":true,"claim_id":report.assessment.claim}))
             }
             AgentEvent::ActionCompleted(mut completed) => {
                 valid_id(&completed.action_id)?; validate_action(&completed.action)?;

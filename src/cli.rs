@@ -14,6 +14,7 @@ pub(crate) mod capability;
 pub mod curriculum;
 mod development;
 mod effects;
+mod epistemic;
 mod experimentation;
 mod federation;
 pub mod integrations;
@@ -103,6 +104,11 @@ pub enum Commands {
     Decision {
         #[command(subcommand)]
         command: runtime::DecisionCommand,
+    },
+    /// Inspect known evidence dependencies, diversity, fusion, and challenge gaps.
+    Epistemic {
+        #[command(subcommand)]
+        command: epistemic::EpistemicCommand,
     },
     /// Define, validate, inspect, and revision behavioral contracts.
     Contract {
@@ -439,6 +445,19 @@ pub enum LessonCommand {
         #[arg(long)]
         reason: Option<String>,
     },
+    Impact {
+        id: LessonId,
+    },
+    Quarantine {
+        id: LessonId,
+        #[arg(long)]
+        reason: String,
+    },
+    Restore {
+        id: LessonId,
+        #[arg(long)]
+        reason: String,
+    },
     Show {
         id: LessonId,
     },
@@ -556,6 +575,9 @@ pub enum ExperienceCommand {
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
     Runtime {
+        result: serde_json::Value,
+    },
+    Epistemic {
         result: serde_json::Value,
     },
     Assurance {
@@ -716,6 +738,7 @@ impl Response {
         }
         match self {
             Self::Runtime { result } => runtime::print(result, &mut stdout)?,
+            Self::Epistemic { result } => epistemic::print(result, &mut stdout)?,
             Self::Assurance { result } => assurance::print(result, &mut stdout)?,
             Self::Tools { result } | Self::Attestations { result } => {
                 serde_json::to_writer_pretty(&mut stdout, result)?;
@@ -1317,6 +1340,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             result: runtime::execute(cli, &store)?,
         });
     }
+    if epistemic::handles(&cli.command) {
+        return Ok(Response::Epistemic {
+            result: epistemic::execute(cli, &store)?,
+        });
+    }
     if assurance::handles(&cli.command) {
         return Ok(Response::Assurance {
             result: assurance::execute(cli, &store)?,
@@ -1384,6 +1412,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         Commands::Runtime { .. } | Commands::Decision { .. } => {
             Err(Error::InvalidInput("Runtime dispatch failed".into()))
         }
+        Commands::Epistemic { .. } => Err(Error::InvalidInput("Epistemic dispatch failed".into())),
         Commands::Contract { .. } | Commands::Assurance { .. } => {
             Err(Error::InvalidInput("Assurance dispatch failed".into()))
         }
@@ -1678,7 +1707,10 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             })
         }
         Commands::Lesson { command } => match command {
-            LessonCommand::History { .. } => {
+            LessonCommand::History { .. }
+            | LessonCommand::Impact { .. }
+            | LessonCommand::Quarantine { .. }
+            | LessonCommand::Restore { .. } => {
                 Err(Error::InvalidInput("Development dispatch failed".into()))
             }
             LessonCommand::List { include_retired } => Ok(Response::Lessons {

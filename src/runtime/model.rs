@@ -10,14 +10,19 @@ use crate::{
     bridge::protocol::NormalizedAction,
     capability::{ExecutionCapability, IsolationLevel, RealityRequirements},
     core::{
-        AgentIdentity, HardknockSessionId, LessonId, OperatingEnvelopeId, RecoveryId, ReflexId,
-        RuntimeDecisionId, SkillCertificationId, SkillId,
+        AgentIdentity, ClaimId, HardknockSessionId, LessonId, OperatingEnvelopeId, RecoveryId,
+        ReflexId, RuntimeDecisionId, SkillCertificationId, SkillId,
     },
     curriculum::Severity,
     development::ActiveExperienceSet,
     effects::{EffectRequest, EffectRisk, ExternalityClass, ReversibilityClass},
     lesson::{ActionPattern, ConfidenceScore},
     retrieval::QueryContext,
+};
+
+use crate::epistemic::{
+    DependencyOverlap, DiversityClass, EvidenceRequirement as EpistemicEvidenceRequirement,
+    FusedEvidenceStatus, RuntimeDiversityRequirement,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -374,6 +379,10 @@ pub struct RuntimeDecisionContext {
     pub externally_supported: bool,
     #[serde(default)]
     pub tool_candidates: Vec<ToolCandidate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epistemic: Option<RuntimeEpistemicSummary>,
+    #[serde(default)]
+    pub diversity_requirements: Vec<RuntimeDiversityRequirement>,
 }
 
 impl RuntimeDecisionContext {
@@ -426,6 +435,7 @@ pub enum DecisionReason {
     CommitAuthorityRequired,
     HighRiskEffect,
     ExternalEvidenceAdvisoryOnly,
+    EvidenceDiversityInsufficient,
     HardPolicyPrecedence,
     Custom(String),
 }
@@ -442,6 +452,10 @@ pub enum DecisionBlocker {
     UnsafeExperiment,
     ExhaustedBudget,
     UnsupportedEffectAdapter,
+    InsufficientEvidenceDiversity {
+        current: DiversityClass,
+        required: DiversityClass,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -469,6 +483,8 @@ pub struct ExperimentDecision {
     pub budget: crate::budget::ExperienceBudget,
     pub requirements: RealityRequirements,
     pub automatic: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_requirement: Option<EpistemicEvidenceRequirement>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -529,6 +545,20 @@ pub enum AbstentionReason {
     BudgetExhausted,
     UnsafeToExperiment,
     ExternalPolicyProhibition,
+    InsufficientEvidenceDiversity,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RuntimeEpistemicSummary {
+    pub claim: ClaimId,
+    pub status: FusedEvidenceStatus,
+    pub diversity: DiversityClass,
+    pub supporting_paths: usize,
+    pub controlled_empirical_path: bool,
+    #[serde(default)]
+    pub common_dependencies: Vec<DependencyOverlap>,
+    #[serde(default)]
+    pub caveats: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

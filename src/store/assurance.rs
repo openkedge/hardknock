@@ -5,13 +5,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use chrono::Utc;
 use rusqlite::{OptionalExtension, params};
 
-use super::Store;
+use super::{EpistemicStore, Store};
 use crate::{
     Error, Result,
     assurance::*,
     capability::{CapabilityManifest, ExecutionCapability, NetworkEndpointPattern, NetworkMode},
     core::*,
     curriculum::{Curriculum, CurriculumGoalKind, GoalStatus, Severity},
+    epistemic::{DeterministicEvidenceDiversityPolicy, EvidenceDiversityPolicy},
     evaluation::CheckStatus,
     experience::{Experience, Outcome},
     lesson::{EvidenceRef, Lesson, LessonStatus},
@@ -486,6 +487,44 @@ impl AssuranceStore for Store {
             summary
                 .capability_profiles_satisfied
                 .insert("capability-minimal-v1".into());
+        }
+
+        let relevant_ids = experiences
+            .iter()
+            .map(|value| value.id.to_string())
+            .chain(experiments.iter().map(|value| value.id.to_string()))
+            .chain(
+                strategy_experiments
+                    .iter()
+                    .map(|value| value.id.to_string()),
+            )
+            .chain(lessons.iter().map(|value| value.id.to_string()))
+            .chain(std::iter::once(skill_ref.skill_id.to_string()))
+            .collect::<BTreeSet<_>>();
+        let mut epistemic_paths = Vec::new();
+        for claim in self.claims()? {
+            epistemic_paths.extend(self.evidence_paths(&claim.id)?.into_iter().filter(|path| {
+                path.evidence_refs
+                    .iter()
+                    .any(|reference| relevant_ids.contains(&reference.id))
+            }));
+        }
+        if !epistemic_paths.is_empty() {
+            let diversity = DeterministicEvidenceDiversityPolicy.assess(&epistemic_paths);
+            summary.evidence_diversity = Some(diversity.diversity_class);
+            summary.evidence_source_types = diversity.source_type_count;
+            summary.evaluator_kinds = epistemic_paths
+                .iter()
+                .flat_map(|path| &path.dependencies.evaluator_identities)
+                .map(|evaluator| evaluator.kind)
+                .collect::<BTreeSet<_>>()
+                .len();
+            summary.root_evidence_origins = epistemic_paths
+                .iter()
+                .flat_map(|path| &path.context.root_evidence_origins)
+                .collect::<BTreeSet<_>>()
+                .len();
+            summary.epistemic_dependency_caveats = diversity.caveats;
         }
 
         let mut manifest = EvidenceManifest {

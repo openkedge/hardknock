@@ -762,6 +762,40 @@ fn evaluate_requirement(
                 }),
             )
         }
+        AssuranceRequirement::EvidenceDiversity { minimum } => {
+            let Some(actual) = summary.evidence_diversity else {
+                return (
+                    AssuranceRequirementStatus::Inconclusive,
+                    format!("evidence diversity metadata is unavailable; required {minimum:?}"),
+                    Some(AssuranceGap {
+                        kind: AssuranceGapKind::InsufficientEvidence,
+                        description: "known evidence dependencies have not been assessed".into(),
+                        severity: Some(Severity::High),
+                    }),
+                );
+            };
+            let satisfied = actual.satisfies(*minimum);
+            (
+                if satisfied {
+                    AssuranceRequirementStatus::Satisfied
+                } else {
+                    AssuranceRequirementStatus::Violated
+                },
+                format!(
+                    "evidence diversity {actual:?}, required {minimum:?}; {} source types, {} evaluator families, {} root origins",
+                    summary.evidence_source_types,
+                    summary.evaluator_kinds,
+                    summary.root_evidence_origins,
+                ),
+                (!satisfied).then(|| AssuranceGap {
+                    kind: AssuranceGapKind::InsufficientEvidence,
+                    description: format!(
+                        "evidence diversity {actual:?} is below {minimum:?}; inspect known dependency overlap"
+                    ),
+                    severity: Some(Severity::High),
+                }),
+            )
+        }
         AssuranceRequirement::Custom { kind, .. } => (
             AssuranceRequirementStatus::Inconclusive,
             format!("no deterministic evaluator registered for custom requirement {kind}"),
@@ -861,6 +895,10 @@ fn assurance_dimensions(
         (
             AssuranceDimension::EvidenceFreshness,
             dimension_status(|r| matches!(r, AssuranceRequirement::EvidenceFreshness { .. })),
+        ),
+        (
+            AssuranceDimension::EvidenceDiversity,
+            dimension_status(|r| matches!(r, AssuranceRequirement::EvidenceDiversity { .. })),
         ),
     ];
     dimensions
@@ -982,6 +1020,23 @@ pub fn builtin_profiles() -> Vec<AssuranceProfile> {
                     minimum_assurance: AttestationAssurance::IsolatedObserved,
                 },
                 AssuranceRequirement::NoUnresolvedCriticalContradictions,
+            ],
+            created_at,
+        },
+        AssuranceProfile {
+            id: id("assurance-profile-00000000-0000-4000-8000-000000000004"),
+            name: "epistemic-diversity-basic-v1".into(),
+            version: "1".into(),
+            requirements: vec![
+                AssuranceRequirement::ContractSatisfied { minimum_runs: 1 },
+                AssuranceRequirement::ControlledExperiments { minimum: 1 },
+                AssuranceRequirement::EvidenceDiversity {
+                    minimum: crate::epistemic::DiversityClass::Moderate,
+                },
+                AssuranceRequirement::NoUnresolvedCriticalContradictions,
+                AssuranceRequirement::EvidenceFreshness {
+                    maximum_age_days: Some(60),
+                },
             ],
             created_at,
         },

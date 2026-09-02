@@ -529,6 +529,8 @@ impl ExperienceHotCache {
             known_unknowns: Vec::new(),
             externally_supported: false,
             tool_candidates: Vec::new(),
+            epistemic: None,
+            diversity_requirements: Vec::new(),
         };
         let evaluation = DeterministicRuntimeController::with_config(runtime.policy_config())?
             .evaluate(&decision_context)?;

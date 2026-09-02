@@ -64,6 +64,8 @@ pub struct RuntimeScenario {
     pub known_unknowns: Vec<String>,
     pub externally_supported: bool,
     pub tool_candidates: Vec<ToolCandidate>,
+    pub epistemic: Option<RuntimeEpistemicSummary>,
+    pub diversity_requirements: Vec<crate::epistemic::RuntimeDiversityRequirement>,
     pub expected_decision: Option<RuntimeDecisionKind>,
     pub expected_outcome: Option<DecisionOutcome>,
     pub uncontrolled_success: Option<bool>,
@@ -109,6 +111,8 @@ impl Default for RuntimeScenario {
             known_unknowns: Vec::new(),
             externally_supported: false,
             tool_candidates: Vec::new(),
+            epistemic: None,
+            diversity_requirements: Vec::new(),
             expected_decision: None,
             expected_outcome: None,
             uncontrolled_success: None,
@@ -207,6 +211,8 @@ impl RuntimeScenario {
             known_unknowns: self.known_unknowns.clone(),
             externally_supported: self.externally_supported,
             tool_candidates: self.tool_candidates.clone(),
+            epistemic: self.epistemic.clone(),
+            diversity_requirements: self.diversity_requirements.clone(),
         })
     }
 

@@ -281,6 +281,32 @@ pub struct AgentMessage {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct EvidenceRequested {
+    pub hardknock_session_id: String,
+    pub claim_id: crate::core::ClaimId,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvidencePathReported {
+    pub hardknock_session_id: String,
+    /// Structured conclusion and observable execution context only. Hidden
+    /// reasoning, scratchpads, and complete prompts are outside the protocol.
+    pub path: crate::epistemic::EvidencePath,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvidenceChallengeRequested {
+    pub hardknock_session_id: String,
+    pub claim_id: crate::core::ClaimId,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EvidenceAssessmentUpdated {
+    pub hardknock_session_id: String,
+    pub assessment: crate::epistemic::FusedEvidenceAssessment,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SessionEnded {
     pub hardknock_session_id: String,
 }
@@ -342,6 +368,10 @@ pub enum AgentEvent {
         decision_id: crate::core::RuntimeDecisionId,
     },
     RuntimeDecisionFeedback(RuntimeDecisionFeedbackReported),
+    EvidenceRequested(EvidenceRequested),
+    EvidencePathReported(EvidencePathReported),
+    EvidenceChallengeRequested(EvidenceChallengeRequested),
+    EvidenceAssessmentUpdated(EvidenceAssessmentUpdated),
     EffectProposed(EffectProposal),
     /// Capability-token-authenticated effect interface for an isolated Reality.
     /// Transport authentication binds the caller to this exact Reality ID.

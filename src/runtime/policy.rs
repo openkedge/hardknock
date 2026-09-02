@@ -333,6 +333,29 @@ fn experiment(context: &RuntimeDecisionContext, reason: impl Into<String>) -> Ru
         budget,
         requirements: context.available_experiments.requirements.clone(),
         automatic: context.available_experiments.mode == ExperimentMode::Automatic,
+        evidence_requirement: context.epistemic.as_ref().and_then(|epistemic| {
+            matching_diversity_requirement(context).map(|requirement| {
+                crate::epistemic::EvidenceRequirement {
+                    claim: epistemic.claim.clone(),
+                    required_diversity: Some(requirement.minimum_diversity),
+                    preferred_sources: vec![
+                        crate::epistemic::EvidenceSourceKind::Experiment,
+                        crate::epistemic::EvidenceSourceKind::StaticCheck,
+                    ],
+                }
+            })
+        }),
+    })
+}
+
+fn matching_diversity_requirement(
+    context: &RuntimeDecisionContext,
+) -> Option<&crate::epistemic::RuntimeDiversityRequirement> {
+    let proposed = proposed_action_patterns(context);
+    context.diversity_requirements.iter().find(|requirement| {
+        proposed
+            .iter()
+            .any(|action| action == &requirement.action_pattern)
     })
 }
 
@@ -667,6 +690,57 @@ impl RuntimeDecisionPolicy for DeterministicRuntimeDecisionPolicy {
             blockers.push(DecisionBlocker::ExhaustedBudget);
         } else if !context.available_experiments.effect_safe {
             blockers.push(DecisionBlocker::UnsafeExperiment);
+        }
+
+        if knowledge == KnowledgeState::KnownSupported
+            && let Some(requirement) = matching_diversity_requirement(context)
+        {
+            let current = context
+                .epistemic
+                .as_ref()
+                .map_or(crate::epistemic::DiversityClass::Unknown, |summary| {
+                    summary.diversity
+                });
+            if !current.satisfies(requirement.minimum_diversity) {
+                reasons.push(DecisionReason::EvidenceDiversityInsufficient);
+                blockers.push(DecisionBlocker::InsufficientEvidenceDiversity {
+                    current,
+                    required: requirement.minimum_diversity,
+                });
+                let reason = format!(
+                    "Known support has {current:?} evidence diversity; this action requires {:?}",
+                    requirement.minimum_diversity
+                );
+                let decision = if experiment_available {
+                    experiment(context, reason)
+                } else if context.proposed_effect.is_some()
+                    && context.capability_context.effect_adapter_available
+                {
+                    approval(
+                        context,
+                        format!("{reason}; correlated support cannot authorize commit"),
+                    )
+                } else {
+                    abstain(
+                        context,
+                        AbstentionReason::InsufficientEvidenceDiversity,
+                        blockers.clone(),
+                    )
+                };
+                let governance = if matches!(decision, RuntimeDecision::RequireApproval(_)) {
+                    GovernanceDisposition::ApprovalOverride
+                } else {
+                    GovernanceDisposition::RuntimeRecommendation
+                };
+                return Ok(self.finish(
+                    decision,
+                    knowledge,
+                    reasons,
+                    collected_evidence,
+                    blockers,
+                    governance,
+                ));
+            }
         }
 
         let assurance_sufficient = matches!(

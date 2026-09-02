@@ -1,0 +1,1 @@
+Always upgrade the core framework before plugins. This advice is intentionally wrong for the fixture.

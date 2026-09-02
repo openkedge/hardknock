@@ -1,5 +1,38 @@
 # CLI reference
 
+## V0.13 epistemic evidence
+
+```text
+hardknock epistemic create --kind strategy-preference --statement TEXT [scope flags]
+hardknock epistemic report <evidence-path.json>
+hardknock epistemic show <claim-id>
+hardknock epistemic diversity <claim-id>
+hardknock epistemic graph <claim-id>
+hardknock epistemic gaps <claim-id>
+hardknock epistemic challenge <claim-id>
+hardknock epistemic compare <path-a> <path-b>
+hardknock epistemic domains <claim-id>
+hardknock epistemic echoes <claim-id>
+
+hardknock lesson impact <lesson-id>
+hardknock lesson quarantine <lesson-id> --reason TEXT
+hardknock lesson restore <lesson-id> --reason TEXT
+```
+
+`report` accepts one bounded regular JSON file containing an `EvidencePath`.
+The context fingerprint is recomputed from observable dependencies before the
+immutable record is stored. `challenge` emits a bounded plan; it does not run
+agents or experiments. `graph` and `domains` describe known dependency overlap,
+not causal proof or mathematical independence.
+
+Quarantine is non-destructive. A quarantined Lesson remains inspectable and in
+historical provenance but is excluded from automatic retrieval. Restore is an
+append-only activation event and requires a reason.
+
+The optional `epistemic-diversity-basic-v1` assurance profile requires a
+controlled experiment and at least `MODERATE` known evidence diversity in
+addition to the existing behavioral, freshness, and contradiction gates.
+
 ## V0.12 adaptive runtime control
 
 ```text

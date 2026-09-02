@@ -5,7 +5,7 @@ use crate::{
     core::LessonId,
     experience::{EnvironmentContext, ExperienceContext, RepositoryContext},
     lesson::{ActionPattern, Lesson, LessonStatus},
-    store::Store,
+    store::{EpistemicStore, Store},
 };
 use serde::{Deserialize, Serialize};
 
@@ -230,6 +230,7 @@ impl LessonRetriever for DeterministicRetriever<'_> {
         let lessons = self.store.all_lessons()?;
         let bases = self.store.lesson_freshness_bases(&lessons)?;
         for lesson in lessons {
+            let activation = self.store.lesson_activation_state(&lesson.id)?;
             let eligible = matches!(
                 lesson.status,
                 LessonStatus::CounterfactuallySupported | LessonStatus::Validated
@@ -242,7 +243,15 @@ impl LessonRetriever for DeterministicRetriever<'_> {
                 &config,
                 chrono::Utc::now(),
             );
-            let reason = if !eligible {
+            let reason = if matches!(
+                activation,
+                crate::epistemic::ExperienceActivationState::Quarantined
+                    | crate::epistemic::ExperienceActivationState::Disabled
+            ) {
+                Some(format!(
+                    "Lesson activation state {activation:?} excludes automatic retrieval"
+                ))
+            } else if !eligible {
                 Some(format!("Lesson state {:?} is not eligible", lesson.status))
             } else if !lesson.context_match.matches(&context.experience_context()) {
                 Some("Required repository/marker/tag/environment scope does not match".into())

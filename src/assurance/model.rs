@@ -323,6 +323,9 @@ pub enum AssuranceRequirement {
     ExecutionAttestation {
         minimum_assurance: AttestationAssurance,
     },
+    EvidenceDiversity {
+        minimum: crate::epistemic::DiversityClass,
+    },
     Custom {
         kind: String,
         payload: Value,
@@ -413,6 +416,16 @@ pub struct SkillCertification {
     pub tool_artifact_hashes: BTreeSet<String>,
     #[serde(default)]
     pub runtime_digests: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_diversity: Option<crate::epistemic::DiversityClass>,
+    #[serde(default)]
+    pub evidence_source_types: usize,
+    #[serde(default)]
+    pub root_evidence_origins: usize,
+    #[serde(default)]
+    pub evaluator_kinds: usize,
+    #[serde(default)]
+    pub epistemic_dependency_caveats: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -683,6 +696,7 @@ pub enum AssuranceDimension {
     CapabilityDiscipline,
     EffectDiscipline,
     EvidenceFreshness,
+    EvidenceDiversity,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

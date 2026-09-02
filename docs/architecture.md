@@ -1,5 +1,46 @@
 # Architecture
 
+## V0.13 epistemic evidence coordination
+
+```mermaid
+flowchart TD
+  R[Runtime question] --> C[Claim]
+  C --> P[Existing EvidencePaths]
+  P --> D[Known dependency analysis]
+  D --> Q{Diversity sufficient?}
+  Q -->|yes| F[Diversity-aware fusion]
+  Q -->|no| A[Acquire targeted evidence]
+  A --> A1[Agent with varied context]
+  A --> A2[Controlled experiment]
+  A --> A3[Alternative evaluator]
+  A1 --> N[New EvidencePaths]
+  A2 --> N
+  A3 --> N
+  N --> D
+  F --> X{Assessment}
+  X -->|diverse support| ACT[ACT]
+  X -->|disputed| EXP[EXPERIMENT / REPLAN]
+  X -->|insufficient| ABS[ABSTAIN / APPROVAL]
+```
+
+`epistemic::{model,policy}` treats Claims as reusable evidence targets and
+EvidencePaths as immutable structured conclusions. A path records only
+observable context: model/runtime labels, injected Lessons, retrieval sources,
+tools, evaluators, environment family, federated lineage, and evidence
+references. It never requests or persists private chain-of-thought.
+
+The dependency graph records known dependencies which may correlate failures.
+It does not prove causality or statistical dependence. Derived fault domains,
+overlaps, context fingerprints, origin diversity, and echo status remain
+transparent categorical indicators. Raw paths are retained even when their
+contexts have the same fingerprint.
+
+Migration 016 stores immutable Claims, paths, dependency rows, compact graph
+edges, sessions, fused assessments, influence records, and append-only
+activation changes. Graphs and fault domains can be rebuilt from canonical
+paths. Runtime diversity checks stay on the slow path: ordinary low-risk
+supported work keeps the V0.12 fast `ACT` path.
+
 ## V0.12 adaptive runtime control
 
 ```mermaid

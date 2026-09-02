@@ -22,7 +22,44 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.12 adaptive runtime control.** Hardknock now combines scoped Experience, assurance, operating envelopes, risk, capabilities, and authority to select `ACT`, `EXPERIMENT`, `REPLAN`, `RECOVER`, `REQUIRE_APPROVAL`, or `ABSTAIN`. Decisions are deterministic, versioned, durable, explainable, and open to outcome feedback. See the [V0.12 report](docs/implementation-v012.md), [runtime control](docs/runtime-control.md), [policy profiles](docs/runtime-policies.md), and [abstention](docs/abstention.md).
+> **Pre-alpha · V0.13 diversity-aware evidence coordination.** Hardknock now distinguishes repeated agreement from evidence that crosses known epistemic fault domains. It records observable dependencies, challenges common-mode support, and can require diversity before a high-consequence runtime action. See the [V0.13 report](docs/implementation-v013.md), [epistemic evidence guide](docs/epistemic-evidence.md), and [runtime control](docs/runtime-control.md).
+
+## Three Agents Can Be Wrong Together
+
+Asking more agents is not automatically safer. Agents can share the same model assumptions, retrieved experience, tools, evaluators, or external sources. Hardknock tracks those dependencies and seeks evidence that actually adds a new perspective.
+
+> **Count evidence paths, not agents.**
+
+> **Agreement is cheap. Independent failure modes are not.**
+
+> **A hundred copies of the same mistake are still one mistake.**
+
+> **Hardknock treats shared assumptions as shared risk.**
+
+```text
+Agent A ─┐
+Agent B ─┼─ same Lesson ─→ same mistake
+Agent C ─┘
+
+                ≠
+
+Agent A ─ reasoning path
+Agent B ─ different context
+Dojo    ─ controlled experiment
+          ↓
+       Diverse Evidence
+```
+
+Hardknock reports `LOW`, `MODERATE`, `HIGH`, or `UNKNOWN` diversity and lists the known overlap behind the classification. These labels are deterministic policy categories, not probabilities and not proof that paths are statistically independent. Unknown model, retrieval, evaluator, or origin metadata receives no positive diversity credit.
+
+```bash
+hardknock epistemic show claim-<uuid>
+hardknock epistemic diversity claim-<uuid>
+hardknock epistemic graph claim-<uuid>
+hardknock epistemic challenge claim-<uuid>
+```
+
+Hardknock experience can itself become a common-mode failure source. A wrong Lesson injected into several agents can align all of them around the same mistake. V0.13 records that influence, supports revalidation and quarantine, and retains the harmful propagation as inspectable Experience rather than deleting it.
 
 ## Knowing When Not to Act Is Part of Learning
 
@@ -132,7 +169,7 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
-V0.4 adds agent-native experiments; V0.5 adds curricula; V0.6 adds development profiles; V0.7 adds signed evidence federation; V0.8 adds transactional Effects; V0.9 adds capability-isolated execution; V0.10 adds portable micro-sandbox tools and attestations; V0.11 adds behavioral contracts and empirical certification; V0.12 adds evidence-guided runtime control. See the [CLI reference](docs/cli.md), [runtime guide](docs/runtime-control.md), [development guide](docs/development.md), and [roadmap](docs/roadmap.md).
+V0.4 adds agent-native experiments; V0.5 adds curricula; V0.6 adds development profiles; V0.7 adds signed evidence federation; V0.8 adds transactional Effects; V0.9 adds capability-isolated execution; V0.10 adds portable micro-sandbox tools and attestations; V0.11 adds behavioral contracts and empirical certification; V0.12 adds evidence-guided runtime control; V0.13 adds dependency-aware evidence diversity and common-mode challenges. See the [CLI reference](docs/cli.md), [epistemic evidence guide](docs/epistemic-evidence.md), [runtime guide](docs/runtime-control.md), and [roadmap](docs/roadmap.md).
 
 ## A Sandbox Can't Unsend an Email
 

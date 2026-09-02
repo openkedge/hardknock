@@ -11,7 +11,7 @@ use crate::{
     lesson::{ActionPattern, EvidenceRelationship, LessonStatus},
     resilience::{RecoveryStatus, ReflexStatus, SkillStatus},
     retrieval::{DeterministicRetriever, LessonRetriever, QueryContext, RetrievalOptions},
-    store::{AssuranceStore, Store},
+    store::{AssuranceStore, EpistemicStore, Store},
 };
 
 use super::*;
@@ -290,7 +290,56 @@ impl RuntimeContextSynthesizer<'_> {
             known_unknowns: request.known_unknowns,
             externally_supported: request.externally_supported,
             tool_candidates: Vec::new(),
+            epistemic: None,
+            diversity_requirements: Vec::new(),
         };
+        if let Some(claim) = self
+            .store
+            .claims()?
+            .into_iter()
+            .filter(|claim| {
+                claim
+                    .scope
+                    .matches(&context.query_context.experience_context())
+            })
+            .find(|claim| {
+                claim.canonical_statement()
+                    == context
+                        .task
+                        .description
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                        .to_lowercase()
+            })
+        {
+            let report = self.store.epistemic_report(&claim.id)?;
+            context.epistemic = Some(RuntimeEpistemicSummary {
+                claim: claim.id.clone(),
+                status: report.fused.status,
+                diversity: report.diversity.diversity_class,
+                supporting_paths: report.fused.support_paths.len(),
+                controlled_empirical_path: report.paths.iter().any(|path| {
+                    path.outcome == crate::epistemic::EvidenceOutcome::Supports
+                        && matches!(
+                            path.source,
+                            crate::epistemic::EvidenceSource::Experiment { .. }
+                        )
+                }),
+                common_dependencies: report.diversity.dependency_overlaps,
+                caveats: report.fused.caveats,
+            });
+            if context.risk.severity >= crate::curriculum::Severity::High
+                && let Some(action_pattern) = action_pattern
+            {
+                context
+                    .diversity_requirements
+                    .push(RuntimeDiversityRequirement {
+                        action_pattern,
+                        minimum_diversity: crate::epistemic::DiversityClass::Moderate,
+                    });
+            }
+        }
         if context.proposed_effect.is_some() && context.risk.effect_risk.is_none() {
             context.risk = DeterministicRuntimeRiskPolicy.assess(&context);
         }

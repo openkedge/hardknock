@@ -1,5 +1,21 @@
 # Hardknock Bridge v1
 
+## V0.13 structured epistemic events
+
+The authenticated Bridge accepts `evidence_requested`,
+`evidence_path_reported`, `evidence_challenge_requested`, and
+`evidence_assessment_updated`.
+
+An agent report contains a typed outcome (`supports`, `contradicts`, or
+`inconclusive`) plus observable dependency metadata. Agent identity and
+repository scope are checked against the authenticated session. Complete
+prompts, private scratchpads, transcripts, and hidden reasoning are prohibited.
+An unknown dependency is left unknown rather than interpreted as independent.
+
+Assessment updates append a fused interpretation; they do not mutate or delete
+raw paths. A diverse dispute may mark a shared Lesson advisory and require
+revalidation, while quarantine remains a distinct explicit lifecycle action.
+
 The public protocol is portable JSON, independent of internal Rust types and SQLite tables. Adapters use the Bridge exclusively. MCP is not a dependency.
 
 ## Transport and authentication
