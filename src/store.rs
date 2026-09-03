@@ -20,6 +20,7 @@ use crate::{
 mod assurance;
 mod capabilities;
 pub use assurance::AssuranceStore;
+mod causal;
 mod effects;
 mod epistemic;
 pub use capabilities::{CapabilityStore, token_hash};
@@ -117,7 +118,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 16 {
+        if version > 17 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -185,6 +186,10 @@ impl Store {
         if version < 16 {
             tx.execute_batch(include_str!("../migrations/016_epistemic.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (16)", [])?;
+        }
+        if version < 17 {
+            tx.execute_batch(include_str!("../migrations/017_causal.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (17)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

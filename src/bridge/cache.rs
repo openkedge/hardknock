@@ -37,7 +37,7 @@ pub struct RuntimeEvaluationRequest<'a> {
 
 impl ExperienceHotCache {
     pub fn load(store: &Store) -> Result<Self> {
-        let lessons: Vec<_> = store
+        let mut lessons: Vec<_> = store
             .all_lessons()?
             .into_iter()
             .filter(|l| {
@@ -47,8 +47,22 @@ impl ExperienceHotCache {
                 )
             })
             .collect();
-        let reflexes = store.reflexes()?;
-        let recoveries = store.recoveries()?;
+        let mut reflexes = store.reflexes()?;
+        let mut recoveries = store.recoveries()?;
+        let mut blocked = std::collections::BTreeSet::new();
+        for id in lessons
+            .iter()
+            .map(|l| l.id.to_string())
+            .chain(reflexes.iter().map(|r| r.id.to_string()))
+            .chain(recoveries.iter().map(|r| r.id.to_string()))
+        {
+            if store.causal_artifact_quarantined(&id)? {
+                blocked.insert(id);
+            }
+        }
+        lessons.retain(|l| !blocked.contains(&l.id.to_string()));
+        reflexes.retain(|r| !blocked.contains(&r.id.to_string()));
+        recoveries.retain(|r| !blocked.contains(&r.id.to_string()));
         let observations: std::collections::HashMap<_, _> = store
             .reflex_freshness_observations()?
             .into_iter()
@@ -473,6 +487,7 @@ impl ExperienceHotCache {
                 tags: context.tags.clone(),
             },
             query_context: query,
+            causal: Default::default(),
             proposed_action: Some(proposed.action.clone()),
             proposed_effect: None,
             relevant_experience: ActiveExperienceSet {

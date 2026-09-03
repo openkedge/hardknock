@@ -11,6 +11,7 @@ use serde::Serialize;
 pub(crate) mod assurance;
 pub(crate) mod attestation;
 pub(crate) mod capability;
+mod causal;
 pub mod curriculum;
 mod development;
 mod effects;
@@ -95,6 +96,11 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Test explicit causal hypotheses through controlled local interventions.
+    Causal {
+        #[command(subcommand)]
+        command: causal::CausalCommand,
+    },
     /// Inspect adaptive runtime configuration, outcomes, gaps, and benchmarks.
     Runtime {
         #[command(subcommand)]
@@ -580,6 +586,9 @@ pub enum Response {
     Epistemic {
         result: serde_json::Value,
     },
+    Causal {
+        result: serde_json::Value,
+    },
     Assurance {
         result: serde_json::Value,
     },
@@ -688,6 +697,11 @@ pub enum Response {
 impl Response {
     pub fn exit_code(&self) -> u8 {
         match self {
+            Self::Causal { result } => match result["experiment"]["status"].as_str() {
+                Some("cancelled") => 5,
+                Some("failed" | "rejected") => 2,
+                _ => 0,
+            },
             Self::Assurance { result } => assurance::exit_code(result),
             Self::Curriculum { result } => result.exit_code(),
             Self::Experimentation { result } => result.exit_code(),
@@ -739,6 +753,10 @@ impl Response {
         match self {
             Self::Runtime { result } => runtime::print(result, &mut stdout)?,
             Self::Epistemic { result } => epistemic::print(result, &mut stdout)?,
+            Self::Causal { result } => {
+                serde_json::to_writer_pretty(&mut stdout, result)?;
+                writeln!(stdout)?;
+            }
             Self::Assurance { result } => assurance::print(result, &mut stdout)?,
             Self::Tools { result } | Self::Attestations { result } => {
                 serde_json::to_writer_pretty(&mut stdout, result)?;
@@ -1327,6 +1345,13 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if matches!(&cli.command, Commands::Causal { .. })
+        || matches!(&cli.command, Commands::Provenance { object } if object.starts_with("causal-"))
+    {
+        return Ok(Response::Causal {
+            result: causal::execute(cli, &store, cancel).await?,
+        });
+    }
     if runtime::handles(&cli.command)
         || matches!(
             cli.command,
@@ -1413,6 +1438,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             Err(Error::InvalidInput("Runtime dispatch failed".into()))
         }
         Commands::Epistemic { .. } => Err(Error::InvalidInput("Epistemic dispatch failed".into())),
+        Commands::Causal { .. } => Err(Error::InvalidInput("Causal dispatch failed".into())),
         Commands::Contract { .. } | Commands::Assurance { .. } => {
             Err(Error::InvalidInput("Assurance dispatch failed".into()))
         }

@@ -345,6 +345,11 @@ impl ExperimentCapabilitySummary {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeDecisionContext {
+    #[serde(
+        default,
+        skip_serializing_if = "crate::causal::CausalRuntimeGuidance::is_empty"
+    )]
+    pub causal: crate::causal::CausalRuntimeGuidance,
     pub session_id: HardknockSessionId,
     pub agent: AgentIdentity,
     pub task: TaskDescriptor,
@@ -416,6 +421,11 @@ pub enum EvidenceRef {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "detail", rename_all = "snake_case")]
 pub enum DecisionReason {
+    CausalMechanismSupported {
+        hypothesis: crate::core::CausalHypothesisId,
+        intervention: crate::core::InterventionId,
+    },
+    UnresolvedFailureMechanism,
     ValidatedSkillApplicable,
     InsideOperatingEnvelope,
     RelevantLessonMatched,

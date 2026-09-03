@@ -326,6 +326,10 @@ pub enum AssuranceRequirement {
     EvidenceDiversity {
         minimum: crate::epistemic::DiversityClass,
     },
+    CausalFailureCoverage {
+        severity: Severity,
+        minimum_supported_mechanisms: usize,
+    },
     Custom {
         kind: String,
         payload: Value,
@@ -416,16 +420,6 @@ pub struct SkillCertification {
     pub tool_artifact_hashes: BTreeSet<String>,
     #[serde(default)]
     pub runtime_digests: BTreeSet<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub evidence_diversity: Option<crate::epistemic::DiversityClass>,
-    #[serde(default)]
-    pub evidence_source_types: usize,
-    #[serde(default)]
-    pub root_evidence_origins: usize,
-    #[serde(default)]
-    pub evaluator_kinds: usize,
-    #[serde(default)]
-    pub epistemic_dependency_caveats: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -538,6 +532,18 @@ pub struct EvidenceContradiction {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AssuranceEvidenceSummary {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub causal_mechanisms: BTreeMap<crate::core::CausalHypothesisId, crate::curriculum::Severity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence_diversity: Option<crate::epistemic::DiversityClass>,
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    pub evidence_source_types: usize,
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    pub root_evidence_origins: usize,
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    pub evaluator_kinds: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub epistemic_dependency_caveats: Vec<String>,
     #[serde(default)]
     pub contract_evaluations: Vec<ContractEvaluation>,
     pub controlled_experiments: usize,
@@ -573,6 +579,10 @@ pub struct AssuranceEvidenceSummary {
     pub tool_artifact_hashes: BTreeSet<String>,
     #[serde(default)]
     pub runtime_digests: BTreeSet<String>,
+}
+
+fn is_zero_count(value: &usize) -> bool {
+    *value == 0
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

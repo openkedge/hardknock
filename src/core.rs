@@ -125,6 +125,13 @@ identifier!(ClaimId, "claim-");
 identifier!(EvidencePathId, "evidence-path-");
 identifier!(EpistemicFaultDomainId, "fault-domain-");
 identifier!(EvidenceSessionId, "evidence-session-");
+identifier!(CausalVariableId, "variable-");
+identifier!(CausalHypothesisId, "causal-");
+identifier!(CausalEvidenceId, "causal-evidence-");
+identifier!(CausalInvestigationId, "investigation-");
+identifier!(InterventionId, "intervention-");
+identifier!(CounterfactualPairId, "pair-");
+identifier!(CausalModelId, "causal-model-");
 
 impl BehavioralConditionId {
     /// Stable identity for a canonical condition fingerprint. This is not a

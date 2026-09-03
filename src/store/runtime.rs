@@ -51,6 +51,65 @@ impl RuntimeStore for Store {
         context: &RuntimeDecisionContext,
         mut config: RuntimePolicyConfig,
     ) -> Result<RuntimeDecisionRecord> {
+        let mut context = context.clone();
+        context.causal = self.causal_runtime_guidance(
+            &context.query_context,
+            context
+                .failure_signature
+                .as_ref()
+                .map(|s| s.signature.as_str()),
+        )?;
+        let mut blocked = std::collections::BTreeSet::new();
+        for id in context
+            .available_recovery
+            .iter()
+            .map(|r| r.id.to_string())
+            .chain(context.matched_reflexes.iter().map(|r| r.id.to_string()))
+            .chain(
+                context
+                    .relevant_experience
+                    .lessons
+                    .iter()
+                    .map(|l| l.lesson.id.to_string()),
+            )
+        {
+            if self.causal_artifact_quarantined(&id)? {
+                blocked.insert(id);
+            }
+        }
+        context
+            .available_recovery
+            .retain(|r| !blocked.contains(&r.id.to_string()));
+        context
+            .matched_reflexes
+            .retain(|r| !blocked.contains(&r.id.to_string()));
+        context
+            .relevant_experience
+            .lessons
+            .retain(|l| !blocked.contains(&l.lesson.id.to_string()));
+        if !blocked.is_empty() {
+            context.knowledge_signals.local_supported = false;
+            context.knowledge_signals.local_contradicted = true;
+        }
+        if context
+            .assurance
+            .summary
+            .certification
+            .as_ref()
+            .is_some_and(|id| {
+                self.causal_artifact_quarantined(&id.to_string())
+                    .unwrap_or(true)
+            })
+        {
+            context.assurance.summary.status =
+                crate::runtime::AssuranceRuntimeStatus::ReviewRecommended;
+            context
+                .assurance
+                .summary
+                .reasons
+                .push("A supporting causal mechanism requires revalidation".into());
+        }
+        let context = &context;
         config.refresh_version();
         config.validate()?;
         let evaluation =
@@ -153,6 +212,21 @@ impl RuntimeStore for Store {
                 "INSERT INTO runtime_control_events(decision_id,session_id,kind,created_at,data) VALUES(?1,?2,?3,?4,?5)",
                 params![record.id.to_string(), record.session_id.to_string(), enum_name(&event)?, record.created_at.to_rfc3339(), serde_json::to_string(&record.decision)?],
             )?;
+        }
+        for reason in &record.evaluation.reasons {
+            if let crate::runtime::DecisionReason::CausalMechanismSupported {
+                hypothesis,
+                intervention,
+            } = reason
+            {
+                let dep = crate::causal::CausalArtifactDependency {
+                    hypothesis: hypothesis.clone(),
+                    artifact: crate::causal::CausalArtifact::RuntimeDecision(record.id.clone()),
+                    intervention: Some(intervention.clone()),
+                    severity: record.context.risk.severity,
+                };
+                transaction.execute("INSERT OR IGNORE INTO causal_artifact_dependencies(hypothesis_id,artifact_id,data) VALUES(?1,?2,?3)",params![hypothesis.to_string(),record.id.to_string(),serde_json::to_string(&dep)?])?;
+            }
         }
         transaction.commit()?;
         Ok(())

@@ -173,6 +173,9 @@ pub enum ConditionRange {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OperatingEnvelope {
+    /// Sparse joint input observations. Never interpolate across untested combinations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub causal_observations: Vec<crate::causal::EnvelopeObservation>,
     pub id: OperatingEnvelopeId,
     pub version: u32,
     pub target: EnvelopeTarget,

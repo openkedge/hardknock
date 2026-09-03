@@ -369,7 +369,7 @@ pub enum AgentEvent {
     },
     RuntimeDecisionFeedback(RuntimeDecisionFeedbackReported),
     EvidenceRequested(EvidenceRequested),
-    EvidencePathReported(EvidencePathReported),
+    EvidencePathReported(Box<EvidencePathReported>),
     EvidenceChallengeRequested(EvidenceChallengeRequested),
     EvidenceAssessmentUpdated(EvidenceAssessmentUpdated),
     EffectProposed(EffectProposal),

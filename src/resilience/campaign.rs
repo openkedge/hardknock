@@ -289,6 +289,7 @@ pub async fn run_observed(
 }
 fn envelope(campaign: &ChaosCampaign) -> OperatingEnvelope {
     let mut envelope = OperatingEnvelope {
+        causal_observations: vec![],
         id: OperatingEnvelopeId::new(),
         version: 1,
         target: campaign.plan.target.clone(),

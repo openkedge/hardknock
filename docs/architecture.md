@@ -1,5 +1,28 @@
 # Architecture
 
+## V0.14 causal experience
+
+`causal::{model,planner,engine}` connects structured hypotheses to the existing
+`ExperimentOrchestrator`. A registered trusted local adapter maps typed variables
+to literal input files. Baseline and intervention use the same adapter and evaluator;
+only one input changes. The orchestrator supplies the starting-state proof, candidate
+Experiences, evaluator results, cancellation, cleanup, and budget enforcement.
+
+Migration 017 stores variables, immutable hypothesis definitions with append-only
+status revisions, investigations, interventions, counterfactual pairs, evidence,
+model revisions, observations, refinements, dependencies, and revalidation events.
+Trials are referenced, never duplicated. Confounded, incomplete, or observational
+evidence cannot establish support. Necessary/sufficient/risk/mediation claims remain
+inconclusive without an appropriate matrix or estimator.
+
+Runtime lookup requires matching failure, repository version, scope, and tested input
+values. A supported intervention can prioritize an explicitly linked, fresh Recovery
+or recommend REPLAN. Unresolved high-risk mechanisms request experiments or abstain.
+Hard policy, capability and isolation decisions retain precedence. Contradictions
+quarantine linked automatic guidance and preserve all historical records.
+
+See [causal experience](causal-experience.md) for operation and limitations.
+
 ## V0.13 epistemic evidence coordination
 
 ```mermaid

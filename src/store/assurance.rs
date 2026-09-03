@@ -527,6 +527,18 @@ impl AssuranceStore for Store {
             summary.epistemic_dependency_caveats = diversity.caveats;
         }
 
+        for hypothesis in self.causal_hypotheses()? {
+            if !hypothesis.status.supported() {
+                continue;
+            }
+            for dependency in self.causal_dependencies(&hypothesis.id)? {
+                if dependency.artifact == crate::causal::CausalArtifact::Skill(skill.id.clone()) {
+                    summary
+                        .causal_mechanisms
+                        .insert(hypothesis.id.clone(), dependency.severity);
+                }
+            }
+        }
         let mut manifest = EvidenceManifest {
             id: EvidenceManifestId::new(),
             subject: EvidenceSubject::Skill(skill_ref.clone()),

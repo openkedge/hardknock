@@ -512,6 +512,76 @@ impl RuntimeDecisionPolicy for DeterministicRuntimeDecisionPolicy {
             }
         }
 
+        if let Some(signature) = &context.failure_signature {
+            if let Some(guidance) = context.causal.supported_interventions.first() {
+                reasons.push(DecisionReason::CausalMechanismSupported {
+                    hypothesis: guidance.hypothesis.clone(),
+                    intervention: guidance.intervention.id.clone(),
+                });
+                let recovery = context.available_recovery.iter().find(|r| {
+                    guidance.recovery.as_ref() == Some(&r.id)
+                        && r.fresh
+                        && r.scope_matches
+                        && r.failure_signature == signature.signature
+                });
+                let decision = if let Some(recovery) = recovery {
+                    RuntimeDecision::Recover(RecoverDecision {
+                        recovery: recovery.clone(),
+                        failure_signature: signature.clone(),
+                        confidence: recovery.confidence,
+                        evidence: vec![EvidenceRef::Recovery {
+                            id: recovery.id.clone(),
+                            version: recovery.version,
+                        }],
+                    })
+                } else {
+                    RuntimeDecision::Replan(ReplanDecision {
+                        reason: format!(
+                            "Supported scoped mechanism {}: {} (set {} to {})",
+                            guidance.hypothesis,
+                            guidance.intervention.rationale,
+                            guidance.intervention.variable,
+                            guidance.intervention.to.literal()
+                        ),
+                        matched_reflexes: Vec::new(),
+                        relevant_lessons: lesson_refs(context),
+                        excluded_actions: proposed_action_patterns(context),
+                    })
+                };
+                return Ok(self.finish(
+                    decision,
+                    knowledge,
+                    reasons,
+                    collected_evidence,
+                    blockers,
+                    GovernanceDisposition::RuntimeRecommendation,
+                ));
+            }
+            if !context.causal.causal_gaps.is_empty() && context.risk.severity >= Severity::High {
+                reasons.push(DecisionReason::UnresolvedFailureMechanism);
+                let decision = if context.available_experiments.can_experiment() {
+                    experiment(
+                        context,
+                        "Discriminate unresolved failure mechanisms before applying speculative Recovery",
+                    )
+                } else {
+                    abstain(
+                        context,
+                        AbstentionReason::NoValidatedRecovery,
+                        blockers.clone(),
+                    )
+                };
+                return Ok(self.finish(
+                    decision,
+                    knowledge,
+                    reasons,
+                    collected_evidence,
+                    blockers,
+                    GovernanceDisposition::RuntimeRecommendation,
+                ));
+            }
+        }
+
         if let Some(signature) = &context.failure_signature
             && let Some(recovery) = context.available_recovery.iter().find(|recovery| {
                 recovery.failure_signature == signature.signature && recovery.scope_matches

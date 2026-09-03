@@ -10,6 +10,7 @@ pub mod bridge;
 pub mod budget;
 pub mod cancellation;
 pub mod capability;
+pub mod causal;
 pub mod cli;
 pub mod core;
 pub mod curriculum;

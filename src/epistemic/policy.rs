@@ -6,7 +6,10 @@ use std::{
 };
 
 use crate::{
-    Error, Result, budget::ExperienceBudget, core::*, experimentation::StrategyExperiment,
+    Error, Result,
+    budget::ExperienceBudget,
+    core::*,
+    experimentation::{ExperimentRequest, StrategyExperiment},
 };
 
 use super::*;
@@ -672,7 +675,20 @@ impl EvidenceAcquisitionPlanner for DeterministicEvidenceAcquisitionPlanner {
                 stop_reason: Some("budget exhausted".into()),
             });
         }
-        let dominant = diversity.dependency_overlaps.first();
+        // Equal-sized common-mode overlaps should first challenge removable
+        // injected Experience, not depend on the enum's incidental sort order.
+        let dominant = diversity.dependency_overlaps.iter().min_by_key(|overlap| {
+            (
+                std::cmp::Reverse(overlap.paths.len()),
+                match overlap.kind {
+                    EpistemicDependencyKind::Experience => 0,
+                    EpistemicDependencyKind::Tool => 1,
+                    EpistemicDependencyKind::Evaluator => 2,
+                    _ => 3,
+                },
+                &overlap.shared_value,
+            )
+        });
         let mut actions = Vec::new();
         let mut rationale = Vec::new();
         if let Some(overlap) = dominant {
@@ -727,6 +743,7 @@ impl EvidenceAcquisitionPlanner for DeterministicEvidenceAcquisitionPlanner {
                 .filter(|overlap| overlap.kind == EpistemicDependencyKind::Experience)
                 .map(|overlap| {
                     vec![ExperienceRef {
+                        revision: 0,
                         kind: "experience".into(),
                         id: overlap.shared_value.clone(),
                     }]

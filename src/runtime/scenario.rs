@@ -44,6 +44,7 @@ impl Default for RuntimeScenarioContext {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RuntimeScenario {
+    pub causal: crate::causal::CausalRuntimeGuidance,
     pub schema: String,
     pub name: String,
     pub task: TaskDescriptor,
@@ -112,6 +113,7 @@ impl Default for RuntimeScenario {
             externally_supported: false,
             tool_candidates: Vec::new(),
             epistemic: None,
+            causal: Default::default(),
             diversity_requirements: Vec::new(),
             expected_decision: None,
             expected_outcome: None,
@@ -212,6 +214,7 @@ impl RuntimeScenario {
             externally_supported: self.externally_supported,
             tool_candidates: self.tool_candidates.clone(),
             epistemic: self.epistemic.clone(),
+            causal: self.causal.clone(),
             diversity_requirements: self.diversity_requirements.clone(),
         })
     }

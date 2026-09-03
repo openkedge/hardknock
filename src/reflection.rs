@@ -24,6 +24,13 @@ pub struct CandidateHypothesis {
 
 pub trait ReflectionProvider {
     fn reflect(&self, experience: &Experience) -> Result<Vec<CandidateHypothesis>>;
+    /// Optional structured explanations; never evidence or automatic Lesson promotion.
+    fn causal_hypotheses(
+        &self,
+        _experience: &Experience,
+    ) -> Result<Vec<crate::causal::CausalHypothesis>> {
+        Ok(Vec::new())
+    }
 }
 
 pub struct ManualReflection {

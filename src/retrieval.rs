@@ -230,7 +230,14 @@ impl LessonRetriever for DeterministicRetriever<'_> {
         let lessons = self.store.all_lessons()?;
         let bases = self.store.lesson_freshness_bases(&lessons)?;
         for lesson in lessons {
-            let activation = self.store.lesson_activation_state(&lesson.id)?;
+            let activation = if self
+                .store
+                .causal_artifact_quarantined(&lesson.id.to_string())?
+            {
+                crate::epistemic::ExperienceActivationState::Quarantined
+            } else {
+                self.store.lesson_activation_state(&lesson.id)?
+            };
             let eligible = matches!(
                 lesson.status,
                 LessonStatus::CounterfactuallySupported | LessonStatus::Validated

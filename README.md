@@ -22,7 +22,27 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.13 diversity-aware evidence coordination.** Hardknock now distinguishes repeated agreement from evidence that crosses known epistemic fault domains. It records observable dependencies, challenges common-mode support, and can require diversity before a high-consequence runtime action. See the [V0.13 report](docs/implementation-v013.md), [epistemic evidence guide](docs/epistemic-evidence.md), and [runtime control](docs/runtime-control.md).
+> **Pre-alpha · V0.14 causal experience.** Hardknock tests explicit explanations with scoped, controlled interventions using its existing Experiment Engine. See the [causal experience guide](docs/causal-experience.md), [V0.14 implementation report](docs/implementation-v014.md), and [epistemic evidence guide](docs/epistemic-evidence.md).
+
+## Failure Is Not an Explanation
+
+Agents can produce plausible explanations after something goes wrong. Plausibility is not causality. Hardknock turns those explanations into intervention hypotheses and tests which mechanisms change the outcome.
+
+**A postmortem is a hypothesis. A controlled intervention is evidence.**
+
+In the deterministic retry fixture, latency and retries correlate with failure. Holding both constant and refreshing state succeeds. Removing latency or increasing retries does not. Hardknock records scoped support for the stale-state explanation, contradicts the alternatives, and proposes more precise Lesson, Reflex, and Recovery guidance.
+
+```text
+Observed failure → competing hypotheses → discriminating intervention
+                                         ↓
+                         controlled pair + known-confounder checks
+                                         ↓
+                     supported / contradicted / inconclusive
+                                         ↓
+                   scoped model → candidate refinement → runtime guidance
+```
+
+This is explicit local intervention testing, not general causal discovery or proof of a universal cause. Remote reports remain advisory. A contradictory controlled trial quarantines dependent automatic guidance without erasing its history.
 
 ## Three Agents Can Be Wrong Together
 
@@ -169,7 +189,7 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
-V0.4 adds agent-native experiments; V0.5 adds curricula; V0.6 adds development profiles; V0.7 adds signed evidence federation; V0.8 adds transactional Effects; V0.9 adds capability-isolated execution; V0.10 adds portable micro-sandbox tools and attestations; V0.11 adds behavioral contracts and empirical certification; V0.12 adds evidence-guided runtime control; V0.13 adds dependency-aware evidence diversity and common-mode challenges. See the [CLI reference](docs/cli.md), [epistemic evidence guide](docs/epistemic-evidence.md), [runtime guide](docs/runtime-control.md), and [roadmap](docs/roadmap.md).
+V0.4 adds agent-native experiments; V0.5 adds curricula; V0.6 adds development profiles; V0.7 adds signed evidence federation; V0.8 adds transactional Effects; V0.9 adds capability-isolated execution; V0.10 adds portable micro-sandbox tools and attestations; V0.11 adds behavioral contracts and empirical certification; V0.12 adds evidence-guided runtime control; V0.13 adds dependency-aware evidence diversity and common-mode challenges; V0.14 adds explicit causal hypotheses, controlled interventions, and scoped mechanism guidance. See the [CLI reference](docs/cli.md), [epistemic evidence guide](docs/epistemic-evidence.md), [runtime guide](docs/runtime-control.md), and [roadmap](docs/roadmap.md).
 
 ## A Sandbox Can't Unsend an Email
 
@@ -899,7 +919,9 @@ The broader release goals below include work beyond the implemented local loop. 
 | **V0.6 — Persistent Agent Development** | Implemented locally: profiles, snapshots, revisions, freshness, revalidation, longitudinal and model-transfer fixtures |
 | **V0.7–V0.11 — Federation through empirical assurance** | Implemented local evidence federation, transactional Effects, capability isolation, portable tools, attestations, contracts, and certification |
 | **V0.12 — Adaptive Runtime Control** | Implemented deterministic evidence-guided control, approval/abstention, replay, feedback, curriculum gaps, and a 60-scenario benchmark |
-| **V0.13 — Multi-Agent Epistemic Diversity** | Next: compare independent proposals and evidence without turning agreement into authority |
+| **V0.13 — Multi-Agent Epistemic Diversity** | Known-dependency analysis, diversity gates, and common-mode challenges |
+| **V0.14 — Causal Experience** | Explicit hypotheses, controlled intervention pairs, scoped models, and refinement candidates |
+| **V0.15 — Predictive Experience** | Next: calibrated trajectory forecasts using tested mechanisms |
 
 ## Project status
 

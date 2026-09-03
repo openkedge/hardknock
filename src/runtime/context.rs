@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::epistemic::RuntimeDiversityRequirement;
 use chrono::{Duration, Utc};
 
 use crate::{
@@ -146,6 +147,12 @@ impl RuntimeContextSynthesizer<'_> {
         let mut matched_reflexes = Vec::new();
         let mut active_reflex_items = Vec::new();
         for reflex in self.store.reflexes()? {
+            if self
+                .store
+                .causal_artifact_quarantined(&reflex.id.to_string())?
+            {
+                continue;
+            }
             let trigger = &reflex.trigger;
             let matches = matches!(
                 reflex.status,
@@ -175,6 +182,12 @@ impl RuntimeContextSynthesizer<'_> {
         let mut available_recovery = Vec::new();
         let mut recovery_items = Vec::new();
         for recovery in self.store.recoveries()? {
+            if self
+                .store
+                .causal_artifact_quarantined(&recovery.id.to_string())?
+            {
+                continue;
+            }
             if !matches!(
                 recovery.status,
                 RecoveryStatus::Supported | RecoveryStatus::Validated
@@ -258,6 +271,13 @@ impl RuntimeContextSynthesizer<'_> {
         );
 
         let mut context = RuntimeDecisionContext {
+            causal: self.store.causal_runtime_guidance(
+                &request.query_context,
+                request
+                    .failure_signature
+                    .as_ref()
+                    .map(|s| s.signature.as_str()),
+            )?,
             session_id: HardknockSessionId::from_external(&request.external_session_id),
             agent: request.agent,
             task: request.task,

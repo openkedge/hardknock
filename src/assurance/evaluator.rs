@@ -796,6 +796,32 @@ fn evaluate_requirement(
                 }),
             )
         }
+        AssuranceRequirement::CausalFailureCoverage {
+            severity,
+            minimum_supported_mechanisms,
+        } => {
+            let count = summary
+                .causal_mechanisms
+                .values()
+                .filter(|s| *s >= severity)
+                .count();
+            let satisfied = count >= *minimum_supported_mechanisms;
+            (
+                if satisfied {
+                    AssuranceRequirementStatus::Satisfied
+                } else {
+                    AssuranceRequirementStatus::Inconclusive
+                },
+                format!(
+                    "{count} locally supported mechanisms at {severity:?} or higher; required {minimum_supported_mechanisms}"
+                ),
+                (!satisfied).then(|| AssuranceGap {
+                    kind: AssuranceGapKind::InsufficientEvidence,
+                    description: "Causal failure coverage is incomplete under this profile".into(),
+                    severity: Some(*severity),
+                }),
+            )
+        }
         AssuranceRequirement::Custom { kind, .. } => (
             AssuranceRequirementStatus::Inconclusive,
             format!("no deterministic evaluator registered for custom requirement {kind}"),

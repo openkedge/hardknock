@@ -85,6 +85,8 @@ pub enum CurriculumGoalKind {
     ChallengeInvariant,
     IncreaseEvidenceDiversity,
     ChallengeDominantClaim,
+    ResolveCausalContradiction,
+    DiscriminateHypotheses,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

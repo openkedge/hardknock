@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
+pub use crate::development::ExperienceRef;
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
@@ -242,20 +243,17 @@ pub struct EpistemicDependencyGraph {
     pub edges: Vec<EpistemicDependencyEdge>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum EvidenceContextMode {
+    #[default]
     Normal,
-    BlindToSelectedExperience { excluded: Vec<ExperienceRef> },
+    BlindToSelectedExperience {
+        excluded: Vec<ExperienceRef>,
+    },
     IndependentRetrieval,
     AlternativeTooling,
     AlternativeEvaluator,
-}
-
-impl Default for EvidenceContextMode {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -540,19 +538,14 @@ pub struct ExperienceBlastRadius {
     pub inconclusive: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExperienceActivationState {
+    #[default]
     Active,
     Advisory,
     Quarantined,
     Disabled,
-}
-
-impl Default for ExperienceActivationState {
-    fn default() -> Self {
-        Self::Active
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

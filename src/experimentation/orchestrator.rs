@@ -272,6 +272,7 @@ impl ExperimentOrchestrator<'_> {
         // No new causal hypothesis is generated from a partial or confounded comparison.
         if experiment.status == ExperimentStatus::Completed
             && result.quality == ExperimentQuality::Controlled
+            && experiment.request.origin != ExperimentOrigin::CausalInvestigation
         {
             match self.reflect(&result) {
                 Ok(lessons) => result.candidate_lessons = lessons,

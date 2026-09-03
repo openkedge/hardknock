@@ -142,6 +142,7 @@ pub enum ExperimentOrigin {
     LessonValidation,
     ReflexValidation,
     FederationReproduction,
+    CausalInvestigation,
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -1,0 +1,68 @@
+{
+  "schema": "hardknock.causal-benchmark.v1",
+  "date": "2026-09-02",
+  "fixture": "fixtures/causal/stale-state",
+  "hypotheses": [
+    {
+      "statement": "latency explains retry failure under this fixture scope",
+      "status": "contradicted"
+    },
+    {
+      "statement": "retry_count explains retry failure under this fixture scope",
+      "status": "contradicted"
+    },
+    {
+      "statement": "state_refresh explains retry failure under this fixture scope",
+      "status": "supported"
+    }
+  ],
+  "causal_interventions": 3,
+  "interventions_until_discrimination": 1,
+  "arms": {
+    "causal_learner": {
+      "lessons_challenged": 1,
+      "mechanism_explicit": true,
+      "recovery_success_rate": 1,
+      "repeated_failure_rate": 0,
+      "spurious_lesson_rate": 0,
+      "task_success_rate": 1
+    },
+    "correlation_learner": {
+      "lessons_challenged": 1,
+      "mechanism_explicit": false,
+      "recovery_success_rate": 0,
+      "repeated_failure_rate": 1,
+      "spurious_lesson_rate": 1,
+      "task_success_rate": 0
+    },
+    "strategy_counterfactual_learner": {
+      "lessons_challenged": 1,
+      "mechanism_explicit": false,
+      "recovery_success_rate": 1,
+      "repeated_failure_rate": 0,
+      "spurious_lesson_rate": 0,
+      "task_success_rate": 1
+    }
+  },
+  "held_out_recovery": [
+    {
+      "paired_experiment_duration_ms": 431,
+      "recovery": "retry_count",
+      "success": false
+    },
+    {
+      "paired_experiment_duration_ms": 436,
+      "recovery": "state_refresh",
+      "success": true
+    }
+  ],
+  "reflex_precision": {
+    "after_false_positive_rate": 0,
+    "after_false_positives": 0,
+    "before_false_positive_rate": 0.6666666666666666,
+    "before_false_positives": 2,
+    "healthy_cases": 3,
+    "scope": "Explicit latency>=1000 warning versus stale-state conditional warning, only on measured healthy fixture points; candidate rules are not activated"
+  },
+  "limitations": "Finite deterministic retry fixture only. Strategy and causal learners can find the same successful action; only causal learner retains an explicit tested mechanism. No cross-domain or statistical generalization claim. Timings measure complete paired experiments, not production time-to-recovery."
+}
