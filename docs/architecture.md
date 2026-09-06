@@ -1,5 +1,44 @@
 # Architecture
 
+## V0.15 predictive experience
+
+```text
+                    CURRENT EXECUTION
+                           │
+                           ↓
+                       TRAJECTORY
+                           │
+              ┌────────────┼─────────────┐
+              ↓            ↓             ↓
+        Risk Indicators  Causal Model   History
+              │            │             │
+              └────────────┼─────────────┘
+                           ↓
+                    FAILURE FORECAST
+                           │
+                 Is intervention useful?
+                     /          \
+                   NO            YES
+                   │              │
+                   ↓              ↓
+             Continue/Watch   Preventive Action
+                                  │
+                         ┌────────┴────────┐
+                         ↓                 ↓
+                     SUCCESS            FAILURE
+                         │                 │
+                         └────────┬────────┘
+                                  ↓
+                          FORECAST FEEDBACK
+                                  ↓
+                       Predictor refinement candidate
+```
+
+Prediction and control remain separate. The live path evaluates locally validated,
+compiled ordered conditions without a model or network call. Policy, capability,
+effect authority, and assurance checks retain precedence. Historical matching,
+calibration, causal refinement, and curriculum remain on the slow path.
+
 ## V0.14 causal experience
 
 `causal::{model,planner,engine}` connects structured hypotheses to the existing

@@ -384,6 +384,8 @@ fn derive_candidates(store: &Store, trial: &ChaosTrial, fixture: FixtureKind) ->
                 config_changed: fixture == FixtureKind::ConfigDrift || hardening,
             },
             response: ReflexResponse::Replan,
+            timing: ReflexTiming::Reactive,
+            early_warning_signature: None,
             confidence: 0.58.try_into()?,
             status: ReflexStatus::Candidate,
             evidence: evidence.clone(),

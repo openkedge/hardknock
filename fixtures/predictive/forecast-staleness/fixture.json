@@ -1,0 +1,1 @@
+{"schema":"hardknock.predictive-fixture.v1","name":"forecast-staleness","expected":"v1 predictor does not transfer silently to v2","network":false}

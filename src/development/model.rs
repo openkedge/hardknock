@@ -256,6 +256,8 @@ pub struct ExperienceProfile {
     pub contributing_agents: Vec<AgentIdentity>,
     #[serde(default)]
     pub runtime_control: crate::runtime::RuntimeDevelopmentMetrics,
+    #[serde(default)]
+    pub predictive: crate::predictive::PredictiveExperienceSummary,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ExperienceArtifactCounts {
@@ -279,6 +281,8 @@ pub struct ProfileSnapshot {
     pub policy_versions: BTreeMap<String, String>,
     #[serde(default)]
     pub runtime_control: crate::runtime::RuntimeDevelopmentMetrics,
+    #[serde(default)]
+    pub predictive: crate::predictive::PredictiveExperienceSummary,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -316,6 +320,8 @@ pub struct GrowthReport {
     pub hardened_skills: NumericChange,
     #[serde(default)]
     pub runtime_adaptation: RuntimeGrowth,
+    #[serde(default)]
+    pub predictive_resilience: PredictiveGrowth,
     pub note: String,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -331,6 +337,17 @@ pub struct RuntimeGrowth {
     pub experiments_per_task: NumericChange,
     pub unnecessary_intervention_rate: NumericChange,
     pub recovery_success_rate: NumericChange,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PredictiveGrowth {
+    pub validated_signatures: NumericChange,
+    pub precision: NumericChange,
+    pub recall: NumericChange,
+    pub false_positive_rate: NumericChange,
+    pub median_warning_lead_actions: NumericChange,
+    pub avoided_failure_rate: NumericChange,
+    pub unnecessary_intervention_rate: NumericChange,
+    pub validated_preventive_interventions: NumericChange,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DevelopmentEpisode {

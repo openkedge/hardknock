@@ -87,6 +87,12 @@ pub enum CurriculumGoalKind {
     ChallengeDominantClaim,
     ResolveCausalContradiction,
     DiscriminateHypotheses,
+    DiscoverEarlyWarning,
+    ValidateEarlyWarning,
+    ValidateForecast,
+    ImproveForecastCalibration,
+    ReduceForecastFalsePositives,
+    ValidatePreventiveIntervention,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -206,6 +206,13 @@ pub enum ReflexResponse {
     Replan,
     Block,
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReflexTiming {
+    #[default]
+    Reactive,
+    Preventive,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TriggerPattern {
     pub context: ContextSelector,
@@ -222,6 +229,10 @@ pub struct Reflex {
     pub source_trial: ChaosTrialId,
     pub trigger: TriggerPattern,
     pub response: ReflexResponse,
+    #[serde(default)]
+    pub timing: ReflexTiming,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub early_warning_signature: Option<crate::core::EarlyWarningSignatureId>,
     pub confidence: ConfidenceScore,
     pub status: ReflexStatus,
     pub evidence: Vec<EvidenceRef>,

@@ -215,6 +215,8 @@ impl RuntimeScenario {
             tool_candidates: self.tool_candidates.clone(),
             epistemic: self.epistemic.clone(),
             causal: self.causal.clone(),
+            active_forecasts: Vec::new(),
+            preventive_interventions: Vec::new(),
             diversity_requirements: self.diversity_requirements.clone(),
         })
     }

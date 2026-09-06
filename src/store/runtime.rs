@@ -52,6 +52,25 @@ impl RuntimeStore for Store {
         mut config: RuntimePolicyConfig,
     ) -> Result<RuntimeDecisionRecord> {
         let mut context = context.clone();
+        context.active_forecasts = context
+            .active_forecasts
+            .iter()
+            .filter_map(|item| self.forecast(&item.id).ok())
+            .filter(|item| item.status.is_active())
+            .filter(|item| {
+                self.forecast_health(&item.signature)
+                    .is_ok_and(|health| health.health == crate::predictive::ForecastHealth::Healthy)
+            })
+            .collect();
+        context.preventive_interventions = context
+            .preventive_interventions
+            .iter()
+            .filter_map(|item| self.preventive_intervention(&item.id).ok())
+            .filter(|item| {
+                item.status == crate::predictive::PreventiveInterventionStatus::Validated
+                    && item.origin == crate::predictive::PredictiveOrigin::Local
+            })
+            .collect();
         context.causal = self.causal_runtime_guidance(
             &context.query_context,
             context
@@ -226,6 +245,36 @@ impl RuntimeStore for Store {
                     severity: record.context.risk.severity,
                 };
                 transaction.execute("INSERT OR IGNORE INTO causal_artifact_dependencies(hypothesis_id,artifact_id,data) VALUES(?1,?2,?3)",params![hypothesis.to_string(),record.id.to_string(),serde_json::to_string(&dep)?])?;
+            }
+        }
+        if matches!(
+            config.forecast.mode,
+            ForecastRuntimeMode::Advise | ForecastRuntimeMode::Prevent
+        ) && matches!(
+            record.decision.kind(),
+            RuntimeDecisionKind::Act
+                | RuntimeDecisionKind::Replan
+                | RuntimeDecisionKind::RequireApproval
+        ) {
+            for intervention in record.evaluation.reasons.iter().filter_map(|reason| {
+                if let DecisionReason::ValidatedPreventiveIntervention(id) = reason {
+                    Some(id)
+                } else {
+                    None
+                }
+            }) {
+                let compact = serde_json::to_string(&serde_json::json!({
+                    "subject": intervention,
+                    "runtime_decision": record.id,
+                }))?;
+                transaction.execute(
+                    "INSERT INTO predictive_events(subject,kind,data) VALUES(?1,'preventive_intervention_suggested',?2)",
+                    params![intervention.to_string(), compact],
+                )?;
+                transaction.execute(
+                    "INSERT INTO bridge_events(session_id,kind,data) VALUES(?1,'preventive_intervention_suggested',?2)",
+                    params![record.session_id.to_string(), compact],
+                )?;
             }
         }
         transaction.commit()?;

@@ -278,6 +278,8 @@ impl RuntimeContextSynthesizer<'_> {
                     .as_ref()
                     .map(|s| s.signature.as_str()),
             )?,
+            active_forecasts: Vec::new(),
+            preventive_interventions: Vec::new(),
             session_id: HardknockSessionId::from_external(&request.external_session_id),
             agent: request.agent,
             task: request.task,

@@ -822,6 +822,59 @@ fn evaluate_requirement(
                 }),
             )
         }
+        AssuranceRequirement::PredictiveFailureCoverage {
+            failure_severity,
+            minimum_forecastability,
+            minimum_precision,
+            maximum_false_positive_rate,
+            require_validated_intervention,
+        } => {
+            let coverage = summary
+                .forecastability
+                .values()
+                .any(|value| value >= minimum_forecastability);
+            let precision = minimum_precision.is_none_or(|minimum| {
+                summary
+                    .forecast_quality
+                    .as_ref()
+                    .and_then(|quality| quality.precision)
+                    .is_some_and(|actual| actual >= minimum)
+            });
+            let false_positives = maximum_false_positive_rate.is_none_or(|maximum| {
+                summary
+                    .forecast_quality
+                    .as_ref()
+                    .and_then(|quality| quality.false_positive_rate)
+                    .is_some_and(|actual| actual <= maximum)
+            });
+            let intervention =
+                !require_validated_intervention || summary.validated_preventive_interventions > 0;
+            let satisfied = coverage && precision && false_positives && intervention;
+            (
+                if satisfied { AssuranceRequirementStatus::Satisfied } else { AssuranceRequirementStatus::Inconclusive },
+                format!("predictive coverage at {failure_severity:?}: forecastability={coverage}, precision={precision}, false_positive_policy={false_positives}, validated_prevention={intervention}"),
+                (!satisfied).then(|| AssuranceGap { kind:AssuranceGapKind::InsufficientEvidence, description:"Predictive failure coverage is incomplete under this optional high-consequence profile".into(), severity:Some(*failure_severity) }),
+            )
+        }
+        AssuranceRequirement::ValidatedEarlyWarning { severity } => {
+            let validated = summary
+                .forecastability
+                .values()
+                .any(|value| *value >= crate::predictive::Forecastability::Predictable);
+            (
+                if validated {
+                    AssuranceRequirementStatus::Satisfied
+                } else {
+                    AssuranceRequirementStatus::Inconclusive
+                },
+                format!("validated early warning required for {severity:?} failure coverage"),
+                (!validated).then(|| AssuranceGap {
+                    kind: AssuranceGapKind::InsufficientEvidence,
+                    description: "No validated locally reproduced early warning is present".into(),
+                    severity: Some(*severity),
+                }),
+            )
+        }
         AssuranceRequirement::Custom { kind, .. } => (
             AssuranceRequirementStatus::Inconclusive,
             format!("no deterministic evaluator registered for custom requirement {kind}"),

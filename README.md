@@ -22,7 +22,34 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.14 causal experience.** Hardknock tests explicit explanations with scoped, controlled interventions using its existing Experiment Engine. See the [causal experience guide](docs/causal-experience.md), [V0.14 implementation report](docs/implementation-v014.md), and [epistemic evidence guide](docs/epistemic-evidence.md).
+> **Pre-alpha · V0.15 predictive experience.** Hardknock recognizes validated execution trajectories that precede known failure and recommends empirically tested preventive interventions. See the [predictive experience guide](docs/predictive-experience.md), [V0.15 implementation report](docs/implementation-v015.md), and [causal experience guide](docs/causal-experience.md).
+
+## Learn the Shape of Failure Before It Arrives
+
+Experience is most valuable before the mistake repeats. Hardknock can recognize
+execution trajectories that resemble previously observed failures and use validated
+preventive interventions before the failure materializes.
+
+```text
+Past Failure
+    ↓
+Early Warning Signature
+    ↓
+Current Trajectory
+    ↓
+Forecast
+    ↓
+Preventive Intervention
+    ↓
+Failure Avoided
+```
+
+**Recovery is useful. Prevention is better when the evidence supports it.**
+
+Hardknock learns not only what failure looks like, but how failure begins. A warning
+that fires constantly is noise, so forecasts must earn their place in the runtime
+through failed histories, successful negative controls, feedback, and controlled
+counterfactuals. Forecasts are qualitative and scoped—not invented probabilities.
 
 ## Failure Is Not an Explanation
 
@@ -921,11 +948,11 @@ The broader release goals below include work beyond the implemented local loop. 
 | **V0.12 — Adaptive Runtime Control** | Implemented deterministic evidence-guided control, approval/abstention, replay, feedback, curriculum gaps, and a 60-scenario benchmark |
 | **V0.13 — Multi-Agent Epistemic Diversity** | Known-dependency analysis, diversity gates, and common-mode challenges |
 | **V0.14 — Causal Experience** | Explicit hypotheses, controlled intervention pairs, scoped models, and refinement candidates |
-| **V0.15 — Predictive Experience** | Next: calibrated trajectory forecasts using tested mechanisms |
+| **V0.15 — Predictive Experience** | Implemented locally: calibrated trajectory forecasts, negative-control refinement, controlled prevention, and explicit misses |
 
 ## Project status
 
-Hardknock is a **pre-alpha empirical learning prototype**. The local learning, resilience, assurance, and adaptive runtime-control loops are implemented and tested. It builds from source; no release package is published. CI is configured for Linux and macOS; this V0.12 pass was verified locally on macOS.
+Hardknock is a **pre-alpha empirical learning prototype**. The local learning, resilience, assurance, adaptive runtime-control, causal, and predictive loops are implemented and tested. It builds from source; no release package is published. CI is configured for Linux and macOS; this V0.15 pass was verified locally on macOS.
 
 The fixtures demonstrate limited transfer from one task to a related, distinct repository. They do not establish general agent performance or universal causal claims. APIs, command syntax, and schemas remain subject to change.
 

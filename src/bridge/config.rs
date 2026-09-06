@@ -84,6 +84,7 @@ pub struct RuntimeConfig {
     pub policy: crate::runtime::RuntimePolicyProfile,
     pub experiment: RuntimeExperimentConfig,
     pub external_experience: crate::runtime::ExternalExperienceRuntimePolicy,
+    pub forecast: crate::runtime::RuntimeForecastConfig,
 }
 
 impl Default for RuntimeConfig {
@@ -93,6 +94,7 @@ impl Default for RuntimeConfig {
             policy: crate::runtime::RuntimePolicyProfile::Balanced,
             experiment: Default::default(),
             external_experience: Default::default(),
+            forecast: Default::default(),
         }
     }
 }
@@ -104,6 +106,7 @@ impl RuntimeConfig {
             autonomy: self.mode,
             experiment_mode: self.experiment.mode,
             external_experience: self.external_experience.clone(),
+            forecast: self.forecast.clone(),
             version: crate::runtime::RUNTIME_POLICY_VERSION.into(),
         };
         config.refresh_version();

@@ -29,6 +29,7 @@ pub mod integrations;
 pub mod learning_loop;
 pub mod lesson;
 pub mod perturbation;
+pub mod predictive;
 pub mod process;
 pub mod reflection;
 pub mod resilience;

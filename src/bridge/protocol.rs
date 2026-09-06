@@ -305,6 +305,48 @@ pub struct EvidenceAssessmentUpdated {
     pub hardknock_session_id: String,
     pub assessment: crate::epistemic::FusedEvidenceAssessment,
 }
+
+/// Bounded predictive projection messages. These carry normalized state and
+/// artifact references only; they are not a second runtime transcript.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrajectorySignal {
+    pub hardknock_session_id: String,
+    pub trajectory_id: crate::core::TrajectoryId,
+    pub point_index: u64,
+    pub signal: crate::predictive::RiskSignal,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FailureForecastUpdated {
+    pub hardknock_session_id: String,
+    pub forecast: crate::predictive::FailureForecast,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreventiveInterventionSuggested {
+    pub hardknock_session_id: String,
+    pub forecast_id: crate::core::FailureForecastId,
+    pub intervention: crate::predictive::PreventiveIntervention,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PreventiveInterventionApplied {
+    pub hardknock_session_id: String,
+    pub forecast_id: crate::core::FailureForecastId,
+    pub intervention_id: crate::core::PreventiveInterventionId,
+    pub evidence: Vec<crate::predictive::TrajectoryEvidenceRef>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForecastOutcome {
+    pub hardknock_session_id: String,
+    pub feedback: crate::predictive::ForecastFeedback,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionEnded {

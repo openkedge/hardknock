@@ -72,6 +72,8 @@ pub struct Session {
     pub rejections: BTreeMap<String, LessonFeedback>,
     pub runs: BTreeMap<String, RunRecord>,
     pub next_action_start: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trajectory_id: Option<crate::core::TrajectoryId>,
 }
 pub struct Bridge {
     pub home: PathBuf,
@@ -101,6 +103,14 @@ enum Job {
         Box<crate::runtime::RuntimeDecisionRecord>,
         crate::runtime::RuntimePolicyConfig,
     ),
+    TrajectoryEvent {
+        id: crate::core::TrajectoryId,
+        event: crate::store::NewTrajectoryEvent,
+    },
+    FinishTrajectory {
+        id: crate::core::TrajectoryId,
+        outcome: crate::predictive::TrajectoryOutcome,
+    },
     Flush(mpsc::Sender<()>),
 }
 
@@ -187,6 +197,12 @@ impl Bridge {
                     }
                     Job::RuntimeDecision(record, config) => {
                         store.persist_runtime_decision(&record, config)
+                    }
+                    Job::TrajectoryEvent { id, event } => {
+                        store.append_trajectory_event(&id, event).map(|_| ())
+                    }
+                    Job::FinishTrajectory { id, outcome } => {
+                        store.finish_trajectory(&id, outcome).map(|_| ())
                     }
                     Job::Complete(snapshot, mut run) => {
                         store.save_bridge_session(&snapshot)?;
@@ -291,6 +307,28 @@ impl Bridge {
                 invalid(
                     "Bridge persistence queue full or unavailable; runtime decision not acknowledged",
                 )
+            })
+    }
+    fn enqueue_trajectory_event(
+        &self,
+        id: crate::core::TrajectoryId,
+        event: crate::store::NewTrajectoryEvent,
+    ) -> Result<()> {
+        self.jobs
+            .try_send(Job::TrajectoryEvent { id, event })
+            .map_err(|_| {
+                invalid("Bridge persistence queue full; trajectory event not acknowledged")
+            })
+    }
+    fn enqueue_trajectory_finish(
+        &self,
+        id: crate::core::TrajectoryId,
+        outcome: crate::predictive::TrajectoryOutcome,
+    ) -> Result<()> {
+        self.jobs
+            .try_send(Job::FinishTrajectory { id, outcome })
+            .map_err(|_| {
+                invalid("Bridge persistence queue full; trajectory outcome not acknowledged")
             })
     }
     pub fn handle(&self, event: AgentEvent) -> Result<Value> {
@@ -483,7 +521,7 @@ impl Bridge {
                         return Ok(serde_json::to_value(&existing.decision)?);
                     }
                     if s.actions.len() >= self.config.bridge.max_actions { return Err(invalid("Session action budget exhausted")); }
-                    let (runtime_context,runtime_evaluation)=self.cache.read().expect("cache lock").evaluate_runtime(RuntimeEvaluationRequest {
+                    let (mut runtime_context,mut runtime_evaluation)=self.cache.read().expect("cache lock").evaluate_runtime(RuntimeEvaluationRequest {
                         context: &s.context,
                         proposed: &proposed,
                         failures: s.consecutive_failures,
@@ -492,6 +530,25 @@ impl Bridge {
                         agent: &s.agent,
                         task: &s.task,
                     })?;
+                    if let Some(trajectory_id)=&s.trajectory_id {
+                        let mut features=std::collections::BTreeMap::new();
+                        features.insert("retry_count".into(),crate::predictive::TrajectoryValue::Integer(i64::from(s.consecutive_failures)));
+                        features.insert("no_state_change".into(),crate::predictive::TrajectoryValue::Boolean(proposed.context.no_state_change));
+                        features.insert("config_changed".into(),crate::predictive::TrajectoryValue::Boolean(proposed.context.config_changed));
+                        features.insert("action_kind".into(),crate::predictive::TrajectoryValue::Text(action_type(&proposed.action).into()));
+                        let trajectory_event=crate::store::NewTrajectoryEvent {kind:crate::predictive::TrajectoryEventKind::ActionProposed,observation:crate::predictive::TrajectoryObservation{features},evidence:vec![]};
+                        let predictive_enabled=self.config.runtime.forecast.mode!=crate::runtime::ForecastRuntimeMode::Off && !self.cache.read().expect("cache lock").warning_signatures.is_empty();
+                        if predictive_enabled {
+                            let store=Store::open(&self.home)?;
+                            store.append_trajectory_event(trajectory_id,trajectory_event)?;
+                            runtime_context.active_forecasts=store.forecast_trajectory_fast_with_policy(trajectory_id,self.config.runtime.forecast.policy)?;
+                            let signatures:std::collections::BTreeSet<_>=runtime_context.active_forecasts.iter().map(|item|item.signature.clone()).collect();
+                            runtime_context.preventive_interventions=self.cache.read().expect("cache lock").preventive_interventions.iter().filter(|item|signatures.contains(&item.signature)).cloned().collect();
+                            runtime_evaluation=crate::runtime::DeterministicRuntimeController::with_config(self.config.runtime.policy_config())?.evaluate(&runtime_context)?;
+                        } else {
+                            self.enqueue_trajectory_event(trajectory_id.clone(),trajectory_event)?;
+                        }
+                    }
                     let decision = bridge_decision_from_runtime(&runtime_evaluation,self.config.runtime.mode);
                     let runtime_record=crate::runtime::RuntimeDecisionRecord {
                         id: RuntimeDecisionId::new(),
@@ -602,6 +659,22 @@ impl Bridge {
                     let completed_action=action.action.clone();
                     let completed_action_id=action.action_id.clone();
                     s.revision += 1;
+                    if let Some(trajectory_id)=&s.trajectory_id {
+                        let result=action.result.as_ref().expect("set above");
+                        let mut features=std::collections::BTreeMap::new();
+                        features.insert("success".into(),crate::predictive::TrajectoryValue::Boolean(result.success));
+                        features.insert("duration_ms".into(),crate::predictive::TrajectoryValue::Integer(i64::try_from(action.duration_ms).unwrap_or(i64::MAX)));
+                        features.insert("tool_failure_count".into(),crate::predictive::TrajectoryValue::Integer(i64::from(s.consecutive_failures)));
+                        let trajectory_event=crate::store::NewTrajectoryEvent{kind:if result.success {crate::predictive::TrajectoryEventKind::ActionCompleted}else{crate::predictive::TrajectoryEventKind::FailureObserved},observation:crate::predictive::TrajectoryObservation{features},evidence:vec![]};
+                        // Preserve event order when live prediction is enabled. A following
+                        // proposal must observe this completion before it is forecast.
+                        let predictive_enabled=self.config.runtime.forecast.mode!=crate::runtime::ForecastRuntimeMode::Off && !self.cache.read().expect("cache lock").warning_signatures.is_empty();
+                        if predictive_enabled {
+                            Store::open(&self.home)?.append_trajectory_event(trajectory_id,trajectory_event)?;
+                        } else {
+                            self.enqueue_trajectory_event(trajectory_id.clone(),trajectory_event)?;
+                        }
+                    }
                     self.enqueue(&s.id,"action_completed",json!({"action_id":action.action_id,"success":action.result.as_ref().map(|r|r.success)}))?;
                     if let Some(signature)=failed_signature {
                         let proposal=ActionProposed{hardknock_session_id:s.id.clone(),action_id:format!("recovery:{completed_action_id}"),action:completed_action,context:Default::default()};
@@ -646,7 +719,7 @@ impl Bridge {
                 })
             }
             AgentEvent::SessionEnded(end) => {
-                self.with_session(&end.hardknock_session_id, |s| { s.ended = true; s.revision += 1; self.enqueue(&s.id,"session_ended",json!({}))?; Ok(()) })?;
+                self.with_session(&end.hardknock_session_id, |s| { s.ended = true; s.revision += 1; if let Some(id)=&s.trajectory_id {let outcome=if s.consecutive_failures>0 {crate::predictive::TrajectoryOutcome::Failure(crate::runtime::FailureSignatureRef{signature:"session-ended-after-action-failure".into()})}else{crate::predictive::TrajectoryOutcome::Success};self.enqueue_trajectory_finish(id.clone(),outcome)?;} self.enqueue(&s.id,"session_ended",json!({}))?; Ok(()) })?;
                 self.experiments.end_session(&end.hardknock_session_id,self.config.experiments.continue_after_session_end);
                 Ok(json!({"accepted":true}))
             },
@@ -752,6 +825,35 @@ impl Bridge {
                 ));
             }
             session.ended = false;
+            if session.trajectory_id.is_none() {
+                session.trajectory_id = Some(
+                    Store::open(&self.home)?
+                        .start_trajectory(crate::store::NewTrajectory {
+                            session_id: crate::core::HardknockSessionId::from_external(
+                                &session.external_id,
+                            ),
+                            subject: None,
+                            task_family: None,
+                            context: crate::predictive::TrajectoryContext {
+                                scope: crate::lesson::ContextSelector::from_context(
+                                    &session.context,
+                                ),
+                                runtime_version: Some(env!("CARGO_PKG_VERSION").into()),
+                                tool_versions: std::collections::BTreeMap::new(),
+                                observability: vec![
+                                    "retry_count".into(),
+                                    "no_state_change".into(),
+                                    "config_changed".into(),
+                                    "action_kind".into(),
+                                    "success".into(),
+                                    "duration_ms".into(),
+                                    "tool_failure_count".into(),
+                                ],
+                            },
+                        })?
+                        .id,
+                );
+            }
             self.experiments.resume_session(&id);
             session.revision += 1;
             self.enqueue(&id, "session_resumed", json!({"agent":session.agent.name}))?;
@@ -792,6 +894,27 @@ impl Bridge {
                     .any(|b| b.id == l.lesson.id.to_string())
             })
             .collect();
+        let trajectory_id = Store::open(&self.home)?
+            .start_trajectory(crate::store::NewTrajectory {
+                session_id: crate::core::HardknockSessionId::from_external(&start.session_id),
+                subject: None,
+                task_family: None,
+                context: crate::predictive::TrajectoryContext {
+                    scope: crate::lesson::ContextSelector::from_context(&context),
+                    runtime_version: Some(env!("CARGO_PKG_VERSION").into()),
+                    tool_versions: std::collections::BTreeMap::new(),
+                    observability: vec![
+                        "retry_count".into(),
+                        "no_state_change".into(),
+                        "config_changed".into(),
+                        "action_kind".into(),
+                        "success".into(),
+                        "duration_ms".into(),
+                        "tool_failure_count".into(),
+                    ],
+                },
+            })?
+            .id;
         let session = Session {
             id: id.clone(),
             external_id: start.session_id,
@@ -811,6 +934,7 @@ impl Bridge {
             rejections: BTreeMap::new(),
             runs: BTreeMap::new(),
             next_action_start: 0,
+            trajectory_id: Some(trajectory_id),
         };
         let mut sessions = self.sessions.lock().expect("session lock");
         if sessions.len() >= self.config.bridge.max_sessions {

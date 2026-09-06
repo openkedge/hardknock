@@ -23,6 +23,8 @@ pub struct ExperienceHotCache {
     pub development: crate::development::DevelopmentConfig,
     pub reflex_freshness:
         std::collections::HashMap<crate::core::ReflexId, crate::development::FreshnessBasis>,
+    pub warning_signatures: Vec<crate::predictive::EarlyWarningSignature>,
+    pub preventive_interventions: Vec<crate::predictive::PreventiveIntervention>,
 }
 
 pub struct RuntimeEvaluationRequest<'a> {
@@ -110,6 +112,23 @@ impl ExperienceHotCache {
             reflexes,
             recoveries,
             reflex_freshness,
+            warning_signatures: store
+                .warning_signatures()?
+                .into_iter()
+                .filter(|item| {
+                    (item.status == crate::predictive::RiskIndicatorStatus::Validated
+                        && item.origin == crate::predictive::PredictiveOrigin::Local)
+                        || item.origin == crate::predictive::PredictiveOrigin::FederatedAdvisory
+                })
+                .collect(),
+            preventive_interventions: store
+                .preventive_interventions()?
+                .into_iter()
+                .filter(|item| {
+                    item.status == crate::predictive::PreventiveInterventionStatus::Validated
+                        && item.origin == crate::predictive::PredictiveOrigin::Local
+                })
+                .collect(),
         })
     }
     pub fn retrieve(
@@ -488,6 +507,8 @@ impl ExperienceHotCache {
             },
             query_context: query,
             causal: Default::default(),
+            active_forecasts: Vec::new(),
+            preventive_interventions: Vec::new(),
             proposed_action: Some(proposed.action.clone()),
             proposed_effect: None,
             relevant_experience: ActiveExperienceSet {

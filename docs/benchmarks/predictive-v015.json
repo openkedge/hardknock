@@ -1,0 +1,51 @@
+{
+  "schema": "hardknock.predictive-benchmark.v1",
+  "fixture": "finite deterministic retry and prepared-effect trajectories",
+  "reactive": {
+    "task_success_rate": 1.0,
+    "forecast_precision": null,
+    "forecast_recall": 0.0,
+    "false_positive_rate": 0.0,
+    "median_warning_lead_actions": null,
+    "avoided_failure_rate": 0.0,
+    "unnecessary_preventive_intervention_rate": 0.0,
+    "initial_failures": 2
+  },
+  "naive_warning": {
+    "task_success_rate": 1.0,
+    "forecast_precision": 0.4,
+    "forecast_recall": 1.0,
+    "false_positive_rate": 0.6,
+    "median_warning_lead_actions": 2.0,
+    "avoided_failure_rate": 0.4,
+    "unnecessary_preventive_intervention_rate": 0.6
+  },
+  "hardknock_predictive": {
+    "task_success_rate": 1.0,
+    "forecast_precision": 1.0,
+    "forecast_recall": 1.0,
+    "false_positive_rate": 0.0,
+    "median_warning_lead_actions": 2.0,
+    "avoided_failure_rate": 1.0,
+    "unnecessary_preventive_intervention_rate": 0.0,
+    "evidence_kind": "mixed"
+  },
+  "counterfactuals": {
+    "retry_without_refresh": "FAIL",
+    "retry_with_refresh": "PASS",
+    "expiring_effect_without_reprepare": "FAIL",
+    "expiring_effect_with_reprepare": "PASS"
+  },
+  "false_positive_refinement": {
+    "healthy_controls": 3,
+    "naive_false_positives": 3,
+    "refined_false_positives": 0
+  },
+  "runtime_sample": {
+    "deterministic_forecast_path_ms": 0.582083,
+    "target_ms": 40,
+    "build": "debug",
+    "sample_count": 1
+  },
+  "limitations": "Rates are exact within this finite fixture, not population probabilities. Runtime timing is a single debug-build observation, not an SLA."
+}

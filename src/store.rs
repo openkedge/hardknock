@@ -21,6 +21,8 @@ mod assurance;
 mod capabilities;
 pub use assurance::AssuranceStore;
 mod causal;
+mod predictive;
+pub use predictive::{NewTrajectory, NewTrajectoryEvent};
 mod effects;
 mod epistemic;
 pub use capabilities::{CapabilityStore, token_hash};
@@ -118,7 +120,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 17 {
+        if version > 19 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -190,6 +192,16 @@ impl Store {
         if version < 17 {
             tx.execute_batch(include_str!("../migrations/017_causal.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (17)", [])?;
+        }
+        if version < 18 {
+            tx.execute_batch(include_str!("../migrations/018_predictive.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (18)", [])?;
+        }
+        if version < 19 {
+            tx.execute_batch(include_str!(
+                "../migrations/019_predictive_trajectory_models.sql"
+            ))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (19)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

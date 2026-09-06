@@ -330,6 +330,19 @@ pub enum AssuranceRequirement {
         severity: Severity,
         minimum_supported_mechanisms: usize,
     },
+    ValidatedEarlyWarning {
+        severity: Severity,
+    },
+    PredictiveFailureCoverage {
+        failure_severity: Severity,
+        minimum_forecastability: crate::predictive::Forecastability,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        minimum_precision: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        maximum_false_positive_rate: Option<f64>,
+        #[serde(default)]
+        require_validated_intervention: bool,
+    },
     Custom {
         kind: String,
         payload: Value,
@@ -532,6 +545,12 @@ pub struct EvidenceContradiction {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AssuranceEvidenceSummary {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub forecastability: BTreeMap<String, crate::predictive::Forecastability>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forecast_quality: Option<crate::predictive::ForecastQualitySummary>,
+    #[serde(default, skip_serializing_if = "is_zero_count")]
+    pub validated_preventive_interventions: usize,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub causal_mechanisms: BTreeMap<crate::core::CausalHypothesisId, crate::curriculum::Severity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -132,6 +132,20 @@ identifier!(CausalInvestigationId, "investigation-");
 identifier!(InterventionId, "intervention-");
 identifier!(CounterfactualPairId, "pair-");
 identifier!(CausalModelId, "causal-model-");
+identifier!(TrajectoryId, "trajectory-");
+identifier!(TrajectoryEventId, "trajectory-event-");
+identifier!(TaskId, "task-");
+identifier!(RiskSignalId, "risk-signal-");
+identifier!(FailureTrajectoryId, "failure-trajectory-");
+identifier!(FailureTrajectoryFamilyId, "failure-family-");
+identifier!(RiskIndicatorId, "risk-indicator-");
+identifier!(EarlyWarningSignatureId, "early-warning-");
+identifier!(FailureForecastId, "forecast-");
+identifier!(PreventiveInterventionId, "preventive-");
+identifier!(PreventiveCounterfactualId, "preventive-pair-");
+identifier!(ForecastFeedbackId, "forecast-feedback-");
+identifier!(ForecastQualitySnapshotId, "forecast-quality-");
+identifier!(ForecastRevisionId, "forecast-revision-");
 
 impl BehavioralConditionId {
     /// Stable identity for a canonical condition fingerprint. This is not a

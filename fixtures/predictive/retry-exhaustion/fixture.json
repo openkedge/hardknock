@@ -1,0 +1,1 @@
+{"schema":"hardknock.predictive-fixture.v1","name":"retry-exhaustion","expected":"refresh avoids a failure that occurs in the control","network":false}

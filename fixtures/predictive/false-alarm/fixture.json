@@ -1,0 +1,1 @@
+{"schema":"hardknock.predictive-fixture.v1","name":"false-alarm","expected":"retry count alone fires on successful controls","network":false}

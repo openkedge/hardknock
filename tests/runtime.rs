@@ -9,7 +9,9 @@ use hardknock::{
     bridge::protocol::NormalizedAction,
     core::{ChaosTrialId, ReflexId},
     lesson::{ActionPattern, ConfidenceScore, ContextSelector},
-    resilience::{Reflex, ReflexResponse, ReflexStatus, ResilienceTestStatus, TriggerPattern},
+    resilience::{
+        Reflex, ReflexResponse, ReflexStatus, ReflexTiming, ResilienceTestStatus, TriggerPattern,
+    },
     runtime::*,
     store::{RuntimeStore, Store},
 };
@@ -329,6 +331,8 @@ fn unnecessary_intervention_feedback_disables_and_lowers_reflex() {
             config_changed: false,
         },
         response: ReflexResponse::Replan,
+        timing: ReflexTiming::Reactive,
+        early_warning_signature: None,
         confidence: ConfidenceScore::try_from(0.9).unwrap(),
         status: ReflexStatus::Active,
         evidence: Vec::new(),

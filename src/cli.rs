@@ -19,6 +19,7 @@ mod epistemic;
 mod experimentation;
 mod federation;
 pub mod integrations;
+mod predictive;
 mod resilience;
 pub(crate) mod runtime;
 pub(crate) mod tools;
@@ -96,6 +97,16 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    /// Inspect normalized short-horizon execution trajectories.
+    Trajectory {
+        #[command(subcommand)]
+        command: predictive::TrajectoryCommand,
+    },
+    /// Inspect, explain, replay, and calibrate evidence-backed failure forecasts.
+    Forecast {
+        #[command(subcommand)]
+        command: predictive::ForecastCommand,
+    },
     /// Test explicit causal hypotheses through controlled local interventions.
     Causal {
         #[command(subcommand)]
@@ -252,6 +263,11 @@ pub enum Commands {
         experiment: Option<ExperimentId>,
         #[arg(long, conflicts_with_all = ["experience", "experiment"])]
         decision: Option<crate::core::RuntimeDecisionId>,
+        #[arg(
+            long,
+            conflicts_with_all = ["experience", "experiment", "decision"]
+        )]
+        forecast: Option<crate::core::FailureForecastId>,
     },
     /// Count recorded evidence and Lesson states.
     Status,
@@ -580,6 +596,9 @@ pub enum ExperienceCommand {
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Predictive {
+        result: serde_json::Value,
+    },
     Runtime {
         result: serde_json::Value,
     },
@@ -753,7 +772,7 @@ impl Response {
         match self {
             Self::Runtime { result } => runtime::print(result, &mut stdout)?,
             Self::Epistemic { result } => epistemic::print(result, &mut stdout)?,
-            Self::Causal { result } => {
+            Self::Predictive { result } | Self::Causal { result } => {
                 serde_json::to_writer_pretty(&mut stdout, result)?;
                 writeln!(stdout)?;
             }
@@ -1345,6 +1364,22 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if matches!(
+        &cli.command,
+        Commands::Trajectory { .. } | Commands::Forecast { .. }
+    ) || matches!(&cli.command, Commands::Provenance { object } if object.starts_with("early-warning-") || object.starts_with("forecast-"))
+        || matches!(
+            &cli.command,
+            Commands::Why {
+                forecast: Some(_),
+                ..
+            }
+        )
+    {
+        return Ok(Response::Predictive {
+            result: predictive::execute(cli, &store, cancel).await?,
+        });
+    }
     if matches!(&cli.command, Commands::Causal { .. })
         || matches!(&cli.command, Commands::Provenance { object } if object.starts_with("causal-"))
     {
@@ -1436,6 +1471,9 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     match &cli.command {
         Commands::Runtime { .. } | Commands::Decision { .. } => {
             Err(Error::InvalidInput("Runtime dispatch failed".into()))
+        }
+        Commands::Trajectory { .. } | Commands::Forecast { .. } => {
+            Err(Error::InvalidInput("Predictive dispatch failed".into()))
         }
         Commands::Epistemic { .. } => Err(Error::InvalidInput("Epistemic dispatch failed".into())),
         Commands::Causal { .. } => Err(Error::InvalidInput("Causal dispatch failed".into())),

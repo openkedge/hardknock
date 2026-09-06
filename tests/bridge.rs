@@ -543,6 +543,8 @@ fn cache_reflex_mapping_scope_and_thousand_rule_latency() {
             config_changed: false,
         },
         response: ReflexResponse::Warn,
+        timing: hardknock::resilience::ReflexTiming::Reactive,
+        early_warning_signature: None,
         confidence: 0.8.try_into().unwrap(),
         status: ReflexStatus::Supported,
         evidence: vec![],

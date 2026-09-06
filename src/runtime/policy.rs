@@ -169,7 +169,7 @@ pub struct DeterministicRuntimeDecisionPolicy {
 impl RuntimePolicyConfig {
     pub fn refresh_version(&mut self) {
         let material = format!(
-            "{:?}|{:?}|{:?}|{}|{}|{}|{}",
+            "{:?}|{:?}|{:?}|{}|{}|{}|{}|{:?}|{:?}",
             self.profile,
             self.autonomy,
             self.experiment_mode,
@@ -177,6 +177,8 @@ impl RuntimePolicyConfig {
             self.external_experience.advisory_can_trigger_experiment,
             self.external_experience.advisory_can_trigger_replan,
             self.external_experience.advisory_can_authorize_act,
+            self.forecast.mode,
+            self.forecast.policy,
         );
         self.version = format!(
             "{}:{}",
@@ -509,6 +511,136 @@ impl RuntimeDecisionPolicy for DeterministicRuntimeDecisionPolicy {
                     blockers,
                     GovernanceDisposition::SecurityBlocked,
                 ));
+            }
+        }
+
+        if matches!(
+            self.config.forecast.mode,
+            ForecastRuntimeMode::Advise | ForecastRuntimeMode::Prevent
+        ) && let Some(forecast) = context
+            .active_forecasts
+            .iter()
+            .filter(|item| item.status.is_active())
+            .max_by_key(|item| (item.status, item.strength))
+        {
+            reasons.push(DecisionReason::ForecastedFailure {
+                forecast: forecast.id.clone(),
+                failure: forecast.failure.signature.clone(),
+            });
+            let preventive = context
+                .preventive_interventions
+                .iter()
+                .filter(|item| {
+                    forecast.status.is_actionable()
+                        && !forecast.advisory
+                        && item.signature == forecast.signature
+                        && item.target_failure == forecast.failure
+                        && item.status == crate::predictive::PreventiveInterventionStatus::Validated
+                        && item.origin == crate::predictive::PredictiveOrigin::Local
+                })
+                .min_by_key(|item| (item.disruption, item.cost, item.id.clone()));
+
+            if self.config.forecast.mode == ForecastRuntimeMode::Advise {
+                let advice = if let Some(preventive) = preventive {
+                    reasons.push(DecisionReason::ValidatedPreventiveIntervention(
+                        preventive.id.clone(),
+                    ));
+                    format!(
+                        "Early warning {:?} for {}; consider preventive action {:?}",
+                        forecast.status, forecast.failure.signature, preventive.action
+                    )
+                } else {
+                    reasons.push(DecisionReason::ForecastUncertain(forecast.id.clone()));
+                    format!(
+                        "Early warning {:?} for {}; continue only with forecast monitoring",
+                        forecast.status, forecast.failure.signature
+                    )
+                };
+                let decision = act(context, Some(advice));
+                return Ok(self.finish(
+                    decision,
+                    knowledge,
+                    reasons,
+                    collected_evidence,
+                    blockers,
+                    GovernanceDisposition::RuntimeRecommendation,
+                ));
+            } else if let Some(preventive) = preventive {
+                reasons.push(DecisionReason::ValidatedPreventiveIntervention(
+                    preventive.id.clone(),
+                ));
+                if preventive.requires_commit_authority
+                    && !context.capability_context.commit_authority
+                {
+                    reasons.push(DecisionReason::CommitAuthorityRequired);
+                    blockers.push(DecisionBlocker::MissingCommitAuthority);
+                    let decision = approval(
+                        context,
+                        format!(
+                            "Forecast {} is valid, but preventive action {:?} requires external commit authority",
+                            forecast.id, preventive.action
+                        ),
+                    );
+                    return Ok(self.finish(
+                        decision,
+                        knowledge,
+                        reasons,
+                        collected_evidence,
+                        blockers,
+                        GovernanceDisposition::ApprovalOverride,
+                    ));
+                }
+                let overreaction = context.risk.severity <= Severity::Low
+                    && preventive.disruption >= crate::predictive::InterventionDisruption::High;
+                if !overreaction
+                    && forecast.strength >= crate::predictive::ForecastStrength::Moderate
+                    && matches!(
+                        self.config.autonomy,
+                        RuntimeAutonomy::Adaptive | RuntimeAutonomy::Governed
+                    )
+                {
+                    let decision = RuntimeDecision::Replan(ReplanDecision {
+                        reason: format!(
+                            "Forecast {} anticipates {} within {:?}; use validated preventive action {:?}",
+                            forecast.id,
+                            forecast.failure.signature,
+                            forecast.horizon,
+                            preventive.action
+                        ),
+                        matched_reflexes: Vec::new(),
+                        relevant_lessons: lesson_refs(context),
+                        excluded_actions: proposed_action_patterns(context),
+                    });
+                    return Ok(self.finish(
+                        decision,
+                        knowledge,
+                        reasons,
+                        collected_evidence,
+                        blockers,
+                        GovernanceDisposition::RuntimeRecommendation,
+                    ));
+                }
+            } else {
+                reasons.push(DecisionReason::ForecastUncertain(forecast.id.clone()));
+                if !forecast.advisory
+                    && forecast.status == crate::predictive::ForecastStatus::Imminent
+                    && context.risk.severity >= Severity::High
+                {
+                    let forecast_blockers = vec![DecisionBlocker::UnsafeExperiment];
+                    let decision = abstain(
+                        context,
+                        AbstentionReason::CriticalUnknown,
+                        forecast_blockers.clone(),
+                    );
+                    return Ok(self.finish(
+                        decision,
+                        knowledge,
+                        reasons,
+                        collected_evidence,
+                        forecast_blockers,
+                        GovernanceDisposition::RuntimeRecommendation,
+                    ));
+                }
             }
         }
 

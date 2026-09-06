@@ -1139,6 +1139,7 @@ impl EvidenceProfileBuilder<'_> {
             .to_string(),
             contributing_agents: agents.into_values().collect(),
             runtime_control: self.store.runtime_development_metrics()?,
+            predictive: self.store.predictive_summary()?,
         })
     }
 }
