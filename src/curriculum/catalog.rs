@@ -87,6 +87,8 @@ impl CurriculumConfig {
             max_curriculum_trials: Some(trials),
             max_parallel_trials: Some(1),
             max_commands_per_reality: None,
+            max_human_approvals: Some(0),
+            allowed_effect_risk: crate::effects::EffectRisk::Low,
         })
     }
 }

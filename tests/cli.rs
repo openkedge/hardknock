@@ -328,3 +328,58 @@ fn failed_diff_capture_retains_trial_files_for_recovery() {
     f.cli(&["reality", "discard", reality["id"].as_str().unwrap()], 0);
     f.assert_source_unchanged();
 }
+
+#[test]
+fn experience_economics_cli_plans_replays_reports_and_preserves_unused_budget() {
+    let f = Fixture::new();
+    let planned = f.cli(
+        &[
+            "explore",
+            "plan",
+            "--budget-trials",
+            "5",
+            "--max-agent-runs",
+            "2",
+        ],
+        0,
+    );
+    assert_eq!(planned["result"]["opportunities_found"], 0);
+    assert_eq!(
+        planned["result"]["portfolio"]["ledger"]["remaining"]["trials"],
+        5
+    );
+    let portfolio = planned["result"]["portfolio"]["id"].as_str().unwrap();
+    assert_eq!(
+        f.cli(&["explore", "status"], 0)["result"]["latest_portfolio"]["id"],
+        portfolio
+    );
+    assert_eq!(
+        f.cli(&["explore", "run", portfolio], 0)["result"]["delegated_plans"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        f.cli(&["explore", "replay", portfolio], 0)["result"]["mutated"],
+        false
+    );
+    assert_eq!(
+        f.cli(&["explore", "report"], 0)["result"]["report"]["portfolios"],
+        1
+    );
+    assert_eq!(
+        f.cli(&["explore", "history", portfolio], 0)["result"]["portfolios"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        f.cli(&["experience", "debt"], 0)["result"]["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        f.cli(&["explore", "benchmark"], 0)["result"]["benchmark"]["backlog_size"],
+        22
+    );
+}

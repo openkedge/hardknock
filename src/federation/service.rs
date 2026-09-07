@@ -949,6 +949,8 @@ impl FederationService for LocalFederationService<'_> {
                 max_commands_per_reality: Some(20),
                 max_curriculum_trials: None,
                 max_parallel_trials: Some(1),
+                max_human_approvals: Some(0),
+                allowed_effect_risk: crate::effects::EffectRisk::ReadOnly,
             },
             requested_by: AgentIdentity {
                 kind: "hardknock-federation".into(),

@@ -933,12 +933,12 @@ impl Store {
         }
         let mut causal = Vec::new();
         for hypothesis in self.causal_hypotheses()? {
-            if hypothesis.status == CausalHypothesisStatus::Supported
-                || hypothesis.status == CausalHypothesisStatus::StronglySupported
+            if matches!(
+                hypothesis.status,
+                CausalHypothesisStatus::Supported | CausalHypothesisStatus::StronglySupported
+            ) && hypothesis.remote_origin.is_none()
             {
-                if hypothesis.remote_origin.is_none() {
-                    causal.push(hypothesis.id);
-                }
+                causal.push(hypothesis.id);
             }
         }
         let history = if match_history {

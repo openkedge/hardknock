@@ -1,5 +1,48 @@
 # Architecture
 
+## V0.16 experience economics
+
+```text
+ Runtime gaps ───────────┐
+ Causal uncertainty ─────┤
+ Forecast misses ────────┤
+ Assurance gaps ─────────┼─→ Opportunity Generator
+ Capability excess ──────┤           │
+ Federated backlog ──────┘           ↓
+                              Value + Cost + Risk
+                                      │
+                         Saturation / Eligibility gates
+                                      │
+                                      ↓
+                         Lexicographic Portfolio Policy
+                                      │
+                              Budget reservation
+                                      │
+                  ┌───────────────────┼──────────────────┐
+                  ↓                   ↓                  ↓
+             Curriculum         Experiment/Causal   Federation/Capability
+                  └───────────────────┼──────────────────┘
+                                      ↓
+                           Outcome + Actual Cost
+                                      │
+                             early stop / replan
+```
+
+The economics layer decides which evidence targets are worth spending a bounded
+budget on; it does not implement another experiment runner. Compiled opportunities
+retain typed routes to the existing Curriculum, Experiment, Causal, Federation,
+and Capability subsystems. Safety, capability, effect-risk, dependency, approval,
+and budget feasibility checks precede selection.
+
+Value remains a vector. The default policy uses explicit priority classes followed
+by risk reduction, decision relevance, exposure, learning value, reuse, novelty,
+and cost, with stable IDs as the final tie-break. Contextual saturation and Pareto
+dominance prevent redundant spend. Migration 020 stores opportunities, immutable
+portfolio revisions, selections, deferrals, ledgers, estimated and actual costs,
+results, saturation observations, debt, and an append-only event history.
+
+See [experience economics](experience-economics.md) for the policy and CLI.
+
 ## V0.15 predictive experience
 
 ```text

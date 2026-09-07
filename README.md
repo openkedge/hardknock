@@ -1,16 +1,21 @@
 # Hardknock
 
-**The empirical experience engine for autonomous AI agents.**
+**The experience control plane for autonomous agents.**
 
-Agent experience infrastructure for safe experimentation, empirical learning, and resilience.
+Hardknock turns controlled experience—including failure—into durable, scoped,
+evidence-backed operational knowledge that changes future agent behavior.
 
 > **Let agents fail here, not in production.**
 
-**Agents reason. Hardknock gives them experience.**
+**Agents reason. Hardknock gives them experience that survives the model.**
 
 **Models change. Experience survives.**
 
-Claude Code, Codex, Hermes, OpenClaw, Kiro, and other agents decide what to do. Hardknock is being built to give them disposable environments to try it, record what actually happened, test what they think they learned, and carry validated experience into future work. It sits underneath your agent; it is not another agent.
+Claude Code, Codex, Hermes, OpenClaw, Kiro, and other agents decide what to do.
+Hardknock gives them disposable environments to try it, records what actually
+happened, and tests what they think they learned. It is being built to carry
+validated Skills, Lessons, Constraints, and Recoveries into future work. It
+sits underneath your agent; it is not another agent.
 
 <p align="center">
   <img src="hardknock-murph.png" alt="Murph, the Hardknock Axolotl, holding a wrench and an experiment checklist" width="240">
@@ -22,9 +27,66 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.15 predictive experience.** Hardknock recognizes validated execution trajectories that precede known failure and recommends empirically tested preventive interventions. See the [predictive experience guide](docs/predictive-experience.md), [V0.15 implementation report](docs/implementation-v015.md), and [causal experience guide](docs/causal-experience.md).
+> **Pre-alpha · V0.16 experience economics.** Hardknock turns unresolved evidence gaps into an explainable portfolio, reserves a finite acquisition budget for high-impact uncertainty, stops when marginal evidence value collapses, and records actual learning yield. See the [experience economics guide](docs/experience-economics.md), [V0.16 implementation report](docs/implementation-v016.md), and [predictive experience guide](docs/predictive-experience.md).
 
-## Learn the Shape of Failure Before It Arrives
+## Project roadmap
+
+**V0.16 is implemented locally. V0.17 is the next planned product increment.**
+The next phase focuses on distilling validated local experience into reusable
+abstractions and testing whether those abstractions transfer to held-out
+contexts without losing provenance, scope, contradictions, or trust boundaries.
+Live provider acceptance and cross-agent integration hardening continue in
+parallel with that product work.
+
+| Horizon | Status | Focus |
+| --- | --- | --- |
+| V0.16 — Experience economics | Implemented locally | Bounded portfolios, saturation, budget reservation, adaptive replanning, and learning-yield reporting |
+| V0.17 — Experience abstraction | Planned next | Evidence-linked distillation and controlled cross-context transfer |
+| V0.18–V0.20 | Planned | Hierarchical knowledge, composition safety, and long-horizon experience |
+| V0.21+ | Directional | Organizational experience, governed continuous learning, and production hardening |
+| Runtime and agent acceptance | Ongoing | Live containers, PostgreSQL, installed-agent workflows, and provider measurements |
+
+**[Read the complete Hardknock project roadmap →](docs/roadmap.md)** It includes
+the canonical knowledge model, governed lifecycle, milestones through V0.24+,
+measurement framework, release eras, and parallel acceptance boundaries.
+
+## Not Every Unknown Deserves an Experiment
+
+Experiments consume trials, agent runs, time, staging resources, and sometimes
+human attention. V0.16 makes that scarcity explicit. It does not reduce unlike
+learning opportunities to one universal score; it compares risk reduction,
+decision relevance, learning value, reuse, novelty, evidence saturation, and
+cost in a documented lexicographic order.
+
+```text
+Evidence, runtime, causal, forecast, assurance, capability, federation gaps
+                                  ↓
+                     Experience Opportunities
+                                  ↓
+                eligibility + saturation + dependencies
+                                  ↓
+                 deterministic bounded portfolio
+                                  ↓
+           Curriculum / Experiment / Causal / Federation engines
+                                  ↓
+                 actual cost + outcome + adaptive replan
+```
+
+```bash
+hardknock explore plan --budget-trials 8 --max-agent-runs 3
+hardknock explore run
+hardknock explore status
+hardknock explore report
+hardknock experience debt
+```
+
+**Unused experiment budget is better than low-value experimentation.** A
+Critical unresolved recovery can reserve the budget it needs before cheap
+low-risk repetitions consume it. Saturated evidence is deferred, a surprising
+contradiction can revise the portfolio, and an investigation that resolves its
+objective early releases the unused reservation.
+
+## Learn the Shape of Failure Before Repeating It
 
 Experience is most valuable before the mistake repeats. Hardknock can recognize
 execution trajectories that resemble previously observed failures and use validated
@@ -193,7 +255,7 @@ Try `hardknock tool list`, `hardknock tool show run-tests`, and
 silent downgrade. Plain Docker endpoint allow-lists fail closed until an
 enforceable runtime-specific network policy is configured.
 
-[Works With Your Agent](#works-with-your-agent) · [Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
+[Roadmap](docs/roadmap.md) · [Works With Your Agent](#works-with-your-agent) · [Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
 
 ## Run the current prototype
 
@@ -216,7 +278,7 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
-V0.4 adds agent-native experiments; V0.5 adds curricula; V0.6 adds development profiles; V0.7 adds signed evidence federation; V0.8 adds transactional Effects; V0.9 adds capability-isolated execution; V0.10 adds portable micro-sandbox tools and attestations; V0.11 adds behavioral contracts and empirical certification; V0.12 adds evidence-guided runtime control; V0.13 adds dependency-aware evidence diversity and common-mode challenges; V0.14 adds explicit causal hypotheses, controlled interventions, and scoped mechanism guidance. See the [CLI reference](docs/cli.md), [epistemic evidence guide](docs/epistemic-evidence.md), [runtime guide](docs/runtime-control.md), and [roadmap](docs/roadmap.md).
+V0.4 adds agent-native experiments; V0.5 adds curricula; V0.6 adds development profiles; V0.7 adds signed evidence federation; V0.8 adds transactional Effects; V0.9 adds capability-isolated execution; V0.10 adds portable micro-sandbox tools and attestations; V0.11 adds behavioral contracts and empirical certification; V0.12 adds evidence-guided runtime control; V0.13 adds dependency-aware evidence diversity and common-mode challenges; V0.14 adds explicit causal hypotheses and intervention tests; V0.15 adds predictive trajectories and controlled prevention; V0.16 adds bounded experience portfolios and adaptive acquisition economics. See the [CLI reference](docs/cli.md), [experience economics guide](docs/experience-economics.md), and [roadmap](docs/roadmap.md).
 
 ## A Sandbox Can't Unsend an Email
 
@@ -949,10 +1011,12 @@ The broader release goals below include work beyond the implemented local loop. 
 | **V0.13 — Multi-Agent Epistemic Diversity** | Known-dependency analysis, diversity gates, and common-mode challenges |
 | **V0.14 — Causal Experience** | Explicit hypotheses, controlled intervention pairs, scoped models, and refinement candidates |
 | **V0.15 — Predictive Experience** | Implemented locally: calibrated trajectory forecasts, negative-control refinement, controlled prevention, and explicit misses |
+| **V0.16 — Experience Economics** | Implemented locally: explicit opportunities, contextual saturation, bounded budget ledgers, explainable portfolios, adaptive replanning, and fixed-budget comparison |
+| **V0.17 — Experience Abstraction and Transfer** | Next: distill validated experience into reusable cross-context abstractions without erasing scope or provenance |
 
 ## Project status
 
-Hardknock is a **pre-alpha empirical learning prototype**. The local learning, resilience, assurance, adaptive runtime-control, causal, and predictive loops are implemented and tested. It builds from source; no release package is published. CI is configured for Linux and macOS; this V0.15 pass was verified locally on macOS.
+Hardknock is a **pre-alpha empirical learning prototype**. The local learning, resilience, assurance, adaptive runtime-control, causal, predictive, and experience-allocation loops are implemented and tested. It builds from source; no release package is published. CI is configured for Linux and macOS; this V0.16 pass was verified locally on macOS.
 
 The fixtures demonstrate limited transfer from one task to a related, distinct repository. They do not establish general agent performance or universal causal claims. APIs, command syntax, and schemas remain subject to change.
 

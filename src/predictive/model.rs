@@ -398,19 +398,15 @@ pub struct CausalPrecursor {
     pub predicted_transition: Option<crate::causal::VariableValue>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EnvelopeProximity {
     Interior,
     NearBoundary,
     AtBoundary,
     OutsideKnownSafeRegion,
+    #[default]
     Unknown,
-}
-impl Default for EnvelopeProximity {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -717,17 +713,13 @@ pub enum InterventionAction {
     Custom(String),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InterventionDisruption {
     Minimal,
+    #[default]
     Moderate,
     High,
-}
-impl Default for InterventionDisruption {
-    fn default() -> Self {
-        Self::Moderate
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -787,20 +779,16 @@ pub enum PreventiveEvidenceOutcome {
     Inconclusive,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ForecastOutcome {
     FailureMaterialized,
     FailureAvoided,
     FalsePositive,
     ClearedWithoutIntervention,
+    #[default]
     Inconclusive,
     InterventionWindowMissed,
-}
-impl Default for ForecastOutcome {
-    fn default() -> Self {
-        Self::Inconclusive
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -14,6 +14,7 @@ pub(crate) mod capability;
 mod causal;
 pub mod curriculum;
 mod development;
+mod economics;
 mod effects;
 mod epistemic;
 mod experimentation;
@@ -284,6 +285,11 @@ pub enum Commands {
     Experience {
         #[command(subcommand)]
         command: ExperienceCommand,
+    },
+    /// Allocate bounded experiments to the most useful evidence gaps.
+    Explore {
+        #[command(subcommand)]
+        command: economics::ExploreCommand,
     },
     /// Propose and inspect scoped, revisable Lessons.
     Lesson {
@@ -588,14 +594,21 @@ pub enum ExecutionCommand {
 pub enum ExperienceCommand {
     Health(development::SubjectArgs),
     Maintain(development::SubjectArgs),
+    /// Show persistent high-impact unresolved evidence gaps.
+    Debt,
     List,
-    Show { id: ExperienceId },
+    Show {
+        id: ExperienceId,
+    },
 }
 
 #[derive(Serialize)]
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Economics {
+        result: serde_json::Value,
+    },
     Predictive {
         result: serde_json::Value,
     },
@@ -770,6 +783,10 @@ impl Response {
             return Ok(());
         }
         match self {
+            Self::Economics { result } => {
+                serde_json::to_writer_pretty(&mut stdout, result)?;
+                writeln!(stdout)?;
+            }
             Self::Runtime { result } => runtime::print(result, &mut stdout)?,
             Self::Epistemic { result } => epistemic::print(result, &mut stdout)?,
             Self::Predictive { result } | Self::Causal { result } => {
@@ -1364,6 +1381,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if economics::handles(&cli.command) {
+        return Ok(Response::Economics {
+            result: economics::execute(cli, &store)?,
+        });
+    }
     if matches!(
         &cli.command,
         Commands::Trajectory { .. } | Commands::Forecast { .. }
@@ -1469,6 +1491,12 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
+        Commands::Explore { .. }
+        | Commands::Experience {
+            command: ExperienceCommand::Debt,
+        } => Err(Error::InvalidInput(
+            "Experience economics dispatch failed".into(),
+        )),
         Commands::Runtime { .. } | Commands::Decision { .. } => {
             Err(Error::InvalidInput("Runtime dispatch failed".into()))
         }
@@ -1908,6 +1936,9 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             ExperienceCommand::Health(_) | ExperienceCommand::Maintain(_) => {
                 Err(Error::InvalidInput("Development dispatch failed".into()))
             }
+            ExperienceCommand::Debt => Err(Error::InvalidInput(
+                "Experience economics dispatch failed".into(),
+            )),
             ExperienceCommand::List => Ok(Response::Experiences {
                 experiences: ExperienceStore::list(&store, ExperienceQuery::default())?,
             }),

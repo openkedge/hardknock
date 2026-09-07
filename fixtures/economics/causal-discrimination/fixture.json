@@ -1,0 +1,1 @@
+{"version":1,"case":"causal-discrimination","hypotheses":["h1","h2","h3"],"a":"repeat-failure","b":"single-intervention-separates-h3","expected":"b"}

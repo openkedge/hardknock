@@ -1,0 +1,1 @@
+{"schema":"hardknock.predictive-fixture.v1","name":"retry-stale-state","sequence":["failure","retry","state_stale"],"control":"state_refresh","expected":"forecast_then_prevent","network":false}

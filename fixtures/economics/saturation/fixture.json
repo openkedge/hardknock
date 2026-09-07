@@ -1,0 +1,1 @@
+{"version":1,"case":"saturation","targets":{"a":{"equivalent_passes":12},"b":{"counterfactual_gaps":1}},"expected_first":"b"}

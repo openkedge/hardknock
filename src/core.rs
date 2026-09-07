@@ -146,6 +146,10 @@ identifier!(PreventiveCounterfactualId, "preventive-pair-");
 identifier!(ForecastFeedbackId, "forecast-feedback-");
 identifier!(ForecastQualitySnapshotId, "forecast-quality-");
 identifier!(ForecastRevisionId, "forecast-revision-");
+identifier!(ExperienceOpportunityId, "opportunity-");
+identifier!(ExperiencePortfolioId, "portfolio-");
+identifier!(ExperienceAllocationPolicyId, "allocation-policy-");
+identifier!(ExperienceBudgetLedgerId, "budget-ledger-");
 
 impl BehavioralConditionId {
     /// Stable identity for a canonical condition fingerprint. This is not a

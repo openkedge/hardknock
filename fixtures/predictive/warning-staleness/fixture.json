@@ -1,0 +1,1 @@
+{"schema":"hardknock.predictive-fixture.v1","name":"warning-staleness","validated_runtime":"tool-v1","current_runtime":"tool-v2","expected":"review_or_stale","network":false}

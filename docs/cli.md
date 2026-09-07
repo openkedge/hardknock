@@ -487,3 +487,23 @@ doctor
 ```
 
 The global `--repo` selects the default Repository subject. Agent subjects default to the whole local store. Health/maintain need a clean repository context; read-only profile/history commands do not. JSON uses `event: development` with a `result.kind` discriminator. `doctor` is local evidence/database health; `integrate doctor` still diagnoses native integrations. [Full semantics and examples](development.md).
+## Experience economics (V0.16)
+
+```bash
+hardknock explore plan --budget-trials 8 --max-agent-runs 3
+hardknock explore run [portfolio-<uuid>]
+hardknock explore status
+hardknock explore show opportunity-<uuid>
+hardknock explore why opportunity-<uuid>
+hardknock explore report
+hardknock explore history [portfolio-<uuid>]
+hardknock explore replay portfolio-<uuid>
+hardknock explore benchmark
+hardknock experience debt
+```
+
+`plan` persists an explainable reservation plan and never executes a trial.
+`run` marks reservations active and emits typed plans for the existing learning
+engines; it does not create a second experiment implementation. `replay`
+recomputes without mutating the original revision. Use `--json` for the complete
+value vector, costs, saturation state, and selection/deferral reasons.

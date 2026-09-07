@@ -309,5 +309,6 @@ pub fn snapshot(profile: &ExperienceProfile) -> ProfileSnapshot {
         policy_versions: profile.policy_versions.clone(),
         runtime_control: profile.runtime_control.clone(),
         predictive: profile.predictive.clone(),
+        experience_acquisition: profile.experience_acquisition.clone(),
     }
 }

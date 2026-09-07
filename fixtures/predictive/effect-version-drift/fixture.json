@@ -1,0 +1,1 @@
+{"schema":"hardknock.predictive-fixture.v1","name":"effect-version-drift","sequence":["effect_prepared","version_changed"],"intervention":"reprepare","expected":"prevent_stale_commit","network":false}

@@ -16,6 +16,7 @@ pub mod core;
 pub mod curriculum;
 pub mod development;
 pub mod dojo;
+pub mod economics;
 pub mod effects;
 pub mod epistemic;
 pub mod error;

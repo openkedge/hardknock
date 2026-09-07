@@ -480,7 +480,7 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
                 ProfileWindow::AllTime,
             )?;
             let database = store.database_health()?;
-            json!({"kind":"doctor","snapshots":database["snapshot_count"],"database":database,"schema_version":11,"policy_hash":p.policy_hash,"health":p.freshness,"experience_count":p.experience_count,"queue_pending":store.revalidations()?.iter().filter(|i|i.status=="pending").count(),"latest_benchmark":store.benchmark_runs()?.last().map(|b|json!({"id":b.id,"status":b.status})),"latest_federation_benchmark":store.federation_benchmarks()?.last().map(|b|json!({"id":b.id,"status":b.status})),"latest_transactional_effects_benchmark":store.latest_effect_benchmark()?.map(|b|json!({"id":b.id,"created_at":b.created_at})),"auto_run":false})
+            json!({"kind":"doctor","snapshots":database["snapshot_count"],"database":database,"schema_version":20,"policy_hash":p.policy_hash,"health":p.freshness,"experience_count":p.experience_count,"queue_pending":store.revalidations()?.iter().filter(|i|i.status=="pending").count(),"latest_benchmark":store.benchmark_runs()?.last().map(|b|json!({"id":b.id,"status":b.status})),"latest_federation_benchmark":store.federation_benchmarks()?.last().map(|b|json!({"id":b.id,"status":b.status})),"latest_transactional_effects_benchmark":store.latest_effect_benchmark()?.map(|b|json!({"id":b.id,"created_at":b.created_at})),"auto_run":false})
         }
         _ => return Err(Error::InvalidInput("Not a development command".into())),
     })
@@ -520,6 +520,16 @@ pub fn print(result: &Value, out: &mut impl Write) -> Result<()> {
                 p.metrics.hardened_skill_count,
                 serde_json::to_string(&p.freshness)?,
                 p.coverage.known_unknowns.len()
+            )?;
+            writeln!(
+                out,
+                "Experience Acquisition: {} open ({} Critical, {} High) · {} trials consumed · {} material outcomes · {} early-stop trials saved",
+                p.experience_acquisition.open_opportunities,
+                p.experience_acquisition.critical_opportunities,
+                p.experience_acquisition.high_opportunities,
+                p.experience_acquisition.trials_consumed,
+                p.experience_acquisition.material_outcomes,
+                p.experience_acquisition.early_stop_trial_savings
             )?;
         }
         Some("growth") if result.get("growth").is_some() => {

@@ -1,0 +1,1 @@
+{"schema":"hardknock.predictive-fixture.v1","name":"credential-expiry","sequence":["credential_age_increases","expiry_boundary_nears"],"intervention":"refresh_before_prepare","expected":"prevent_expiry_failure","network":false}

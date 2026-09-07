@@ -1,0 +1,1 @@
+{"version":1,"case":"assurance","a":{"usage":"rare","certification":"missing"},"b":{"usage":"frequent","risk":"high","certification":"missing"},"expected":"b"}

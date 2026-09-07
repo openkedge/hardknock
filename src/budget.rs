@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 use serde::{Deserialize, Serialize};
 
-use crate::experimentation::{CandidateExecution, ExperimentRequest};
+use crate::{
+    effects::EffectRisk,
+    experimentation::{CandidateExecution, ExperimentRequest},
+};
+
+fn default_allowed_effect_risk() -> EffectRisk {
+    EffectRisk::Low
+}
 
 /// Hard caps on explicitly scheduled work. Native agent tool calls are not observable here.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,6 +21,9 @@ pub struct ExperienceBudget {
     pub max_commands_per_reality: Option<usize>,
     pub max_curriculum_trials: Option<usize>,
     pub max_parallel_trials: Option<usize>,
+    pub max_human_approvals: Option<usize>,
+    #[serde(default = "default_allowed_effect_risk")]
+    pub allowed_effect_risk: EffectRisk,
 }
 
 impl Default for ExperienceBudget {
@@ -25,7 +35,15 @@ impl Default for ExperienceBudget {
             max_commands_per_reality: None,
             max_curriculum_trials: None,
             max_parallel_trials: None,
+            max_human_approvals: Some(0),
+            allowed_effect_risk: EffectRisk::Low,
         }
+    }
+}
+
+impl ExperienceBudget {
+    pub fn max_trials(&self) -> usize {
+        self.max_curriculum_trials.unwrap_or(self.max_realities)
     }
 }
 

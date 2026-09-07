@@ -258,6 +258,8 @@ pub struct ExperienceProfile {
     pub runtime_control: crate::runtime::RuntimeDevelopmentMetrics,
     #[serde(default)]
     pub predictive: crate::predictive::PredictiveExperienceSummary,
+    #[serde(default)]
+    pub experience_acquisition: crate::economics::ExperienceAcquisitionSummary,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ExperienceArtifactCounts {
@@ -283,6 +285,8 @@ pub struct ProfileSnapshot {
     pub runtime_control: crate::runtime::RuntimeDevelopmentMetrics,
     #[serde(default)]
     pub predictive: crate::predictive::PredictiveExperienceSummary,
+    #[serde(default)]
+    pub experience_acquisition: crate::economics::ExperienceAcquisitionSummary,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

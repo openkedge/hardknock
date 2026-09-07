@@ -176,7 +176,7 @@ impl ToolStore for Store {
         reality: Option<&RealityId>,
     ) -> Result<Vec<ExecutionAttestation>> {
         let reality = reality.map(ToString::to_string);
-        let mut statement = self.connection.prepare("SELECT attestation_hash,data FROM execution_attestations WHERE (?1 IS NULL OR reality_id=?1) ORDER BY completed_at,id")?;
+        let mut statement = self.connection.prepare("SELECT attestation_hash,data FROM execution_attestations WHERE (?1 IS NULL OR reality_id=?1) ORDER BY created_at,id")?;
         statement
             .query_map([reality], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))

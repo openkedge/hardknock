@@ -1,0 +1,1 @@
+{"version":1,"case":"high-cost-critical","budget":{"trials":4},"critical_cost":4,"low_opportunities":4,"low_cost_each":1,"expected":"critical"}
