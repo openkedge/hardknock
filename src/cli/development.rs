@@ -531,6 +531,16 @@ pub fn print(result: &Value, out: &mut impl Write) -> Result<()> {
                 p.experience_acquisition.material_outcomes,
                 p.experience_acquisition.early_stop_trial_savings
             )?;
+            writeln!(
+                out,
+                "Abstraction: {} candidate patterns · {} validated · {} specializations · {} exceptions · {} negative transfers · {} unknown boundaries",
+                p.abstraction.candidate_patterns,
+                p.abstraction.validated_abstractions,
+                p.abstraction.active_specializations,
+                p.abstraction.exceptions,
+                p.abstraction.negative_transfer_events,
+                p.abstraction.unknown_boundaries
+            )?;
         }
         Some("growth") if result.get("growth").is_some() => {
             let r: GrowthReport = serde_json::from_value(result["growth"].clone())?;

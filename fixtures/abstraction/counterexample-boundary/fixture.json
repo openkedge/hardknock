@@ -1,0 +1,8 @@
+{
+  "schema": "hardknock.abstraction-fixture.v1",
+  "version": 1,
+  "family": "counterexample_boundary",
+  "supported_contexts": 3,
+  "counterexample": "exact_idempotent_replay",
+  "expected": ["narrow_scope", "create_exception", "preserve_support"]
+}

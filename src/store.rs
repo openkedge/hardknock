@@ -17,6 +17,7 @@ use crate::{
     core::{ArtifactRef, ExecutionId, ExecutionRecord, Reality, RealityId},
 };
 
+mod abstraction;
 mod assurance;
 mod capabilities;
 pub use assurance::AssuranceStore;
@@ -121,7 +122,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 20 {
+        if version > 21 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -207,6 +208,10 @@ impl Store {
         if version < 20 {
             tx.execute_batch(include_str!("../migrations/020_experience_economics.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (20)", [])?;
+        }
+        if version < 21 {
+            tx.execute_batch(include_str!("../migrations/021_experience_abstraction.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (21)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

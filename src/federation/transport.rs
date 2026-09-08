@@ -94,6 +94,7 @@ impl FilesystemTransport {
             ("reflex", bundle.bundle.reflexes.len()),
             ("recovery", bundle.bundle.recoveries.len()),
             ("envelope", bundle.bundle.envelopes.len()),
+            ("abstract_knowledge", bundle.bundle.abstract_knowledge.len()),
         ] {
             if len > 0 {
                 types.push(name.into())
@@ -107,6 +108,13 @@ impl FilesystemTransport {
             .iter()
             .map(|x| &x.context)
             .chain(bundle.bundle.skills.iter().map(|x| &x.context))
+            .chain(
+                bundle
+                    .bundle
+                    .abstract_knowledge
+                    .iter()
+                    .flat_map(|x| x.source_contexts.iter()),
+            )
         {
             markers.extend(context.markers.clone());
             if let Some(f) = &context.repository_family {

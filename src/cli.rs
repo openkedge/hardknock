@@ -8,6 +8,7 @@ use std::{
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
+mod abstraction;
 pub(crate) mod assurance;
 pub(crate) mod attestation;
 pub(crate) mod capability;
@@ -102,6 +103,16 @@ pub enum Commands {
     Trajectory {
         #[command(subcommand)]
         command: predictive::TrajectoryCommand,
+    },
+    /// Discover and inspect structural experience patterns.
+    Pattern {
+        #[command(subcommand)]
+        command: abstraction::PatternCommand,
+    },
+    /// Propose, transfer-test, validate, and resolve abstract operational knowledge.
+    Abstract {
+        #[command(subcommand)]
+        command: abstraction::AbstractCommand,
     },
     /// Inspect, explain, replay, and calibrate evidence-backed failure forecasts.
     Forecast {
@@ -606,6 +617,9 @@ pub enum ExperienceCommand {
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Abstraction {
+        result: serde_json::Value,
+    },
     Economics {
         result: serde_json::Value,
     },
@@ -783,6 +797,10 @@ impl Response {
             return Ok(());
         }
         match self {
+            Self::Abstraction { result } => {
+                serde_json::to_writer_pretty(&mut stdout, result)?;
+                writeln!(stdout)?;
+            }
             Self::Economics { result } => {
                 serde_json::to_writer_pretty(&mut stdout, result)?;
                 writeln!(stdout)?;
@@ -1381,6 +1399,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if abstraction::handles(&cli.command) {
+        return Ok(Response::Abstraction {
+            result: abstraction::execute(cli, &store)?,
+        });
+    }
     if economics::handles(&cli.command) {
         return Ok(Response::Economics {
             result: economics::execute(cli, &store)?,
@@ -1491,6 +1514,9 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
+        Commands::Pattern { .. } | Commands::Abstract { .. } => {
+            Err(Error::InvalidInput("Abstraction dispatch failed".into()))
+        }
         Commands::Explore { .. }
         | Commands::Experience {
             command: ExperienceCommand::Debt,

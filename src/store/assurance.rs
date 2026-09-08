@@ -539,6 +539,48 @@ impl AssuranceStore for Store {
                 }
             }
         }
+        let applicable_abstractions = self
+            .abstract_knowledge_items()?
+            .into_iter()
+            .filter(|knowledge| {
+                knowledge.maturity == crate::abstraction::KnowledgeMaturity::Validated
+                    && knowledge
+                        .provenance
+                        .source_artifacts
+                        .iter()
+                        .any(|artifact| {
+                            artifact.kind == crate::abstraction::KnowledgeArtifactKind::Skill
+                                && artifact.id == skill.id.to_string()
+                        })
+            })
+            .collect::<Vec<_>>();
+        let abstract_knowledge = applicable_abstractions
+            .iter()
+            .map(|knowledge| crate::abstraction::AbstractKnowledgeRef {
+                id: knowledge.id.clone(),
+                revision: knowledge.revision,
+            })
+            .collect::<Vec<_>>();
+        let mut applicable_specializations = Vec::new();
+        let mut knowledge_exceptions = Vec::new();
+        let mut abstraction_transfer_evidence = Vec::new();
+        for knowledge in &applicable_abstractions {
+            applicable_specializations.extend(
+                self.knowledge_specializations_for(&knowledge.id)?
+                    .into_iter()
+                    .map(|item| item.child),
+            );
+            knowledge_exceptions.extend(
+                self.knowledge_exceptions_for(&knowledge.id)?
+                    .into_iter()
+                    .map(|item| item.id),
+            );
+            abstraction_transfer_evidence.extend(
+                self.transfer_evidence_for(&knowledge.id)?
+                    .into_iter()
+                    .map(|evidence| crate::abstraction::TransferEvidenceRef { id: evidence.id }),
+            );
+        }
         let mut manifest = EvidenceManifest {
             id: EvidenceManifestId::new(),
             subject: EvidenceSubject::Skill(skill_ref.clone()),
@@ -557,6 +599,10 @@ impl AssuranceStore for Store {
             envelopes: skill.operating_envelope.into_iter().collect(),
             capability_manifests: capability_manifest_ids.into_iter().collect(),
             effect_receipts: effect_receipt_ids.into_iter().collect(),
+            abstract_knowledge,
+            abstraction_transfer_evidence,
+            applicable_specializations,
+            knowledge_exceptions,
             policy_versions: PolicyVersions::default(),
             summary,
             evidence_hash: String::new(),
@@ -847,6 +893,26 @@ fn validate_manifest_references(store: &Store, manifest: &EvidenceManifest) -> R
                 "Evidence Manifest references missing Experiment {id}"
             )));
         }
+    }
+    for reference in manifest
+        .abstract_knowledge
+        .iter()
+        .chain(&manifest.applicable_specializations)
+    {
+        require_composite(
+            store,
+            "abstract_knowledge_revisions",
+            "abstract_id",
+            &reference.id.to_string(),
+            "revision",
+            sql_u64(reference.revision)?,
+        )?;
+    }
+    for evidence in &manifest.abstraction_transfer_evidence {
+        require_id(store, "transfer_evidence", &evidence.id.to_string())?;
+    }
+    for exception in &manifest.knowledge_exceptions {
+        require_id(store, "knowledge_exceptions", &exception.to_string())?;
     }
     for (table, ids) in [
         (

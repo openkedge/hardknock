@@ -169,8 +169,44 @@ pub fn context_bundle(
     if p.coverage.skills.is_empty() {
         known_unknowns.push("No tested Skill coverage is recorded for this repository; competence outside observed conditions is UNKNOWN".into());
     }
+    let abstract_knowledge = store
+        .abstract_knowledge_items()?
+        .into_iter()
+        .filter(|item| {
+            item.maturity == crate::abstraction::KnowledgeMaturity::Validated
+                && item.provenance.origin != crate::abstraction::KnowledgeOrigin::FederatedAdvisory
+        })
+        .filter(|item| {
+            item.supporting_patterns.iter().any(|id| {
+                store
+                    .experience_pattern(id)
+                    .is_ok_and(|pattern| pattern.scope.matches(context))
+            })
+        })
+        .take(2)
+        .collect::<Vec<_>>();
+    let mut specializations = Vec::new();
+    let mut known_exceptions = Vec::new();
+    let mut unknown_boundary_conditions = Vec::new();
+    for knowledge in &abstract_knowledge {
+        unknown_boundary_conditions.extend(knowledge.generalization_boundary.unknown.clone());
+        known_exceptions.extend(store.knowledge_exceptions_for(&knowledge.id)?);
+        for specialization in store.knowledge_specializations_for(&knowledge.id)? {
+            if specializations.len() >= 3 {
+                break;
+            }
+            let child = store.abstract_knowledge(&specialization.child.id)?;
+            if child.maturity == crate::abstraction::KnowledgeMaturity::Validated {
+                specializations.push(child);
+            }
+        }
+    }
     Ok(ExperienceContextBundle {
         relevant: active,
+        abstract_knowledge,
+        specializations,
+        known_exceptions,
+        unknown_boundary_conditions,
         known_unknowns,
         stale_items,
         contradictions,
@@ -1141,6 +1177,7 @@ impl EvidenceProfileBuilder<'_> {
             runtime_control: self.store.runtime_development_metrics()?,
             predictive: self.store.predictive_summary()?,
             experience_acquisition: self.store.experience_acquisition_summary()?,
+            abstraction: self.store.abstraction_development_summary()?,
         })
     }
 }

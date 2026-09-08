@@ -216,6 +216,10 @@ pub enum ExperienceOpportunityKind {
     MinimizeCapability,
     ResolveRuntimeUnknown,
     CloseAssuranceGap,
+    ValidateAbstraction,
+    ChallengeAbstraction,
+    ValidateTransfer,
+    ReduceKnowledgeFragmentation,
     Custom(String),
 }
 
@@ -234,6 +238,7 @@ pub enum ExperienceOpportunityTarget {
     FederatedObject(FederatedObjectRef),
     Tool(ToolId),
     TaskFamily(TaskFamilyId),
+    AbstractKnowledge(AbstractKnowledgeId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -258,6 +263,9 @@ pub enum OpportunityReason {
     CapabilityOverprovisioned,
     OperatingEnvelopeUnknown,
     EvidenceSaturated,
+    FalseConstraintRisk,
+    HighReuseKnowledgeFragmentation,
+    NegativeTransferObserved,
     Custom(String),
 }
 

@@ -1,0 +1,8 @@
+{
+  "schema": "hardknock.abstraction-fixture.v1",
+  "version": 1,
+  "family": "misleading_surface_similarity",
+  "shared_wording": "retry failed",
+  "mechanisms": ["stale_state", "rate_limit", "authorization"],
+  "expected": "reject_or_split_pattern"
+}

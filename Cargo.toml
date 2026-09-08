@@ -1,10 +1,10 @@
 [package]
 name = "hardknock"
 default-run = "hardknock"
-version = "0.16.0-dev.1"
+version = "0.17.0-dev.1"
 edition = "2024"
 license = "Apache-2.0"
-description = "Agent experience infrastructure for safe experimentation, empirical learning, and resilience"
+description = "Experience control plane for scoped, evidence-backed operational knowledge"
 repository = "https://github.com/openkedge/hardknock"
 publish = false
 

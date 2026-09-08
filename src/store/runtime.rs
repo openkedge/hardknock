@@ -198,6 +198,22 @@ impl RuntimeStore for Store {
                 serde_json::to_string(&record)?
             ],
         )?;
+        for selected in record
+            .context
+            .knowledge_resolution
+            .selected
+            .iter()
+            .filter(|item| item.level == crate::abstraction::ResolutionLevel::Abstract)
+        {
+            transaction.execute(
+                "INSERT INTO abstraction_events(subject,kind,created_at,data) VALUES(?1,'abstract_knowledge_applied',?2,?3)",
+                params![selected.reference, record.created_at.to_rfc3339(), serde_json::to_string(&serde_json::json!({"decision_id":record.id,"session_id":record.session_id,"reason":selected.reason}))?],
+            )?;
+            transaction.execute(
+                "INSERT INTO bridge_events(session_id,kind,data) VALUES(?1,'abstract_knowledge_applied',?2)",
+                params![record.session_id.to_string(), serde_json::to_string(&serde_json::json!({"abstract_id":selected.reference,"decision_id":record.id}))?],
+            )?;
+        }
         for (position, reason) in record.evaluation.reasons.iter().enumerate() {
             transaction.execute(
                 "INSERT INTO runtime_decision_reasons(decision_id,position,reason_kind,data) VALUES(?1,?2,?3,?4)",

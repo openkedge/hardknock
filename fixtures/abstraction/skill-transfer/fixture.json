@@ -1,0 +1,9 @@
+{
+  "schema": "hardknock.abstraction-fixture.v1",
+  "version": 1,
+  "family": "bounded_mutation_skill",
+  "sources": ["kubernetes_rollout", "ecs_rollout"],
+  "held_out": "mock_internal_rollout",
+  "invariants": ["bounded_subset", "observe", "verify", "rollback_path"],
+  "expected": "supported"
+}

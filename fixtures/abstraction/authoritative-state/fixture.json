@@ -1,0 +1,19 @@
+{
+  "schema": "hardknock.abstraction-fixture.v1",
+  "version": 1,
+  "family": "authoritative_state",
+  "source_contexts": ["postgresql", "kubernetes", "git"],
+  "held_out_contexts": ["mock_object_store"],
+  "negative_controls": ["exact_idempotent_replay", "read_only_operation"],
+  "shared_structure": [
+    "uncertain_external_mutation",
+    "state_dependent_follow_up",
+    "authoritative_state_not_reconciled"
+  ],
+  "expected": {
+    "baseline": "failure",
+    "transfer": "success",
+    "negative_control": "not_applicable",
+    "promotion": "narrow_scope_then_validate"
+  }
+}

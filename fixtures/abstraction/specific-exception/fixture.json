@@ -1,0 +1,8 @@
+{
+  "schema": "hardknock.abstraction-fixture.v1",
+  "version": 1,
+  "family": "specific_exception",
+  "abstract_constraint": "reconcile uncertain mutation before retry",
+  "exception": "provider guarantees exact idempotency-key replay",
+  "expected_resolution": "specific_exception"
+}

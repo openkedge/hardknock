@@ -1,0 +1,8 @@
+{
+  "schema": "hardknock.abstraction-fixture.v1",
+  "version": 1,
+  "family": "federated_abstraction",
+  "remote_state": "authentic_advisory",
+  "local_state": "unvalidated",
+  "expected": "local_transfer_required"
+}

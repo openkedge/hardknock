@@ -32,7 +32,7 @@ pub enum PeerCommand {
     },
 }
 #[derive(Debug, Args)]
-#[command(group(clap::ArgGroup::new("object").required(true).multiple(false).args(["lesson","skill","reflex","external"])))]
+#[command(group(clap::ArgGroup::new("object").required(true).multiple(false).args(["lesson","skill","reflex","abstract_knowledge","external"])))]
 pub struct ExportArgs {
     #[arg(long)]
     pub lesson: Option<LessonId>,
@@ -40,6 +40,8 @@ pub struct ExportArgs {
     pub skill: Option<String>,
     #[arg(long)]
     pub reflex: Option<ReflexId>,
+    #[arg(long)]
+    pub abstract_knowledge: Option<AbstractKnowledgeId>,
     #[arg(long)]
     pub external: Option<FederatedObjectId>,
     #[arg(long)]
@@ -143,6 +145,8 @@ fn bundle(
         service.export_skill(name, args.labels.clone())
     } else if let Some(id) = &args.reflex {
         service.export_reflex(id, args.labels.clone())
+    } else if let Some(id) = &args.abstract_knowledge {
+        service.export_abstraction(id, args.labels.clone())
     } else if let Some(id) = &args.external {
         service.reexport(id, args.labels.clone())
     } else {
@@ -159,6 +163,8 @@ fn publish_bundle(
         .unwrap_or_default();
     if let Ok(id) = object.parse::<LessonId>() {
         service.export_lesson(&id, labels)
+    } else if let Ok(id) = object.parse::<AbstractKnowledgeId>() {
+        service.export_abstraction(&id, labels)
     } else if let Ok(id) = object.parse::<FederatedObjectId>() {
         service.reexport(&id, labels)
     } else {

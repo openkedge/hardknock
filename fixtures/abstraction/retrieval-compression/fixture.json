@@ -1,0 +1,9 @@
+{
+  "schema": "hardknock.abstraction-fixture.v1",
+  "version": 1,
+  "family": "retrieval_compression",
+  "specific_items_before": 8,
+  "abstract_items_after": 1,
+  "specializations_after": 1,
+  "source_evidence_deleted": false
+}

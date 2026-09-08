@@ -131,6 +131,7 @@ fn make_bundle(identity: &NodeIdentity, claim: &str, with_reflex: bool) -> Signe
         reflexes,
         recoveries: vec![],
         envelopes: vec![],
+        abstract_knowledge: vec![],
         provenance: ProvenanceGraph {
             nodes,
             edges: vec![],
@@ -571,6 +572,7 @@ fn thousand_bundles_and_ten_thousand_external_objects_remain_practical() {
             reflexes: vec![],
             recoveries: vec![],
             envelopes: vec![],
+            abstract_knowledge: vec![],
             provenance: ProvenanceGraph {
                 nodes,
                 edges: vec![],

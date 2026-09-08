@@ -1,5 +1,53 @@
 # Architecture
 
+## V0.17 experience abstraction and transfer
+
+```text
+ Typed local knowledge ──→ structural candidate discovery
+          │                            │
+          │                            v
+          └────────────────→ ExperiencePattern
+                                       │
+                                       v
+                              AbstractKnowledge candidate
+                                       │
+                 ┌─────────────────────┴────────────────────┐
+                 v                                          v
+       held-out paired experiment                 negative controls
+                 └─────────────────────┬────────────────────┘
+                                       v
+                    promote / narrow / contradict / defer
+                                       │
+                        ┌──────────────┴──────────────┐
+                        v                             v
+              boundary + exceptions        reversible distillation
+                        └──────────────┬──────────────┘
+                                       v
+                   bounded deterministic runtime resolution
+```
+
+`abstraction::{model,engine}` separates candidate generation from evidence and
+promotion. The default provider groups only typed shared structure; statement
+wording is excluded from the candidate signature. `TransferHypothesis` and
+`TransferEvaluationSet` keep source, held-out, and negative-control contexts
+separate. `TransferEvidence` references paired Experiment trials and carries
+existing experiment quality and epistemic-diversity classifications.
+
+Migration 021 stores current patterns/abstractions plus immutable revision and
+evidence history, boundaries, specializations, exceptions, distillations,
+representation state, negative transfers, analogy mappings, and lifecycle
+events. Distillation changes retrieval representation, never source retention.
+
+Runtime context synthesis resolves applicable knowledge without a model call.
+Specific exceptions and knowledge outrank specializations, which outrank broad
+abstractions; unresolved boundary variables remain explicit. Federation can
+carry a locally validated abstraction in a signed bundle, but the receiver sees
+advisory evidence until its own held-out experiment supports transfer. Abstract
+Constraints never become enforcing guards without an external governance step.
+
+See [experience abstraction](experience-abstraction.md) for lifecycle, CLI, and
+benchmark semantics.
+
 ## V0.16 experience economics
 
 ```text

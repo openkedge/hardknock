@@ -260,6 +260,8 @@ pub struct ExperienceProfile {
     pub predictive: crate::predictive::PredictiveExperienceSummary,
     #[serde(default)]
     pub experience_acquisition: crate::economics::ExperienceAcquisitionSummary,
+    #[serde(default)]
+    pub abstraction: crate::abstraction::AbstractionDevelopmentSummary,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ExperienceArtifactCounts {
@@ -287,6 +289,8 @@ pub struct ProfileSnapshot {
     pub predictive: crate::predictive::PredictiveExperienceSummary,
     #[serde(default)]
     pub experience_acquisition: crate::economics::ExperienceAcquisitionSummary,
+    #[serde(default)]
+    pub abstraction: crate::abstraction::AbstractionDevelopmentSummary,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -437,6 +441,14 @@ pub struct ActiveExperienceSet {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExperienceContextBundle {
     pub relevant: ActiveExperienceSet,
+    #[serde(default)]
+    pub abstract_knowledge: Vec<crate::abstraction::AbstractKnowledge>,
+    #[serde(default)]
+    pub specializations: Vec<crate::abstraction::AbstractKnowledge>,
+    #[serde(default)]
+    pub known_exceptions: Vec<crate::abstraction::KnowledgeException>,
+    #[serde(default)]
+    pub unknown_boundary_conditions: Vec<crate::abstraction::ApplicabilityClause>,
     pub known_unknowns: Vec<String>,
     pub stale_items: Vec<ExperienceRef>,
     pub contradictions: Vec<ExperienceRef>,

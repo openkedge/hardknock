@@ -2,6 +2,7 @@
 use super::{AssuranceStore, EpistemicStore, RuntimeStore, Store, ToolStore};
 use crate::{
     Error, Result,
+    abstraction::{AbstractKnowledgeKind, KnowledgeMaturity, TransferEvidenceOutcome},
     budget::ExperienceBudget,
     causal::CausalHypothesisStatus,
     curriculum::{Severity, TrialSafety},
@@ -257,7 +258,7 @@ impl Store {
             };
             let evidence_count = warning.evidence.len();
             gaps.push(ExperienceGap {
-                kind,
+                kind: kind.clone(),
                 target: ExperienceOpportunityTarget::EarlyWarning(warning.id),
                 reasons,
                 severity: Severity::High,
@@ -795,6 +796,137 @@ impl Store {
                     ..Default::default()
                 },
                 risk: risk(TrialSafety::RequiresIsolation, EffectRisk::ReadOnly, false),
+                dependencies: Vec::new(),
+            });
+        }
+
+        let representations = self.knowledge_representations()?;
+        let negative_transfers = self.negative_transfer_events()?;
+        for knowledge in self.abstract_knowledge_items()? {
+            let transfer_evidence = self.transfer_evidence_for(&knowledge.id)?;
+            let represented = representations
+                .iter()
+                .filter(|item| {
+                    matches!(
+                        &item.state,
+                        crate::abstraction::KnowledgeRepresentationState::RepresentedByAbstract(id)
+                            if id == &knowledge.id
+                    )
+                })
+                .count();
+            let negative = negative_transfers
+                .iter()
+                .filter(|item| item.knowledge == knowledge.id)
+                .count();
+            let (kind, mut reasons, novelty) = match knowledge.maturity {
+                KnowledgeMaturity::Candidate => (
+                    ExperienceOpportunityKind::ValidateAbstraction,
+                    vec![OpportunityReason::HighReuseKnowledgeFragmentation],
+                    EvidenceNovelty::ContextExtension,
+                ),
+                KnowledgeMaturity::TransferTestable | KnowledgeMaturity::Supported => (
+                    ExperienceOpportunityKind::ValidateTransfer,
+                    vec![OpportunityReason::HighReuseKnowledgeFragmentation],
+                    EvidenceNovelty::ContextExtension,
+                ),
+                KnowledgeMaturity::Overgeneralized
+                | KnowledgeMaturity::Contradicted
+                | KnowledgeMaturity::Stale => (
+                    ExperienceOpportunityKind::ChallengeAbstraction,
+                    vec![if negative > 0 {
+                        OpportunityReason::NegativeTransferObserved
+                    } else {
+                        OpportunityReason::EvidenceContradicted
+                    }],
+                    EvidenceNovelty::MechanismChallenge,
+                ),
+                KnowledgeMaturity::Validated
+                    if represented < knowledge.provenance.source_artifacts.len() =>
+                {
+                    (
+                        ExperienceOpportunityKind::ReduceKnowledgeFragmentation,
+                        vec![OpportunityReason::HighReuseKnowledgeFragmentation],
+                        EvidenceNovelty::Replication,
+                    )
+                }
+                KnowledgeMaturity::Validated | KnowledgeMaturity::Retired => continue,
+            };
+            if knowledge.kind == AbstractKnowledgeKind::AbstractConstraint
+                && matches!(
+                    knowledge.maturity,
+                    KnowledgeMaturity::Overgeneralized | KnowledgeMaturity::Contradicted
+                )
+            {
+                reasons.push(OpportunityReason::FalseConstraintRisk);
+            }
+            let member_count = knowledge.provenance.source_artifacts.len();
+            let source_contexts = knowledge.provenance.source_contexts.len();
+            let supported = transfer_evidence
+                .iter()
+                .filter(|item| item.outcome == TransferEvidenceOutcome::Supports)
+                .count();
+            let contradictions = transfer_evidence
+                .iter()
+                .filter(|item| item.outcome == TransferEvidenceOutcome::Contradicts)
+                .count()
+                + negative;
+            gaps.push(ExperienceGap {
+                kind: kind.clone(),
+                target: ExperienceOpportunityTarget::AbstractKnowledge(knowledge.id),
+                reasons,
+                severity: if knowledge.kind == AbstractKnowledgeKind::AbstractConstraint
+                    && contradictions > 0
+                {
+                    Severity::Critical
+                } else if member_count >= 10 {
+                    Severity::High
+                } else {
+                    Severity::Medium
+                },
+                exposure: exposure(u64::try_from(member_count).unwrap_or(u64::MAX)),
+                mitigation_gap: if contradictions > 0 {
+                    MitigationGap::Significant
+                } else {
+                    MitigationGap::Unknown
+                },
+                learning: learning(
+                    ValueBand::High,
+                    vec![
+                        LearningOutcomeClass::Validate,
+                        LearningOutcomeClass::NarrowScope,
+                        LearningOutcomeClass::Contradict,
+                    ],
+                    "Held-out transfer and negative controls can validate, narrow, or reject the abstraction",
+                ),
+                decision_relevance: relevance(member_count, source_contexts),
+                reuse: if member_count >= 5 {
+                    ReusePotential::Broad
+                } else {
+                    ReusePotential::Reusable
+                },
+                novelty,
+                evidence: evidence(
+                    knowledge.provenance.evidence.len(),
+                    supported,
+                    source_contexts,
+                    transfer_evidence.len(),
+                    knowledge.provenance.root_origins.len(),
+                    contradictions,
+                    knowledge.maturity != KnowledgeMaturity::Stale,
+                ),
+                estimated_cost: ExperimentCost {
+                    trials: if kind == ExperienceOpportunityKind::ReduceKnowledgeFragmentation {
+                        1
+                    } else {
+                        2
+                    },
+                    ..Default::default()
+                },
+                risk: risk(
+                    TrialSafety::RequiresIsolation,
+                    EffectRisk::ReadOnly,
+                    knowledge.kind == AbstractKnowledgeKind::AbstractConstraint,
+                ),
                 dependencies: Vec::new(),
             });
         }

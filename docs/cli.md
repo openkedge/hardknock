@@ -1,5 +1,38 @@
 # CLI reference
 
+## V0.17 experience abstraction
+
+```text
+hardknock pattern list
+hardknock pattern show <pattern-id>
+hardknock pattern candidates
+hardknock pattern explain <pattern-id>
+
+hardknock abstract list
+hardknock abstract show <abstract-id>
+hardknock abstract propose
+hardknock abstract test-transfer <abstract-id> [--target-tag TAG] [--negative-control]
+hardknock abstract validate <abstract-id>
+hardknock abstract boundary <abstract-id>
+hardknock abstract history <abstract-id>
+hardknock abstract impact <abstract-id>
+hardknock abstract benchmark
+
+hardknock federate export --abstract-knowledge <abstract-id> [--output FILE | --dry-run]
+```
+
+Candidate discovery is deterministic and uses typed shared structure, not
+statement similarity. Discovery persists stable candidate identities but does
+not promote them. `test-transfer` persists a held-out hypothesis and emits
+an equivalent-start baseline/transfer plan for the existing Experiment engine;
+it does not execute invented candidates or grant authority. `validate` applies
+the promotion policy to already recorded transfer evidence and may promote,
+defer, reject, or create a narrower revision plus exceptions.
+
+Abstract Constraints and AntiPatterns require negative controls. Federation
+exports only locally validated abstractions and imports them as advisory
+objects. See [experience abstraction](experience-abstraction.md).
+
 ## V0.13 epistemic evidence
 
 ```text
@@ -153,7 +186,7 @@ Human output includes an explicit “prepared only” message. JSON retains the 
 ```text
 peer list | add --name NAME --public-key FILE | show PEER | trust PEER | block PEER | remove PEER
 federate status
-federate export (--lesson ID | --skill NAME | --reflex ID | --external ID) [--output FILE | --dry-run]
+federate export (--lesson ID | --skill NAME | --reflex ID | --abstract-knowledge ID | --external ID) [--output FILE | --dry-run]
 federate import FILE
 federate test FEDERATED_ID [--check SCRIPT ...]
 federate promote FEDERATED_ID --experience EXPERIENCE_ID

@@ -3,6 +3,7 @@
 //! Local execution, immutable evidence, and controlled empirical learning.
 #![cfg(unix)]
 
+pub mod abstraction;
 pub mod agent;
 pub mod application;
 pub mod assurance;

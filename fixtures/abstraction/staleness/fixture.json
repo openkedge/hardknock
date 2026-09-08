@@ -1,0 +1,7 @@
+{
+  "schema": "hardknock.abstraction-fixture.v1",
+  "version": 1,
+  "family": "member_staleness",
+  "change": "provider_version_update",
+  "expected": "partially_stale"
+}

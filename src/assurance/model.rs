@@ -652,6 +652,16 @@ pub struct EvidenceManifest {
     pub capability_manifests: Vec<CapabilityManifestId>,
     #[serde(default)]
     pub effect_receipts: Vec<CommitReceiptId>,
+    /// Exact abstract knowledge revisions used to interpret or execute the
+    /// certified Skill. Empty fields are omitted to preserve legacy hashes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub abstract_knowledge: Vec<crate::abstraction::AbstractKnowledgeRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub abstraction_transfer_evidence: Vec<crate::abstraction::TransferEvidenceRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub applicable_specializations: Vec<crate::abstraction::AbstractKnowledgeRef>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub knowledge_exceptions: Vec<KnowledgeExceptionId>,
     pub policy_versions: PolicyVersions,
     #[serde(default)]
     pub summary: AssuranceEvidenceSummary,

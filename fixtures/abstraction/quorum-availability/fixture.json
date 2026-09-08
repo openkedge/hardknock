@@ -1,0 +1,9 @@
+{
+  "schema": "hardknock.abstraction-fixture.v1",
+  "version": 1,
+  "family": "quorum_availability",
+  "source_contexts": ["replicas", "cluster_members"],
+  "held_out_contexts": ["deployment_capacity"],
+  "shared_structure": ["available_members", "required_threshold"],
+  "expected": "supported_with_provider_specific_threshold_specialization"
+}

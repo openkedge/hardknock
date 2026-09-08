@@ -69,6 +69,10 @@ fn manifest(skill: SkillRevisionRef, evaluations: Vec<ContractEvaluation>) -> Ev
         envelopes: vec![],
         capability_manifests: vec![],
         effect_receipts: vec![],
+        abstract_knowledge: vec![],
+        abstraction_transfer_evidence: vec![],
+        applicable_specializations: vec![],
+        knowledge_exceptions: vec![],
         policy_versions: Default::default(),
         summary: AssuranceEvidenceSummary {
             contract_evaluations: evaluations,

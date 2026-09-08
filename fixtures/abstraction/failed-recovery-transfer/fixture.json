@@ -1,0 +1,7 @@
+{
+  "schema": "hardknock.abstraction-fixture.v1",
+  "version": 1,
+  "family": "failed_recovery_transfer",
+  "target_consistency": "eventually_consistent_fanout",
+  "expected": ["negative_transfer_event", "scope_narrowed"]
+}

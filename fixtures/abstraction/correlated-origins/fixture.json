@@ -1,0 +1,8 @@
+{
+  "schema": "hardknock.abstraction-fixture.v1",
+  "version": 1,
+  "family": "correlated_origins",
+  "derived_artifacts": 10,
+  "root_origins": 1,
+  "expected": "more_evidence_required"
+}

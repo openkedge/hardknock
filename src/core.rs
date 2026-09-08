@@ -150,6 +150,13 @@ identifier!(ExperienceOpportunityId, "opportunity-");
 identifier!(ExperiencePortfolioId, "portfolio-");
 identifier!(ExperienceAllocationPolicyId, "allocation-policy-");
 identifier!(ExperienceBudgetLedgerId, "budget-ledger-");
+identifier!(ExperiencePatternId, "pattern-");
+identifier!(AbstractKnowledgeId, "abstract-");
+identifier!(TransferHypothesisId, "transfer-hypothesis-");
+identifier!(TransferEvidenceId, "transfer-evidence-");
+identifier!(KnowledgeExceptionId, "knowledge-exception-");
+identifier!(KnowledgeDistillationId, "distillation-");
+identifier!(AnalogyMappingId, "analogy-");
 
 impl BehavioralConditionId {
     /// Stable identity for a canonical condition fingerprint. This is not a

@@ -3,6 +3,7 @@
 use crate::epistemic::RuntimeDiversityRequirement;
 use chrono::{Duration, Utc};
 
+use crate::abstraction::KnowledgeResolutionPolicy;
 use crate::{
     Result,
     assurance::{AssuranceGap, AssuranceGapKind, CertificationStatus, SkillCertification},
@@ -271,6 +272,7 @@ impl RuntimeContextSynthesizer<'_> {
         );
 
         let mut context = RuntimeDecisionContext {
+            knowledge_resolution: Default::default(),
             causal: self.store.causal_runtime_guidance(
                 &request.query_context,
                 request
@@ -315,6 +317,12 @@ impl RuntimeContextSynthesizer<'_> {
             epistemic: None,
             diversity_requirements: Vec::new(),
         };
+        context.knowledge_resolution =
+            crate::abstraction::DeterministicKnowledgeResolutionPolicy
+                .resolve(&context, &self.store.runtime_abstraction_candidates()?)?;
+        if !context.knowledge_resolution.selected.is_empty() {
+            context.knowledge_signals.local_supported = true;
+        }
         if let Some(claim) = self
             .store
             .claims()?

@@ -507,6 +507,7 @@ fn portfolio_category(kind: &ExperienceOpportunityKind) -> EvidencePortfolioCate
         ExperienceOpportunityKind::ResolveContradiction
         | ExperienceOpportunityKind::ChallengeCausalHypothesis
         | ExperienceOpportunityKind::DiscriminateCausalHypotheses
+        | ExperienceOpportunityKind::ChallengeAbstraction
         | ExperienceOpportunityKind::ReduceReflexFalsePositives
         | ExperienceOpportunityKind::ReduceForecastFalsePositives => {
             EvidencePortfolioCategory::Challenge
@@ -514,7 +515,8 @@ fn portfolio_category(kind: &ExperienceOpportunityKind) -> EvidencePortfolioCate
         ExperienceOpportunityKind::ExploreOperatingEnvelope
         | ExperienceOpportunityKind::InvestigateForecastMiss
         | ExperienceOpportunityKind::ResolveRuntimeUnknown
-        | ExperienceOpportunityKind::IncreaseEvidenceDiversity => {
+        | ExperienceOpportunityKind::IncreaseEvidenceDiversity
+        | ExperienceOpportunityKind::ReduceKnowledgeFragmentation => {
             EvidencePortfolioCategory::Discovery
         }
         ExperienceOpportunityKind::HardenSkill => EvidencePortfolioCategory::Hardening,
@@ -528,6 +530,8 @@ fn portfolio_category(kind: &ExperienceOpportunityKind) -> EvidencePortfolioCate
         | ExperienceOpportunityKind::ValidateReflex
         | ExperienceOpportunityKind::ReproduceFederatedExperience
         | ExperienceOpportunityKind::CloseAssuranceGap
+        | ExperienceOpportunityKind::ValidateAbstraction
+        | ExperienceOpportunityKind::ValidateTransfer
         | ExperienceOpportunityKind::Custom(_) => EvidencePortfolioCategory::Validation,
     }
 }
@@ -845,6 +849,26 @@ impl ExperienceOpportunityCompiler for DeterministicExperienceOpportunityCompile
                 Ok(ExecutableLearningPlan::Curriculum {
                     target,
                     goal: Goal::ResolveContradiction,
+                })
+            }
+            (
+                ExperienceOpportunityKind::ValidateAbstraction
+                | ExperienceOpportunityKind::ValidateTransfer,
+                _,
+            ) => Ok(ExecutableLearningPlan::Experiment {
+                target,
+                intent: ExperimentIntent::ValidateTransfer,
+            }),
+            (ExperienceOpportunityKind::ChallengeAbstraction, _) => {
+                Ok(ExecutableLearningPlan::Curriculum {
+                    target,
+                    goal: Goal::ChallengeAbstraction,
+                })
+            }
+            (ExperienceOpportunityKind::ReduceKnowledgeFragmentation, _) => {
+                Ok(ExecutableLearningPlan::Curriculum {
+                    target,
+                    goal: Goal::FindGeneralizationBoundary,
                 })
             }
             _ => Ok(ExecutableLearningPlan::Experiment {

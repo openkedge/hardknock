@@ -2,7 +2,7 @@
 
 ## From Safe Failure to Durable, Executable Operational Knowledge
 
-_Last updated: September 7, 2026 · Current local implementation: V0.16 · Next planned product increment: V0.17_
+_Last updated: September 7, 2026 · Current local implementation: V0.17 · Next planned product increment: V0.18_
 
 ## Status and reading guide
 
@@ -19,14 +19,15 @@ Hardknock. Status language is deliberately conservative:
 
 | Horizon | Status | Focus |
 | --- | --- | --- |
-| V0.1–V0.16 | Implemented locally; architecture refinement continues | Experience capture through experience economics |
-| V0.17 | Planned next | Safe abstraction, generalization boundaries, and held-out transfer |
-| V0.18–V0.20 | Planned | Hierarchical knowledge, composition, and long-horizon experience |
+| V0.1–V0.17 | Implemented locally; architecture refinement continues | Experience capture through safe abstraction and held-out transfer |
+| V0.18 | Planned next | Hierarchical operational knowledge and precedence semantics |
+| V0.19–V0.20 | Planned | Composition and long-horizon experience |
 | V0.21+ | Directional | Organizational, continuous, and production Hardknock |
 | Runtime/provider acceptance | Ongoing in parallel | Containers, PostgreSQL, installed agents, and provider measurements |
 
 The current shipped boundary is documented in the
-[V0.16 implementation report](implementation-v016.md). Local implementation is
+[V0.17 implementation report](implementation-v017.md), with operating semantics
+in the [experience abstraction guide](experience-abstraction.md). Local implementation is
 not evidence of universal production safety, and aspirational schemas below
 must not be read as already shipped APIs.
 
@@ -1267,7 +1268,11 @@ A Constraint that blocks legitimate work across thousands of tasks may deserve f
 
 # V0.17 — Experience Abstraction and Safe Generalization
 
-This remains the right next frontier, but the architecture update makes its purpose clearer.
+**Status: implemented locally in V0.17.** See the
+[experience abstraction guide](experience-abstraction.md) and
+[V0.17 implementation report](implementation-v017.md). Provider-scale and live
+agent acceptance remain ongoing; the roadmap below preserves the architectural
+intent and boundary for the delivered implementation.
 
 ## Problem
 

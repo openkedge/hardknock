@@ -93,6 +93,10 @@ pub enum CurriculumGoalKind {
     ImproveForecastCalibration,
     ReduceForecastFalsePositives,
     ValidatePreventiveIntervention,
+    ChallengeAbstraction,
+    FindGeneralizationBoundary,
+    ValidateTransfer,
+    ReduceFalseConstraintRate,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

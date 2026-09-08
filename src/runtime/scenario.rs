@@ -186,6 +186,7 @@ impl RuntimeScenario {
             tags: self.context.tags.clone(),
         };
         Ok(RuntimeDecisionContext {
+            knowledge_resolution: Default::default(),
             session_id: HardknockSessionId::new(),
             agent: AgentIdentity {
                 kind: "deterministic-scenario".into(),

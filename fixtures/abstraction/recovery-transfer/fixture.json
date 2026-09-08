@@ -1,0 +1,9 @@
+{
+  "schema": "hardknock.abstraction-fixture.v1",
+  "version": 1,
+  "family": "recovery_transfer",
+  "source_recoveries": ["reread_row", "refresh_resource_version"],
+  "held_out_recovery": "fetch_object_metadata",
+  "mechanism": "reestablish_authoritative_state",
+  "expected": "success"
+}

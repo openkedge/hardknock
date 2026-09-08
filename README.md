@@ -27,28 +27,61 @@ Hardknock preserves evidence from each attempt, uses reflection to propose lesso
 
 **Every knock leaves a lesson.**
 
-> **Pre-alpha · V0.16 experience economics.** Hardknock turns unresolved evidence gaps into an explainable portfolio, reserves a finite acquisition budget for high-impact uncertainty, stops when marginal evidence value collapses, and records actual learning yield. See the [experience economics guide](docs/experience-economics.md), [V0.16 implementation report](docs/implementation-v016.md), and [predictive experience guide](docs/predictive-experience.md).
+> **Pre-alpha · V0.17 experience abstraction.** Hardknock discovers shared operational structure, tests candidate knowledge in held-out contexts, narrows it with counterexamples, and preserves every specific source and exception. See the [experience abstraction guide](docs/experience-abstraction.md), [V0.17 implementation report](docs/implementation-v017.md), and [complete roadmap](docs/roadmap.md).
 
 ## Project roadmap
 
-**V0.16 is implemented locally. V0.17 is the next planned product increment.**
-The next phase focuses on distilling validated local experience into reusable
-abstractions and testing whether those abstractions transfer to held-out
-contexts without losing provenance, scope, contradictions, or trust boundaries.
+**V0.17 is implemented locally. V0.18 is the next planned product increment.**
+The next phase focuses on hierarchical operational knowledge: explicit
+inheritance, specialization, exception, contradiction, scope precedence, and
+staleness propagation across several abstraction layers.
 Live provider acceptance and cross-agent integration hardening continue in
 parallel with that product work.
 
 | Horizon | Status | Focus |
 | --- | --- | --- |
 | V0.16 — Experience economics | Implemented locally | Bounded portfolios, saturation, budget reservation, adaptive replanning, and learning-yield reporting |
-| V0.17 — Experience abstraction | Planned next | Evidence-linked distillation and controlled cross-context transfer |
-| V0.18–V0.20 | Planned | Hierarchical knowledge, composition safety, and long-horizon experience |
+| V0.17 — Experience abstraction | Implemented locally | Structural patterns, held-out transfer, negative controls, boundaries, exceptions, and reversible distillation |
+| V0.18–V0.20 | Planned next | Hierarchical knowledge, composition safety, and long-horizon experience |
 | V0.21+ | Directional | Organizational experience, governed continuous learning, and production hardening |
 | Runtime and agent acceptance | Ongoing | Live containers, PostgreSQL, installed-agent workflows, and provider measurements |
 
 **[Read the complete Hardknock project roadmap →](docs/roadmap.md)** It includes
 the canonical knowledge model, governed lifecycle, milestones through V0.24+,
 measurement framework, release eras, and parallel acceptance boundaries.
+
+## Learn the Rule—And Its Exceptions
+
+Three failures can look unrelated in prose while sharing the same operational
+mechanism. Three similar messages can also have completely different causes.
+V0.17 discovers candidates from typed structure, then requires behavioral
+transfer evidence before treating the common shape as durable knowledge.
+
+```text
+Specific knowledge → structural pattern → candidate abstraction
+                                            ↓
+                             held-out pair + negative controls
+                                            ↓
+                     validate / narrow / contradict / retain unknown
+                                            ↓
+                        bounded runtime resolution + provenance
+```
+
+```bash
+hardknock pattern candidates
+hardknock abstract propose
+hardknock abstract test-transfer abstract-<uuid> --target-tag object-store
+hardknock abstract validate abstract-<uuid>
+hardknock abstract boundary abstract-<uuid>
+hardknock abstract benchmark
+```
+
+**Generalize only as far as transfer evidence permits.** Specific exceptions
+override broad knowledge, unknown boundary conditions remain visible, and
+distillation never deletes source evidence. A remote abstraction is advisory
+until locally tested. An abstract Constraint can become a guard candidate, but
+Hardknock never grants it enforcement authority; external governance remains a
+separate step.
 
 ## Not Every Unknown Deserves an Experiment
 
@@ -255,7 +288,7 @@ Try `hardknock tool list`, `hardknock tool show run-tests`, and
 silent downgrade. Plain Docker endpoint allow-lists fail closed until an
 enforceable runtime-specific network policy is configured.
 
-[Roadmap](docs/roadmap.md) · [Works With Your Agent](#works-with-your-agent) · [Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
+[Roadmap](docs/roadmap.md) · [Experience abstraction](docs/experience-abstraction.md) · [Works With Your Agent](#works-with-your-agent) · [Run the prototype](#run-the-current-prototype) · [Run the learning demo](#run-the-learning-demo) · [Chaos demo](#dont-wait-for-useful-mistakes) · [Experience](#experience-is-evidence) · [Scope](#v01-scope) · [Contributing](#contributing)
 
 ## Run the current prototype
 
@@ -278,7 +311,7 @@ Use a repository with a committed starting state and no staged, unstaged, or unt
 
 **Experimental safety boundary:** Git worktrees are not secure sandboxes. Network, credentials, the host filesystem, and Git objects/refs are shared. Run only trusted commands on disposable tasks. Process exit zero is **not task success**; pass one or more `--check` commands to evaluate the result. No checks means task success is unknown.
 
-V0.4 adds agent-native experiments; V0.5 adds curricula; V0.6 adds development profiles; V0.7 adds signed evidence federation; V0.8 adds transactional Effects; V0.9 adds capability-isolated execution; V0.10 adds portable micro-sandbox tools and attestations; V0.11 adds behavioral contracts and empirical certification; V0.12 adds evidence-guided runtime control; V0.13 adds dependency-aware evidence diversity and common-mode challenges; V0.14 adds explicit causal hypotheses and intervention tests; V0.15 adds predictive trajectories and controlled prevention; V0.16 adds bounded experience portfolios and adaptive acquisition economics. See the [CLI reference](docs/cli.md), [experience economics guide](docs/experience-economics.md), and [roadmap](docs/roadmap.md).
+V0.4 adds agent-native experiments; V0.5 adds curricula; V0.6 adds development profiles; V0.7 adds signed evidence federation; V0.8 adds transactional Effects; V0.9 adds capability-isolated execution; V0.10 adds portable micro-sandbox tools and attestations; V0.11 adds behavioral contracts and empirical certification; V0.12 adds evidence-guided runtime control; V0.13 adds dependency-aware evidence diversity and common-mode challenges; V0.14 adds explicit causal hypotheses and intervention tests; V0.15 adds predictive trajectories and controlled prevention; V0.16 adds bounded experience portfolios and adaptive acquisition economics; V0.17 adds structural abstraction, held-out transfer, generalization boundaries, and reversible distillation. See the [CLI reference](docs/cli.md), [experience abstraction guide](docs/experience-abstraction.md), and [roadmap](docs/roadmap.md).
 
 ## A Sandbox Can't Unsend an Email
 
@@ -1012,11 +1045,12 @@ The broader release goals below include work beyond the implemented local loop. 
 | **V0.14 — Causal Experience** | Explicit hypotheses, controlled intervention pairs, scoped models, and refinement candidates |
 | **V0.15 — Predictive Experience** | Implemented locally: calibrated trajectory forecasts, negative-control refinement, controlled prevention, and explicit misses |
 | **V0.16 — Experience Economics** | Implemented locally: explicit opportunities, contextual saturation, bounded budget ledgers, explainable portfolios, adaptive replanning, and fixed-budget comparison |
-| **V0.17 — Experience Abstraction and Transfer** | Next: distill validated experience into reusable cross-context abstractions without erasing scope or provenance |
+| **V0.17 — Experience Abstraction and Transfer** | Implemented locally: structural patterns, held-out behavioral transfer, negative controls, boundaries, exceptions, reversible distillation, and bounded runtime resolution |
+| **V0.18 — Hierarchical Operational Knowledge** | Next: explicit inheritance, specialization, exception, contradiction, scope precedence, and staleness propagation |
 
 ## Project status
 
-Hardknock is a **pre-alpha empirical learning prototype**. The local learning, resilience, assurance, adaptive runtime-control, causal, predictive, and experience-allocation loops are implemented and tested. It builds from source; no release package is published. CI is configured for Linux and macOS; this V0.16 pass was verified locally on macOS.
+Hardknock is a **pre-alpha empirical learning prototype**. The local learning, resilience, assurance, adaptive runtime-control, causal, predictive, experience-allocation, and abstraction-transfer loops are implemented and tested. It builds from source; no release package is published. CI is configured for Linux and macOS; this V0.17 pass was verified locally on macOS.
 
 The fixtures demonstrate limited transfer from one task to a related, distinct repository. They do not establish general agent performance or universal causal claims. APIs, command syntax, and schemas remain subject to change.
 

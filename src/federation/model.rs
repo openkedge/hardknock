@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 use crate::{
     Error, Result,
+    abstraction::{
+        AbstractKnowledgeKind, ApplicabilityPredicate, GeneralizationBoundary, GeneralizationRisk,
+        KnowledgeMaturity,
+    },
     core::{AgentIdentity, FederatedConflictId, FederatedObjectId, FederationReproductionId},
     experience::Outcome,
     lesson::{ActionPattern, ConfidenceScore, ContextSelector, LessonStatus},
@@ -258,6 +262,21 @@ pub struct PortableOperatingEnvelope {
     pub evidence_hashes: Vec<String>,
     pub provenance_ref: ProvenanceNodeId,
 }
+/// A signed, portable abstraction. Receiving nodes must keep it advisory until
+/// locally supported by a held-out transfer experiment.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PortableAbstractKnowledge {
+    pub identity: FederatedObjectIdentity,
+    pub kind: AbstractKnowledgeKind,
+    pub statement: String,
+    pub applicability: ApplicabilityPredicate,
+    pub generalization_boundary: GeneralizationBoundary,
+    pub source_maturity: KnowledgeMaturity,
+    pub risk: GeneralizationRisk,
+    pub source_contexts: Vec<EvidenceContext>,
+    pub evidence_summary: PortableEvidenceSummary,
+    pub provenance_ref: ProvenanceNodeId,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProvenanceNodeKind {
@@ -267,6 +286,7 @@ pub enum ProvenanceNodeKind {
     Skill,
     Reflex,
     Recovery,
+    AbstractKnowledge,
     Bundle,
     Node,
 }
@@ -312,6 +332,8 @@ pub struct ExperienceBundle {
     pub reflexes: Vec<PortableReflex>,
     pub recoveries: Vec<PortableRecovery>,
     pub envelopes: Vec<PortableOperatingEnvelope>,
+    #[serde(default)]
+    pub abstract_knowledge: Vec<PortableAbstractKnowledge>,
     pub provenance: ProvenanceGraph,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -768,6 +790,7 @@ impl ExperienceBundle {
             + self.reflexes.len()
             + self.recoveries.len()
             + self.envelopes.len()
+            + self.abstract_knowledge.len()
     }
     pub(crate) fn id_material(&self) -> Result<Vec<u8>> {
         let mut clone = self.clone();

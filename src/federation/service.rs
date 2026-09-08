@@ -57,9 +57,22 @@ impl ExperiencePublishPolicy for ConservativePublishPolicy<'_> {
                     ));
                 }
             }
+            "abstract_knowledge" => {
+                let knowledge = self.store.abstract_knowledge(&object.id.parse()?)?;
+                if knowledge.maturity != crate::abstraction::KnowledgeMaturity::Validated {
+                    return Err(Error::Intervention(
+                        "Only locally validated abstract knowledge is exportable".into(),
+                    ));
+                }
+                if knowledge.provenance.origin != crate::abstraction::KnowledgeOrigin::Local {
+                    return Err(Error::Intervention(
+                        "Federated abstractions require local validation before re-export".into(),
+                    ));
+                }
+            }
             _ => {
                 return Err(Error::InvalidInput(
-                    "V0.7 exports Lesson objects and Skill packages".into(),
+                    "Federation exports Lessons, Skills, and locally validated abstractions".into(),
                 ));
             }
         }
@@ -75,6 +88,11 @@ pub trait FederationService {
         labels: Vec<String>,
     ) -> Result<SignedExperienceBundle>;
     fn export_skill(&self, name: &str, labels: Vec<String>) -> Result<SignedExperienceBundle>;
+    fn export_abstraction(
+        &self,
+        id: &crate::core::AbstractKnowledgeId,
+        labels: Vec<String>,
+    ) -> Result<SignedExperienceBundle>;
     fn import(&self, signed: SignedExperienceBundle, local: &QueryContext) -> Result<ImportReport>;
     fn evaluate_external(
         &self,
@@ -328,12 +346,16 @@ impl LocalFederationService<'_> {
         let mut reflexes = vec![];
         let mut recoveries = vec![];
         let mut envelopes = vec![];
+        let mut abstract_knowledge = vec![];
         match object.object_type.as_str() {
             "lesson" => lessons.push(serde_json::from_value(object.object.clone())?),
             "skill" => skills.push(serde_json::from_value(object.object.clone())?),
             "reflex" => reflexes.push(serde_json::from_value(object.object.clone())?),
             "recovery" => recoveries.push(serde_json::from_value(object.object.clone())?),
             "envelope" => envelopes.push(serde_json::from_value(object.object.clone())?),
+            "abstract_knowledge" => {
+                abstract_knowledge.push(serde_json::from_value(object.object.clone())?)
+            }
             _ => {
                 return Err(Error::InvalidInput(
                     "This external object type cannot be re-exported".into(),
@@ -396,6 +418,7 @@ impl LocalFederationService<'_> {
                 reflexes,
                 recoveries,
                 envelopes,
+                abstract_knowledge,
                 provenance: graph,
             },
             None,
@@ -453,6 +476,7 @@ impl LocalFederationService<'_> {
                 reflexes: vec![portable],
                 recoveries: vec![],
                 envelopes: vec![],
+                abstract_knowledge: vec![],
                 provenance: ProvenanceGraph {
                     nodes: vec![
                         exp_node,
@@ -665,6 +689,7 @@ impl FederationService for LocalFederationService<'_> {
                 reflexes: vec![],
                 recoveries: vec![],
                 envelopes: vec![],
+                abstract_knowledge: vec![],
                 provenance: ProvenanceGraph {
                     nodes: pnodes,
                     edges: pedges,
@@ -716,6 +741,7 @@ impl FederationService for LocalFederationService<'_> {
                 reflexes: vec![],
                 recoveries: vec![],
                 envelopes: vec![],
+                abstract_knowledge: vec![],
                 provenance: ProvenanceGraph {
                     nodes: vec![
                         pnode,
@@ -736,6 +762,104 @@ impl FederationService for LocalFederationService<'_> {
                 },
             },
             Some(&source.context.repository.path),
+        )
+    }
+    fn export_abstraction(
+        &self,
+        id: &crate::core::AbstractKnowledgeId,
+        labels: Vec<String>,
+    ) -> Result<SignedExperienceBundle> {
+        ConservativePublishPolicy { store: self.store }.can_publish(&ExperienceObjectRef {
+            kind: "abstract_knowledge".into(),
+            id: id.to_string(),
+        })?;
+        let identity = self.identity()?;
+        let knowledge = self.store.abstract_knowledge(id)?;
+        let transfer = self.store.transfer_evidence_for(id)?;
+        let contradictions = self
+            .store
+            .negative_transfer_events()?
+            .into_iter()
+            .filter(|event| event.knowledge == *id)
+            .count();
+        let portable_identity = Self::identity_for(
+            &identity.node.id,
+            "abstract_knowledge",
+            &knowledge.id.to_string(),
+            &(
+                knowledge.revision,
+                knowledge.kind,
+                &knowledge.statement,
+                &knowledge.applicability,
+                &knowledge.generalization_boundary,
+            ),
+        )?;
+        let provenance_ref = Self::provenance_id(&(
+            &identity.node.id,
+            "abstract_knowledge",
+            &portable_identity.lineage_hash,
+        ))?;
+        let evidence_hashes = knowledge
+            .provenance
+            .evidence
+            .iter()
+            .map(Self::hash)
+            .collect::<Result<Vec<_>>>()?;
+        let portable = PortableAbstractKnowledge {
+            identity: portable_identity.clone(),
+            kind: knowledge.kind,
+            statement: knowledge.statement.clone(),
+            applicability: knowledge.applicability,
+            generalization_boundary: knowledge.generalization_boundary,
+            source_maturity: knowledge.maturity,
+            risk: knowledge.risk,
+            source_contexts: knowledge
+                .provenance
+                .source_contexts
+                .iter()
+                .map(context_from_selector)
+                .collect(),
+            evidence_summary: PortableEvidenceSummary {
+                support_count: transfer
+                    .iter()
+                    .filter(|e| e.outcome == crate::abstraction::TransferEvidenceOutcome::Supports)
+                    .count(),
+                contradiction_count: contradictions,
+                experiment_count: transfer.len(),
+                application_count: transfer.iter().filter(|e| e.application_triggered).count(),
+                evaluation_summaries: transfer
+                    .iter()
+                    .map(|e| e.observable_behavior.clone())
+                    .collect(),
+                evidence_hashes,
+            },
+            provenance_ref: provenance_ref.clone(),
+        };
+        let manifest = Self::base_manifest(&identity.node.id, ExportScope::Object, labels, 1)?;
+        self.finish_bundle(
+            ExperienceBundle {
+                manifest,
+                experiences: vec![],
+                lessons: vec![],
+                skills: vec![],
+                experiments: vec![],
+                reflexes: vec![],
+                recoveries: vec![],
+                envelopes: vec![],
+                abstract_knowledge: vec![portable],
+                provenance: ProvenanceGraph {
+                    nodes: vec![ProvenanceNode {
+                        id: provenance_ref,
+                        kind: ProvenanceNodeKind::AbstractKnowledge,
+                        external_id: knowledge.id.to_string(),
+                        node: identity.node.id.clone(),
+                        lineage_hash: Some(portable_identity.lineage_hash),
+                        summary: knowledge.statement,
+                    }],
+                    edges: vec![],
+                },
+            },
+            None,
         )
     }
     fn import(&self, signed: SignedExperienceBundle, local: &QueryContext) -> Result<ImportReport> {
@@ -1154,6 +1278,7 @@ fn provenance_kind(kind: &str) -> Result<ProvenanceNodeKind> {
         "reflex" => Ok(ProvenanceNodeKind::Reflex),
         "recovery" => Ok(ProvenanceNodeKind::Recovery),
         "envelope" => Ok(ProvenanceNodeKind::Skill),
+        "abstract_knowledge" => Ok(ProvenanceNodeKind::AbstractKnowledge),
         _ => Err(Error::InvalidInput("Unknown portable object kind".into())),
     }
 }
@@ -1221,6 +1346,14 @@ fn portable_values(
             "envelope",
             v.identity.clone(),
             v.context.clone(),
+            serde_json::to_value(v)?,
+        ))
+    }
+    for v in &bundle.abstract_knowledge {
+        out.push((
+            "abstract_knowledge",
+            v.identity.clone(),
+            v.source_contexts.first().cloned().unwrap_or_default(),
             serde_json::to_value(v)?,
         ))
     }

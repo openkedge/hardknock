@@ -345,6 +345,8 @@ impl ExperimentCapabilitySummary {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeDecisionContext {
+    #[serde(default)]
+    pub knowledge_resolution: crate::abstraction::KnowledgeResolution,
     #[serde(
         default,
         skip_serializing_if = "crate::causal::CausalRuntimeGuidance::is_empty"

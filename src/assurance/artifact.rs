@@ -64,6 +64,10 @@ impl EvidenceManifest {
         sort_dedup!(self.envelopes);
         sort_dedup!(self.capability_manifests);
         sort_dedup!(self.effect_receipts);
+        sort_dedup!(self.abstract_knowledge);
+        sort_dedup!(self.abstraction_transfer_evidence);
+        sort_dedup!(self.applicable_specializations);
+        sort_dedup!(self.knowledge_exceptions);
         self.summary.known_unknowns.sort();
         self.summary.known_unknowns.dedup();
         self.summary

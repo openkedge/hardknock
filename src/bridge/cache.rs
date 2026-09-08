@@ -491,6 +491,7 @@ impl ExperienceHotCache {
             uncertainty_reasons.push(UncertaintyReason::FailedPrediction);
         }
         let decision_context = RuntimeDecisionContext {
+            knowledge_resolution: Default::default(),
             session_id: crate::core::HardknockSessionId::from_external(
                 &proposed.hardknock_session_id,
             ),

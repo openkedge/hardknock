@@ -310,5 +310,6 @@ pub fn snapshot(profile: &ExperienceProfile) -> ProfileSnapshot {
         runtime_control: profile.runtime_control.clone(),
         predictive: profile.predictive.clone(),
         experience_acquisition: profile.experience_acquisition.clone(),
+        abstraction: profile.abstraction.clone(),
     }
 }
