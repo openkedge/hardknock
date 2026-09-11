@@ -206,6 +206,9 @@ impl AssuranceStore for Store {
                 Some(sql_u64(skill.revision)?),
             ),
             EvidenceSubject::Tool(tool) => ("tool", tool.to_string(), None),
+            EvidenceSubject::Knowledge(knowledge) => {
+                ("knowledge", knowledge.artifact.id.clone(), None)
+            }
         };
         self.connection.execute(
             "INSERT INTO evidence_manifests(id,subject_kind,subject_id,subject_revision,evidence_hash,generated_at,data) VALUES(?1,?2,?3,?4,?5,?6,?7)",
@@ -881,6 +884,9 @@ fn validate_manifest_references(store: &Store, manifest: &EvidenceManifest) -> R
             sql_u64(skill.revision)?,
         )?,
         EvidenceSubject::Tool(tool) => require_id(store, "tool_definitions", &tool.to_string())?,
+        EvidenceSubject::Knowledge(knowledge) => {
+            store.operational_revision(knowledge)?;
+        }
     }
     for id in &manifest.experiences {
         require_id(store, "experiences", &id.to_string())?;

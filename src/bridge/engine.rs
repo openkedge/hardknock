@@ -518,7 +518,8 @@ impl Bridge {
                     sanitize_action(&mut proposed.action)?;
                     if let Some(existing) = s.actions.iter().find(|a|a.action_id == proposed.action_id) {
                         if existing.action != proposed.action { return Err(invalid("Action id reused with different action")); }
-                        return Ok(serde_json::to_value(&existing.decision)?);
+                        if Store::open(&self.home)?.knowledge_hierarchies()?.is_empty() { return Ok(serde_json::to_value(&existing.decision)?); }
+                        return Err(Error::Intervention("Repeat action requires a new action id and fresh knowledge resolution".into()));
                     }
                     if s.actions.len() >= self.config.bridge.max_actions { return Err(invalid("Session action budget exhausted")); }
                     let (mut runtime_context,mut runtime_evaluation)=self.cache.read().expect("cache lock").evaluate_runtime(RuntimeEvaluationRequest {
@@ -549,6 +550,13 @@ impl Bridge {
                             self.enqueue_trajectory_event(trajectory_id.clone(),trajectory_event)?;
                         }
                     }
+                    runtime_context.knowledge_action_id=Some(proposed.action_id.clone());
+                    let knowledge_store = Store::open(&self.home)?;
+                    for (key,value) in &proposed.context.knowledge_reports {runtime_context.context_observations.entry(key.clone()).or_default().push(crate::knowledge_runtime::ContextValue{value:value.clone(),source:crate::knowledge_runtime::ContextValueSource::AgentReported});}
+                    knowledge_store.attach_runtime_knowledge(&mut runtime_context)?;
+                    if runtime_context.operational_knowledge.is_some() {
+                        runtime_evaluation=crate::runtime::DeterministicRuntimeController::with_config(self.config.runtime.policy_config())?.evaluate(&runtime_context)?;
+                    }
                     let decision = bridge_decision_from_runtime(&runtime_evaluation,self.config.runtime.mode);
                     let runtime_record=crate::runtime::RuntimeDecisionRecord {
                         id: RuntimeDecisionId::new(),
@@ -559,7 +567,9 @@ impl Bridge {
                         evaluation: runtime_evaluation,
                         created_at: Utc::now(),
                     };
-                    self.enqueue_runtime_decision(runtime_record.clone())?;
+                    if runtime_record.context.operational_knowledge.is_some() {
+                        knowledge_store.persist_runtime_decision(&runtime_record,self.config.runtime.policy_config())?;
+                    } else { self.enqueue_runtime_decision(runtime_record.clone())?; }
                     // Deliver matching action-time advice as well as startup context.
                     if matches!(&proposed.action, NormalizedAction::Shell { .. }) {
                         // Runtime evaluation already ranked this exact context/action. Reuse its
@@ -574,7 +584,9 @@ impl Bridge {
                     s.revision += 1;
                     self.enqueue(&s.id,"action_proposed",json!({"action_id":proposed.action_id,"decision":decision,"runtime_decision_id":runtime_record.id}))?;
                     if matches!(decision,ActionDecision::Warn{..}|ActionDecision::Replan{..}) { self.enqueue(&s.id,"reflex_matched",json!({"action_id":proposed.action_id}))?; }
-                    Ok(serde_json::to_value(decision)?)
+                    let mut response=serde_json::to_value(decision)?;
+                    if let Some(k)=&runtime_record.context.operational_knowledge { response["knowledge"]=serde_json::to_value(&k.bundle)?; }
+                    Ok(response)
                 })
             }
             AgentEvent::RuntimeDecisionRequested(request) => self.handle(
@@ -791,7 +803,7 @@ impl Bridge {
             &self.config.development,
         )?;
         // Only bounded summaries/IDs cross the Bridge, never full Lessons or raw artifacts.
-        let mut value = json!({"relevant":{"lessons":response.relevant_experience.iter().map(|b|&b.id).collect::<Vec<_>>(),"reflexes":bundle.relevant.reflexes,"recoveries":bundle.relevant.recoveries},"known_unknowns":bundle.known_unknowns.iter().take(8).map(|s|redact(s,256)).collect::<Vec<_>>(),"stale_items":bundle.stale_items,"contradictions":bundle.contradictions,"recommendations":bundle.recommendations.iter().take(3).map(|s|redact(s,256)).collect::<Vec<_>>(),"auto_run":false});
+        let mut value = json!({"relevant":{"lessons":response.relevant_experience.iter().map(|b|&b.id).collect::<Vec<_>>(),"reflexes":bundle.relevant.reflexes,"recoveries":bundle.relevant.recoveries},"known_unknowns":bundle.known_unknowns.iter().take(8).map(|s|redact(s,256)).collect::<Vec<_>>(),"stale_items":bundle.stale_items,"contradictions":bundle.contradictions,"recommendations":bundle.recommendations.iter().take(3).map(|s|redact(s,256)).collect::<Vec<_>>(),"auto_run":false,"knowledge":bundle.knowledge});
         redact_value(&mut value);
         response.development_context = Some(value);
         if serde_json::to_vec(&response)?.len() > self.config.bridge.max_context_bytes {

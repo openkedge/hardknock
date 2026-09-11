@@ -23,6 +23,7 @@ pub enum KnowledgeArtifactKind {
     Recovery,
     CausalMechanism,
     FailureTrajectory,
+    AbstractKnowledge(AbstractKnowledgeKind),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -54,6 +55,13 @@ impl From<KnowledgeArtifactKind> for ExperiencePatternKind {
             KnowledgeArtifactKind::Recovery => Self::Recovery,
             KnowledgeArtifactKind::CausalMechanism => Self::CausalMechanism,
             KnowledgeArtifactKind::FailureTrajectory => Self::FailureTrajectory,
+            KnowledgeArtifactKind::AbstractKnowledge(kind) => match kind {
+                AbstractKnowledgeKind::AbstractLesson => Self::Lesson,
+                AbstractKnowledgeKind::AbstractSkill => Self::Skill,
+                AbstractKnowledgeKind::AbstractConstraint => Self::Constraint,
+                AbstractKnowledgeKind::AbstractAntiPattern => Self::AntiPattern,
+                AbstractKnowledgeKind::AbstractRecovery => Self::Recovery,
+            },
         }
     }
 }
@@ -200,7 +208,7 @@ impl Default for AbstractionContext {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AbstractKnowledgeKind {
     AbstractLesson,
@@ -610,6 +618,7 @@ pub struct TransferEvidenceHealth {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AbstractionFreshnessStatus {
+    Unknown,
     Fresh,
     PartiallyStale,
     Stale,

@@ -272,6 +272,9 @@ impl RuntimeContextSynthesizer<'_> {
         );
 
         let mut context = RuntimeDecisionContext {
+            knowledge_action_id: None,
+            operational_knowledge: None,
+            context_observations: Default::default(),
             knowledge_resolution: Default::default(),
             causal: self.store.causal_runtime_guidance(
                 &request.query_context,

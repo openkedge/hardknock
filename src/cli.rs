@@ -20,7 +20,9 @@ mod effects;
 mod epistemic;
 mod experimentation;
 mod federation;
+mod guard_candidate;
 pub mod integrations;
+mod knowledge;
 mod predictive;
 mod resilience;
 pub(crate) mod runtime;
@@ -99,6 +101,19 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    GuardCandidate {
+        #[command(subcommand)]
+        command: guard_candidate::GuardCandidateCommand,
+    },
+    /// Inspect deterministic operational knowledge.
+    Knowledge {
+        #[arg(long, global = true, conflicts_with = "hierarchy_id")]
+        hierarchy: Option<PathBuf>,
+        #[arg(long, global = true, id = "hierarchy_id")]
+        id: Option<crate::core::KnowledgeHierarchyId>,
+        #[command(subcommand)]
+        command: knowledge::KnowledgeCommand,
+    },
     /// Inspect normalized short-horizon execution trajectories.
     Trajectory {
         #[command(subcommand)]
@@ -617,6 +632,9 @@ pub enum ExperienceCommand {
 #[allow(clippy::large_enum_variant)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Response {
+    Knowledge {
+        result: serde_json::Value,
+    },
     Abstraction {
         result: serde_json::Value,
     },
@@ -797,6 +815,7 @@ impl Response {
             return Ok(());
         }
         match self {
+            Self::Knowledge { result } => knowledge::print(result, &mut stdout)?,
             Self::Abstraction { result } => {
                 serde_json::to_writer_pretty(&mut stdout, result)?;
                 writeln!(stdout)?;
@@ -1399,6 +1418,16 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if let Commands::GuardCandidate { command } = &cli.command {
+        return Ok(Response::Knowledge {
+            result: guard_candidate::execute(command, &store)?,
+        });
+    }
+    if matches!(&cli.command, Commands::Knowledge { .. }) {
+        return Ok(Response::Knowledge {
+            result: knowledge::execute(&cli.command, &store)?,
+        });
+    }
     if abstraction::handles(&cli.command) {
         return Ok(Response::Abstraction {
             result: abstraction::execute(cli, &store)?,
@@ -1514,7 +1543,10 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
-        Commands::Pattern { .. } | Commands::Abstract { .. } => {
+        Commands::GuardCandidate { .. }
+        | Commands::Knowledge { .. }
+        | Commands::Pattern { .. }
+        | Commands::Abstract { .. } => {
             Err(Error::InvalidInput("Abstraction dispatch failed".into()))
         }
         Commands::Explore { .. }

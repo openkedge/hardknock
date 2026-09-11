@@ -421,6 +421,12 @@ fn act(context: &RuntimeDecisionContext, warning: Option<String>) -> RuntimeDeci
 impl RuntimeDecisionPolicy for DeterministicRuntimeDecisionPolicy {
     fn evaluate(&self, context: &RuntimeDecisionContext) -> Result<RuntimeDecisionEvaluation> {
         self.config.validate()?;
+        let mut resolved_context = context.clone();
+        if let Some(k) = &context.operational_knowledge {
+            resolved_context.knowledge_signals.local_supported = !k.effective.applied.is_empty();
+            resolved_context.knowledge_signals.context_in_scope = true;
+        }
+        let context = &resolved_context;
         let knowledge = DeterministicKnowledgeClassifier.classify(context);
         let mut reasons = Vec::new();
         let mut blockers = Vec::new();
@@ -510,6 +516,103 @@ impl RuntimeDecisionPolicy for DeterministicRuntimeDecisionPolicy {
                     collected_evidence,
                     blockers,
                     GovernanceDisposition::SecurityBlocked,
+                ));
+            }
+        }
+
+        if let Some(k) = &context.operational_knowledge {
+            let decision = if governance.approval_required {
+                Some(approval(
+                    context,
+                    "External governance requires approval; learned evidence does not grant authority",
+                ))
+            } else if !k.unresolved_conflicts.is_empty() {
+                if context.available_experiments.can_experiment()
+                    && context.risk.severity < Severity::High
+                {
+                    Some(RuntimeDecision::Experiment(ExperimentDecision {
+                        reason: "Resolve conflicting operational knowledge".into(),
+                        question: "Which scoped guidance survives controlled comparison?".into(),
+                        candidates: context.uncertainty.candidate_strategies.clone(),
+                        budget: context.available_experiments.budget.clone(),
+                        requirements: context.available_experiments.requirements.clone(),
+                        automatic: false,
+                        evidence_requirement: None,
+                    }))
+                } else {
+                    Some(approval(
+                        context,
+                        "Unresolved operational knowledge conflict requires review",
+                    ))
+                }
+            } else if let Some(failure) = &context.failure_signature
+                && !k.recoveries.is_empty()
+            {
+                k.recoveries
+                    .iter()
+                    .find_map(|r| {
+                        r.executable.as_ref().filter(|r| {
+                            r.fresh && r.scope_matches && r.failure_signature == failure.signature
+                        })
+                    })
+                    .map(|r| {
+                        RuntimeDecision::Recover(RecoverDecision {
+                            recovery: r.clone(),
+                            failure_signature: failure.clone(),
+                            confidence: r.confidence,
+                            evidence: vec![],
+                        })
+                    })
+                    .or_else(|| {
+                        (!k.recoveries.is_empty()).then(|| {
+                            RuntimeDecision::Replan(ReplanDecision {
+                                reason: format!(
+                                    "Recovery guidance requires a concrete procedure: {}",
+                                    k.recoveries[0].knowledge.statement
+                                ),
+                                matched_reflexes: vec![],
+                                relevant_lessons: vec![],
+                                excluded_actions: vec![],
+                            })
+                        })
+                    })
+            } else if !k.constraints.is_empty() || !k.antipatterns.is_empty() {
+                Some(RuntimeDecision::Replan(ReplanDecision {
+                    reason: format!(
+                        "Applicable operational guidance: {}",
+                        k.constraints
+                            .iter()
+                            .chain(&k.antipatterns)
+                            .map(|r| r.statement.as_str())
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    ),
+                    matched_reflexes: vec![],
+                    relevant_lessons: vec![],
+                    excluded_actions: vec![],
+                }))
+            } else {
+                None
+            };
+            reasons.push(DecisionReason::Custom(format!(
+                "Knowledge snapshot {}; {} applied, {} suppressed, {} unknown",
+                k.snapshot.id,
+                k.effective.applied.len(),
+                k.effective.suppressed.len(),
+                k.effective.unknown.len()
+            )));
+            if let Some(decision) = decision {
+                return Ok(self.finish(
+                    decision,
+                    knowledge,
+                    reasons,
+                    collected_evidence,
+                    blockers,
+                    if governance.approval_required {
+                        GovernanceDisposition::ApprovalOverride
+                    } else {
+                        GovernanceDisposition::RuntimeRecommendation
+                    },
                 ));
             }
         }

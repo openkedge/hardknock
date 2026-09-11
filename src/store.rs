@@ -20,6 +20,8 @@ use crate::{
 mod abstraction;
 mod assurance;
 mod capabilities;
+mod hierarchy;
+mod knowledge_runtime;
 pub use assurance::AssuranceStore;
 mod causal;
 mod predictive;
@@ -122,7 +124,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 21 {
+        if version > 23 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -212,6 +214,14 @@ impl Store {
         if version < 21 {
             tx.execute_batch(include_str!("../migrations/021_experience_abstraction.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (21)", [])?;
+        }
+        if version < 22 {
+            tx.execute_batch(include_str!("../migrations/022_knowledge_hierarchy.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (22)", [])?;
+        }
+        if version < 23 {
+            tx.execute_batch(include_str!("../migrations/023_runtime_knowledge.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (23)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

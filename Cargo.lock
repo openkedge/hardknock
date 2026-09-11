@@ -568,6 +568,7 @@ dependencies = [
  "postgres",
  "regex",
  "rusqlite",
+ "semver",
  "serde",
  "serde_json",
  "shell-words",

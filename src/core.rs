@@ -376,3 +376,13 @@ mod tests {
         );
     }
 }
+
+identifier!(KnowledgeHierarchyId, "hierarchy-");
+identifier!(KnowledgeNodeId, "knowledge-node-");
+identifier!(KnowledgeHierarchyEdgeId, "hierarchy-edge-");
+identifier!(KnowledgeConflictId, "knowledge-conflict-");
+
+identifier!(KnowledgeSnapshotId, "ks-");
+identifier!(KnowledgeResolutionId, "kr-");
+identifier!(KnowledgeApplicationId, "ka-");
+identifier!(GuardRevisionCandidateId, "guard-candidate-");

@@ -102,6 +102,9 @@ pub enum NormalizedAction {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ActionContext {
+    /// Unverified claims from the proposing agent; never authoritative observations.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub knowledge_reports: std::collections::BTreeMap<String, crate::hierarchy::ScopeValue>,
     #[serde(default)]
     pub no_state_change: bool,
     #[serde(default)]

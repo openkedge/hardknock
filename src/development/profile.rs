@@ -202,6 +202,7 @@ pub fn context_bundle(
         }
     }
     Ok(ExperienceContextBundle {
+        knowledge: store.knowledge_bundle_for_context(context, agent)?,
         relevant: active,
         abstract_knowledge,
         specializations,

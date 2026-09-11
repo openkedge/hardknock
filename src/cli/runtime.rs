@@ -210,14 +210,7 @@ pub fn execute(cli: &Cli, store: &Store) -> Result<Value> {
                 if let Some(policy) = policy {
                     selected.profile = *policy;
                 }
-                let previous = store.runtime_decision(id)?;
-                let current = store.replay_runtime_decision(id, selected)?;
-                Ok(json!({
-                    "kind":"decision_replay",
-                    "original":summary(&previous),
-                    "replay":current,
-                    "original_mutated":false,
-                }))
+                store.replay_knowledge_decision(id, selected)
             }
             DecisionCommand::Simulate(args) => {
                 let scenario = if let Some(path) = &args.scenario {
@@ -298,6 +291,7 @@ pub fn execute(cli: &Cli, store: &Store) -> Result<Value> {
             let record = store.runtime_decision(id)?;
             Ok(json!({
                 "kind":"decision_why",
+                "operational_knowledge":record.context.operational_knowledge,
                 "decision_id":id,
                 "decision":record.decision,
                 "knowledge":record.evaluation.knowledge,
@@ -335,6 +329,12 @@ pub fn print(value: &Value, output: &mut impl Write) -> Result<()> {
                 decision_name(&value["decision"])
             )?;
             writeln!(output, "\nKnowledge\n  {}", value["knowledge"])?;
+            if let Some(k) = value.get("operational_knowledge").filter(|v| !v.is_null()) {
+                writeln!(output, "\nKnowledge snapshot: {}", k["snapshot"]["id"])?;
+                for step in k["effective"]["trace"].as_array().into_iter().flatten() {
+                    writeln!(output, "  {}. {}", step["sequence"], step["reason"])?;
+                }
+            }
             writeln!(output, "\nWhy")?;
             for reason in value["reasons"].as_array().into_iter().flatten() {
                 writeln!(output, "  {}", compact(reason))?;

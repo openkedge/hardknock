@@ -1,0 +1,20 @@
+-- SPDX-License-Identifier: Apache-2.0
+CREATE TABLE knowledge_hierarchy_revisions (id TEXT NOT NULL, revision INTEGER NOT NULL, hash TEXT NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)), PRIMARY KEY(id,revision));
+CREATE TABLE knowledge_artifact_revisions (key TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)));
+CREATE TABLE knowledge_snapshots (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL UNIQUE, data TEXT NOT NULL CHECK(json_valid(data)));
+CREATE TABLE knowledge_resolution_records (id TEXT PRIMARY KEY, snapshot TEXT NOT NULL REFERENCES knowledge_snapshots(id), data TEXT NOT NULL CHECK(json_valid(data)));
+CREATE TABLE knowledge_applications (id TEXT PRIMARY KEY, resolution TEXT NOT NULL REFERENCES knowledge_resolution_records(id), decision TEXT NOT NULL REFERENCES runtime_decisions(id), data TEXT NOT NULL CHECK(json_valid(data)));
+CREATE TABLE operational_knowledge_conflicts (id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)));
+CREATE TABLE knowledge_health_changes (id INTEGER PRIMARY KEY, hierarchy TEXT NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)));
+CREATE TABLE knowledge_events (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE guard_revision_candidates (id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)));
+CREATE TABLE guard_knowledge_dependencies (guard_id TEXT NOT NULL, guard_revision TEXT NOT NULL, knowledge_key TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(guard_id,guard_revision,knowledge_key));
+CREATE TABLE knowledge_context_observations (session TEXT NOT NULL, key TEXT NOT NULL, source TEXT NOT NULL, data TEXT NOT NULL CHECK(json_valid(data)), PRIMARY KEY(session,key,source));
+CREATE TRIGGER immutable_knowledge_snapshots BEFORE UPDATE ON knowledge_snapshots BEGIN SELECT RAISE(ABORT,'immutable knowledge snapshot'); END;
+CREATE TRIGGER immutable_knowledge_snapshots_delete BEFORE DELETE ON knowledge_snapshots BEGIN SELECT RAISE(ABORT,'immutable knowledge snapshot'); END;
+CREATE TRIGGER immutable_hierarchy_revisions BEFORE UPDATE ON knowledge_hierarchy_revisions BEGIN SELECT RAISE(ABORT,'immutable hierarchy revision'); END;
+CREATE TRIGGER immutable_hierarchy_revisions_delete BEFORE DELETE ON knowledge_hierarchy_revisions BEGIN SELECT RAISE(ABORT,'immutable hierarchy revision'); END;
+CREATE TRIGGER immutable_knowledge_artifacts BEFORE UPDATE ON knowledge_artifact_revisions BEGIN SELECT RAISE(ABORT,'immutable artifact revision'); END;
+CREATE TRIGGER immutable_knowledge_artifacts_delete BEFORE DELETE ON knowledge_artifact_revisions BEGIN SELECT RAISE(ABORT,'immutable artifact revision'); END;
+CREATE TRIGGER immutable_knowledge_resolutions BEFORE UPDATE ON knowledge_resolution_records BEGIN SELECT RAISE(ABORT,'immutable knowledge resolution'); END;
+CREATE TRIGGER immutable_knowledge_resolutions_delete BEFORE DELETE ON knowledge_resolution_records BEGIN SELECT RAISE(ABORT,'immutable knowledge resolution'); END;

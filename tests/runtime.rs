@@ -278,7 +278,7 @@ fn runtime_decisions_feedback_replay_gaps_and_policy_versions_are_immutable() {
         )
         .unwrap();
     assert_eq!(replay.decision.kind(), RuntimeDecisionKind::Abstain);
-    assert_eq!(store.runtime_decisions().unwrap().len(), 2);
+    assert_eq!(store.runtime_decisions().unwrap().len(), 1);
 
     let connection = rusqlite::Connection::open(temp.path().join("hardknock.db")).unwrap();
     assert!(

@@ -506,6 +506,8 @@ impl<'a> EffectManager<'a> {
                 effect.id, effect.lifecycle
             )));
         }
+        self.store
+            .check_knowledge_before_commit(&effect.session_id, &effect.source_action.id)?;
         let prepared = self.store.prepared_effect(&effect.id)?;
         let authorization = authorization.ok_or_else(|| {
             Error::Intervention("Explicit commit authorization is required".into())

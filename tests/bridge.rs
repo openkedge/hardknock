@@ -848,3 +848,60 @@ async fn wire_rejects_bad_versions_unknown_fields_and_oversized_frames() {
     c.cancel();
     server.await.unwrap().unwrap();
 }
+
+#[test]
+fn adapters_share_hierarchy_resolution_and_agent_reports_cannot_relax() {
+    let f = Fixture::new();
+    let store = Store::open(&f.home).unwrap();
+    let h: hardknock::hierarchy::KnowledgeHierarchy = serde_json::from_slice(
+        &fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures/hierarchy/idempotency/hierarchy.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    store.save_knowledge_hierarchy(&h).unwrap();
+    let runtime = Runtime::new(&f.home);
+    for agent in ["claude", "codex", "hermes", "shell"] {
+        let id = start(runtime.b(), &f, agent, &format!("knowledge-{agent}"));
+        let proposed = ActionProposed {
+            hardknock_session_id: id,
+            action_id: "retry".into(),
+            action: NormalizedAction::Network {
+                method: "POST".into(),
+                target: "https://provider.invalid/mutation".into(),
+            },
+            context: ActionContext {
+                can_intercept: true,
+                knowledge_reports: std::collections::BTreeMap::from([(
+                    "token_valid".into(),
+                    hardknock::hierarchy::ScopeValue::Boolean(true),
+                )]),
+                ..Default::default()
+            },
+        };
+        let response = runtime
+            .b()
+            .handle(AgentEvent::ActionProposed(proposed.clone()))
+            .unwrap();
+        assert!(
+            response["knowledge"]["exceptions"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            !response["knowledge"]["constraints"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            runtime
+                .b()
+                .handle(AgentEvent::ActionProposed(proposed))
+                .is_err()
+        );
+    }
+}

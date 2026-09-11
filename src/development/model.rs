@@ -440,6 +440,8 @@ pub struct ActiveExperienceSet {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExperienceContextBundle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge: Option<crate::knowledge_runtime::HierarchyContextBundle>,
     pub relevant: ActiveExperienceSet,
     #[serde(default)]
     pub abstract_knowledge: Vec<crate::abstraction::AbstractKnowledge>,

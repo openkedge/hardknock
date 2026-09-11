@@ -1075,3 +1075,11 @@ Licensed under the [Apache License, Version 2.0](LICENSE).
 `SPDX-License-Identifier: Apache-2.0`
 
 See [NOTICE](NOTICE) for project notices. Third-party components retain their respective licenses.
+
+## Experience Has Exceptions
+
+General experience supplies defaults. Validated local evidence can specialize or qualify those defaults, while stale or uncertain exceptions do not silently override safer knowledge. See [hierarchical operational knowledge](docs/knowledge-hierarchy.md) for the V0.18 Pass 1 resolver, scope semantics, and CLI examples.
+
+Hardknock exceptions affect what the experience engine recommends. They do not automatically change external execution authority. When learned evidence suggests an OpenKedge Guard should change, Hardknock produces a Guard Revision Candidate with provenance and evidence for separate governance review.
+
+Runtime decisions now bind immutable knowledge snapshots, so replay separates what was known then from what is known today. Conflicts can compile into controlled experiments and existing curricula. See [runtime resolution](docs/knowledge-resolution.md), [snapshots](docs/knowledge-snapshots.md), [conflict learning](docs/knowledge-conflicts.md), and [Guard candidates](docs/guard-revision-candidates.md).

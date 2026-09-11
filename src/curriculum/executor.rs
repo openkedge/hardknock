@@ -469,6 +469,9 @@ impl CurriculumExecutor<'_> {
                 let exp = engine.submit((**request).clone())?;
                 self.store
                     .link_curriculum_engine(&t.id, "experiment", &exp.id.to_string())?;
+                if t.condition.starts_with("knowledge-conflict:") {
+                    self.store.knowledge_event("knowledge_conflict_experiment_started",&serde_json::json!({"condition":t.condition,"trial":t.id,"experiment":exp.id}))?;
+                }
                 let exp = engine.execute(&exp.id, cancel).await?;
                 if exp.status != ExperimentStatus::Completed {
                     return Err(Error::Intervention(

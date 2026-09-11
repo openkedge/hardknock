@@ -1,0 +1,7 @@
+{
+  "action_type": "http_mutation",
+  "provider": "provider-x",
+  "api_version": "2",
+  "idempotency": "exact",
+  "token_valid": false
+}

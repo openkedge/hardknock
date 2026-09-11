@@ -1,0 +1,10 @@
+{
+  "reconcile-before-retry": "Reconcile authoritative state before retrying an uncertain mutation.",
+  "http-idempotency-semantics": "HTTP mutation replay depends on the endpoint replay contract.",
+  "provider-x-reconciliation": "Provider X API v2 mutations require reconciliation unless exact replay is guaranteed.",
+  "provider-x-exact-replay": "Exact retry guidance: replay the identical mutation while the idempotency token is valid.",
+  "expired-token-reconcile": "Expired tokens do not guarantee exact replay; reconcile authoritative state.",
+  "provider-x-never-replay": "Conflicting fixture guidance: do not replay even with a valid token.",
+  "provider-x-v2": "Provider X v2 compatibility guidance covers versions 2 and 3 until explicitly replaced.",
+  "provider-x-v3": "Provider X API v3 guidance explicitly replaces v2 compatibility guidance for version 3."
+}

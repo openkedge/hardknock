@@ -1,0 +1,460 @@
+{
+  "id": "hierarchy-00000000-0000-4000-8000-000000000001",
+  "name": "uncertain-mutation-reconciliation",
+  "root_nodes": [
+    "knowledge-node-00000000-0000-4000-8000-000000000001"
+  ],
+  "nodes": {
+    "knowledge-node-00000000-0000-4000-8000-000000000001": {
+      "id": "knowledge-node-00000000-0000-4000-8000-000000000001",
+      "artifact": {
+        "kind": "constraint",
+        "id": "reconcile-before-retry",
+        "revision": 1
+      },
+      "scope": {
+        "predicates": []
+      },
+      "maturity": "validated",
+      "freshness": "fresh",
+      "activation": "active",
+      "provenance": {
+        "source_artifacts": [],
+        "source_contexts": [],
+        "evidence": [
+          {
+            "kind": "fixture",
+            "id": "idempotency-observations-v1"
+          }
+        ],
+        "root_origins": [
+          "idempotency-fixture"
+        ],
+        "origin": "local",
+        "generator": "deterministic-fixture",
+        "created_at": "2026-01-01T00:00:00Z"
+      }
+    },
+    "knowledge-node-00000000-0000-4000-8000-000000000002": {
+      "id": "knowledge-node-00000000-0000-4000-8000-000000000002",
+      "artifact": {
+        "kind": "constraint",
+        "id": "http-idempotency-semantics",
+        "revision": 1
+      },
+      "scope": {
+        "predicates": [
+          {
+            "predicate": "equals",
+            "key": "action_type",
+            "value": {
+              "type": "string",
+              "value": "http_mutation"
+            }
+          }
+        ]
+      },
+      "maturity": "validated",
+      "freshness": "fresh",
+      "activation": "active",
+      "provenance": {
+        "source_artifacts": [],
+        "source_contexts": [],
+        "evidence": [
+          {
+            "kind": "fixture",
+            "id": "idempotency-observations-v1"
+          }
+        ],
+        "root_origins": [
+          "idempotency-fixture"
+        ],
+        "origin": "local",
+        "generator": "deterministic-fixture",
+        "created_at": "2026-01-01T00:00:00Z"
+      }
+    },
+    "knowledge-node-00000000-0000-4000-8000-000000000003": {
+      "id": "knowledge-node-00000000-0000-4000-8000-000000000003",
+      "artifact": {
+        "kind": "constraint",
+        "id": "provider-x-reconciliation",
+        "revision": 1
+      },
+      "scope": {
+        "predicates": [
+          {
+            "predicate": "equals",
+            "key": "action_type",
+            "value": {
+              "type": "string",
+              "value": "http_mutation"
+            }
+          },
+          {
+            "predicate": "equals",
+            "key": "provider",
+            "value": {
+              "type": "string",
+              "value": "provider-x"
+            }
+          },
+          {
+            "predicate": "equals",
+            "key": "api_version",
+            "value": {
+              "type": "string",
+              "value": "2"
+            }
+          }
+        ]
+      },
+      "maturity": "validated",
+      "freshness": "fresh",
+      "activation": "active",
+      "provenance": {
+        "source_artifacts": [],
+        "source_contexts": [],
+        "evidence": [
+          {
+            "kind": "fixture",
+            "id": "idempotency-observations-v1"
+          }
+        ],
+        "root_origins": [
+          "idempotency-fixture"
+        ],
+        "origin": "local",
+        "generator": "deterministic-fixture",
+        "created_at": "2026-01-01T00:00:00Z"
+      }
+    },
+    "knowledge-node-00000000-0000-4000-8000-000000000004": {
+      "id": "knowledge-node-00000000-0000-4000-8000-000000000004",
+      "artifact": {
+        "kind": "constraint",
+        "id": "provider-x-exact-replay",
+        "revision": 1
+      },
+      "scope": {
+        "predicates": [
+          {
+            "predicate": "equals",
+            "key": "action_type",
+            "value": {
+              "type": "string",
+              "value": "http_mutation"
+            }
+          },
+          {
+            "predicate": "equals",
+            "key": "provider",
+            "value": {
+              "type": "string",
+              "value": "provider-x"
+            }
+          },
+          {
+            "predicate": "equals",
+            "key": "api_version",
+            "value": {
+              "type": "string",
+              "value": "2"
+            }
+          },
+          {
+            "predicate": "equals",
+            "key": "idempotency",
+            "value": {
+              "type": "string",
+              "value": "exact"
+            }
+          },
+          {
+            "predicate": "equals",
+            "key": "token_valid",
+            "value": {
+              "type": "boolean",
+              "value": true
+            }
+          }
+        ]
+      },
+      "maturity": "validated",
+      "freshness": "fresh",
+      "activation": "active",
+      "provenance": {
+        "source_artifacts": [],
+        "source_contexts": [],
+        "evidence": [
+          {
+            "kind": "fixture",
+            "id": "idempotency-observations-v1"
+          }
+        ],
+        "root_origins": [
+          "idempotency-fixture"
+        ],
+        "origin": "local",
+        "generator": "deterministic-fixture",
+        "created_at": "2026-01-01T00:00:00Z"
+      }
+    },
+    "knowledge-node-00000000-0000-4000-8000-000000000005": {
+      "id": "knowledge-node-00000000-0000-4000-8000-000000000005",
+      "artifact": {
+        "kind": "constraint",
+        "id": "expired-token-reconcile",
+        "revision": 1
+      },
+      "scope": {
+        "predicates": [
+          {
+            "predicate": "equals",
+            "key": "action_type",
+            "value": {
+              "type": "string",
+              "value": "http_mutation"
+            }
+          },
+          {
+            "predicate": "equals",
+            "key": "provider",
+            "value": {
+              "type": "string",
+              "value": "provider-x"
+            }
+          },
+          {
+            "predicate": "equals",
+            "key": "api_version",
+            "value": {
+              "type": "string",
+              "value": "2"
+            }
+          },
+          {
+            "predicate": "equals",
+            "key": "token_valid",
+            "value": {
+              "type": "boolean",
+              "value": false
+            }
+          }
+        ]
+      },
+      "maturity": "validated",
+      "freshness": "fresh",
+      "activation": "active",
+      "provenance": {
+        "source_artifacts": [],
+        "source_contexts": [],
+        "evidence": [
+          {
+            "kind": "fixture",
+            "id": "idempotency-observations-v1"
+          }
+        ],
+        "root_origins": [
+          "idempotency-fixture"
+        ],
+        "origin": "local",
+        "generator": "deterministic-fixture",
+        "created_at": "2026-01-01T00:00:00Z"
+      }
+    },
+    "knowledge-node-00000000-0000-4000-8000-000000000006": {
+      "id": "knowledge-node-00000000-0000-4000-8000-000000000006",
+      "artifact": {
+        "kind": "constraint",
+        "id": "provider-x-never-replay",
+        "revision": 1
+      },
+      "scope": {
+        "predicates": [
+          {
+            "predicate": "equals",
+            "key": "action_type",
+            "value": {
+              "type": "string",
+              "value": "http_mutation"
+            }
+          },
+          {
+            "predicate": "equals",
+            "key": "provider",
+            "value": {
+              "type": "string",
+              "value": "provider-x"
+            }
+          },
+          {
+            "predicate": "equals",
+            "key": "api_version",
+            "value": {
+              "type": "string",
+              "value": "2"
+            }
+          },
+          {
+            "predicate": "equals",
+            "key": "idempotency",
+            "value": {
+              "type": "string",
+              "value": "exact"
+            }
+          },
+          {
+            "predicate": "equals",
+            "key": "token_valid",
+            "value": {
+              "type": "boolean",
+              "value": true
+            }
+          }
+        ]
+      },
+      "maturity": "validated",
+      "freshness": "fresh",
+      "activation": "active",
+      "provenance": {
+        "source_artifacts": [],
+        "source_contexts": [],
+        "evidence": [
+          {
+            "kind": "fixture",
+            "id": "idempotency-observations-v1"
+          }
+        ],
+        "root_origins": [
+          "idempotency-fixture"
+        ],
+        "origin": "local",
+        "generator": "deterministic-fixture",
+        "created_at": "2026-01-01T00:00:00Z"
+      }
+    }
+  },
+  "edges": [
+    {
+      "id": "hierarchy-edge-00000000-0000-4000-8000-000000000001",
+      "parent": "knowledge-node-00000000-0000-4000-8000-000000000001",
+      "child": "knowledge-node-00000000-0000-4000-8000-000000000002",
+      "relation": "specializes",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "id": "idempotency-observations-v1"
+        }
+      ],
+      "created_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "hierarchy-edge-00000000-0000-4000-8000-000000000002",
+      "parent": "knowledge-node-00000000-0000-4000-8000-000000000002",
+      "child": "knowledge-node-00000000-0000-4000-8000-000000000003",
+      "relation": "specializes",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "id": "idempotency-observations-v1"
+        }
+      ],
+      "created_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "hierarchy-edge-00000000-0000-4000-8000-000000000003",
+      "parent": "knowledge-node-00000000-0000-4000-8000-000000000003",
+      "child": "knowledge-node-00000000-0000-4000-8000-000000000004",
+      "relation": "excepts",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "id": "idempotency-observations-v1"
+        }
+      ],
+      "created_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "hierarchy-edge-00000000-0000-4000-8000-000000000004",
+      "parent": "knowledge-node-00000000-0000-4000-8000-000000000001",
+      "child": "knowledge-node-00000000-0000-4000-8000-000000000004",
+      "relation": "excepts",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "id": "idempotency-observations-v1"
+        }
+      ],
+      "created_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "hierarchy-edge-00000000-0000-4000-8000-000000000005",
+      "parent": "knowledge-node-00000000-0000-4000-8000-000000000002",
+      "child": "knowledge-node-00000000-0000-4000-8000-000000000004",
+      "relation": "excepts",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "id": "idempotency-observations-v1"
+        }
+      ],
+      "created_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "hierarchy-edge-00000000-0000-4000-8000-000000000006",
+      "parent": "knowledge-node-00000000-0000-4000-8000-000000000003",
+      "child": "knowledge-node-00000000-0000-4000-8000-000000000005",
+      "relation": "refines",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "id": "idempotency-observations-v1"
+        }
+      ],
+      "created_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "hierarchy-edge-00000000-0000-4000-8000-000000000007",
+      "parent": "knowledge-node-00000000-0000-4000-8000-000000000003",
+      "child": "knowledge-node-00000000-0000-4000-8000-000000000006",
+      "relation": "excepts",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "id": "idempotency-observations-v1"
+        }
+      ],
+      "created_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "hierarchy-edge-00000000-0000-4000-8000-000000000008",
+      "parent": "knowledge-node-00000000-0000-4000-8000-000000000001",
+      "child": "knowledge-node-00000000-0000-4000-8000-000000000006",
+      "relation": "excepts",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "id": "idempotency-observations-v1"
+        }
+      ],
+      "created_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "id": "hierarchy-edge-00000000-0000-4000-8000-000000000009",
+      "parent": "knowledge-node-00000000-0000-4000-8000-000000000002",
+      "child": "knowledge-node-00000000-0000-4000-8000-000000000006",
+      "relation": "excepts",
+      "evidence": [
+        {
+          "kind": "fixture",
+          "id": "idempotency-observations-v1"
+        }
+      ],
+      "created_at": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "revision": 1,
+  "created_at": "2026-01-01T00:00:00Z",
+  "updated_at": "2026-01-01T00:00:00Z"
+}

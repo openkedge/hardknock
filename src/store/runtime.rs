@@ -128,6 +128,7 @@ impl RuntimeStore for Store {
                 .reasons
                 .push("A supporting causal mechanism requires revalidation".into());
         }
+        self.attach_runtime_knowledge(&mut context)?;
         let context = &context;
         config.refresh_version();
         config.validate()?;
@@ -167,6 +168,59 @@ impl RuntimeStore for Store {
         }
         let transaction =
             Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
+        if record.context.operational_knowledge.is_none()
+            && !self.knowledge_hierarchies()?.is_empty()
+        {
+            return Err(Error::Intervention(
+                "Runtime decision requires current hierarchy resolution".into(),
+            ));
+        }
+        if let Some(k) = &record.context.operational_knowledge {
+            let saved = self.knowledge_resolution_record(&k.provenance.resolution_id)?;
+            use crate::knowledge_runtime::RuntimeKnowledgeResolver;
+            let derived = crate::knowledge_runtime::DefaultRuntimeKnowledgeResolver {
+                store: self,
+                policy: self.knowledge_snapshot(&k.snapshot.id)?.policy,
+                budget: Default::default(),
+                persist: false,
+            }
+            .resolve_for_runtime(&record.context)?;
+            if serde_json::to_value((
+                &derived.skills,
+                &derived.lessons,
+                &derived.constraints,
+                &derived.antipatterns,
+                &derived.recoveries,
+                &derived.context,
+                &derived.unresolved_conflicts,
+            ))? != serde_json::to_value((
+                &k.skills,
+                &k.lessons,
+                &k.constraints,
+                &k.antipatterns,
+                &k.recoveries,
+                &k.context,
+                &k.unresolved_conflicts,
+            ))? {
+                return Err(Error::InvalidInput(
+                    "Operational knowledge projection differs from immutable revisions".into(),
+                ));
+            }
+
+            if saved.snapshot != k.snapshot.id
+                || serde_json::to_value(&saved.effective)? != serde_json::to_value(&k.effective)?
+                || saved.context_hash != k.validity.context_hash
+            {
+                return Err(Error::InvalidInput(
+                    "Runtime knowledge differs from its recorded resolution".into(),
+                ));
+            }
+            if !self.guidance_is_current(&k.validity, &k.context)? {
+                return Err(Error::Intervention(
+                    "Hierarchy changed before decision publication; re-resolution required".into(),
+                ));
+            }
+        }
         transaction.execute(
             "INSERT INTO runtime_policy_versions(version,created_at,data) VALUES(?1,?2,?3) ON CONFLICT(version) DO NOTHING",
             params![config.version, record.created_at.to_rfc3339(), serde_json::to_string(&config)?],
@@ -198,6 +252,7 @@ impl RuntimeStore for Store {
                 serde_json::to_string(&record)?
             ],
         )?;
+        self.persist_knowledge_applications(record)?;
         for selected in record
             .context
             .knowledge_resolution
@@ -520,29 +575,31 @@ impl RuntimeStore for Store {
         config: RuntimePolicyConfig,
     ) -> Result<RuntimeDecisionRecord> {
         let previous = self.runtime_decision(id)?;
-        let old = &previous.context;
-        let mut current =
-            RuntimeContextSynthesizer { store: self }.synthesize(RuntimeContextRequest {
-                external_session_id: old.session_id.to_string(),
-                agent: old.agent.clone(),
-                task: old.task.clone(),
-                query_context: old.query_context.clone(),
-                proposed_action: old.proposed_action.clone(),
-                proposed_effect: old.proposed_effect.clone(),
-                risk: Some(old.risk.clone()),
-                capability_context: old.capability_context.clone(),
-                failure_signature: old.failure_signature.clone(),
-                consecutive_failures: 0,
-                no_state_change: false,
-                config_changed: false,
-                candidate_strategies: old.uncertainty.candidate_strategies.clone(),
-                experiment_capability: old.available_experiments.clone(),
-                known_unknowns: old.known_unknowns.clone(),
-                externally_supported: old.externally_supported,
-                envelope_position: None,
-            })?;
-        current.session_id = old.session_id.clone();
-        self.record_runtime_decision(&current, config)
+        let mut current = previous.context.clone();
+        current.operational_knowledge = if self.knowledge_hierarchies()?.is_empty() {
+            None
+        } else {
+            use crate::knowledge_runtime::RuntimeKnowledgeResolver;
+            Some(
+                crate::knowledge_runtime::DefaultRuntimeKnowledgeResolver {
+                    store: self,
+                    policy: Default::default(),
+                    budget: Default::default(),
+                    persist: false,
+                }
+                .resolve_for_runtime(&current)?,
+            )
+        };
+        let evaluation = DeterministicRuntimeController::with_config(config)?.evaluate(&current)?;
+        Ok(RuntimeDecisionRecord {
+            id: RuntimeDecisionId::new(),
+            session_id: current.session_id.clone(),
+            context_hash: current.context_hash()?,
+            context: current,
+            decision: evaluation.decision.clone(),
+            evaluation,
+            created_at: Utc::now(),
+        })
     }
 }
 

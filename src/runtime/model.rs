@@ -345,6 +345,12 @@ impl ExperimentCapabilitySummary {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeDecisionContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge_action_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operational_knowledge: Option<crate::knowledge_runtime::RuntimeKnowledgeResolution>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub context_observations: crate::knowledge_runtime::ContextObservations,
     #[serde(default)]
     pub knowledge_resolution: crate::abstraction::KnowledgeResolution,
     #[serde(
