@@ -192,6 +192,16 @@ impl Store {
         id: &str,
     ) -> Result<()> {
         match kind {
+            "composition" => {
+                let exists: bool = self.connection.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM composition_evidence WHERE id=?1)",
+                    [id],
+                    |r| r.get(0),
+                )?;
+                if !exists {
+                    return Err(Error::NotFound("Composition evidence missing".into()));
+                }
+            }
             "experiment" => {
                 self.strategy_experiment(&id.parse()?)?;
             }

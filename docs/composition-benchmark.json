@@ -1,0 +1,36 @@
+{
+  "classification": "deterministic engineering fixtures; not a statistical study",
+  "component_baseline": "registered current components without composition analysis",
+  "rows": [
+    {
+      "actual_step_runs": 3,
+      "case": "credential",
+      "component_only_detected": false,
+      "full_detected": true,
+      "full_us": 687270,
+      "production_commits": 0,
+      "static_detected": false,
+      "static_us": 214
+    },
+    {
+      "actual_step_runs": 2,
+      "case": "capacity",
+      "component_only_detected": false,
+      "full_detected": true,
+      "full_us": 433446,
+      "production_commits": 0,
+      "static_detected": false,
+      "static_us": 105
+    },
+    {
+      "actual_step_runs": 0,
+      "case": "capability",
+      "component_only_detected": false,
+      "full_detected": true,
+      "full_us": 18282,
+      "production_commits": 0,
+      "static_detected": true,
+      "static_us": 101
+    }
+  ]
+}

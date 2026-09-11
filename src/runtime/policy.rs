@@ -520,6 +520,42 @@ impl RuntimeDecisionPolicy for DeterministicRuntimeDecisionPolicy {
             }
         }
 
+        if let Some(assessment) = &context.composition_assessment
+            && (!assessment.findings.is_empty() || !assessment.unknown.is_empty())
+        {
+            let decision = if governance.approval_required {
+                approval(context, "External approval required for composition step")
+            } else {
+                RuntimeDecision::Replan(ReplanDecision {
+                    reason: format!(
+                        "Composition step requires review: {}",
+                        assessment
+                            .findings
+                            .iter()
+                            .chain(&assessment.unknown)
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join("; ")
+                    ),
+                    matched_reflexes: vec![],
+                    relevant_lessons: vec![],
+                    excluded_actions: vec![],
+                })
+            };
+            return Ok(self.finish(
+                decision,
+                knowledge,
+                reasons,
+                collected_evidence,
+                blockers,
+                if governance.approval_required {
+                    GovernanceDisposition::ApprovalOverride
+                } else {
+                    GovernanceDisposition::RuntimeRecommendation
+                },
+            ));
+        }
+
         if let Some(k) = &context.operational_knowledge {
             let decision = if governance.approval_required {
                 Some(approval(

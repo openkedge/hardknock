@@ -491,6 +491,8 @@ impl ExperienceHotCache {
             uncertainty_reasons.push(UncertaintyReason::FailedPrediction);
         }
         let decision_context = RuntimeDecisionContext {
+            composition: None,
+            composition_assessment: None,
             knowledge_action_id: None,
             operational_knowledge: None,
             context_observations: Default::default(),

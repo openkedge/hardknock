@@ -124,6 +124,13 @@ impl CurriculumExecutor<'_> {
         }
         let (realities, agents) = match &t.execution {
             TrialExecution::Experiment { request } => (request.candidates.len(), 0),
+            TrialExecution::Composition { request, .. } => (
+                self.store
+                    .composition_revision(&request.composition, request.revision)?
+                    .steps
+                    .len(),
+                0,
+            ),
             _ => (2, 2),
         };
         if t.estimated_budget.realities != realities || t.estimated_budget.agent_runs != agents {
@@ -133,6 +140,19 @@ impl CurriculumExecutor<'_> {
         }
         let mut scripts = vec![];
         match &t.execution {
+            TrialExecution::Composition { request, .. } => {
+                let c = self
+                    .store
+                    .composition_revision(&request.composition, request.revision)?;
+                crate::composition::ordered_steps(&c)?;
+                if request.evaluation.checks.is_empty()
+                    || request.budget.max_realities < c.steps.len()
+                    || self.store.composition_dependency_health(&c)?.status
+                        != crate::composition::CompositionHealthStatus::Healthy
+                {
+                    return Err(Error::InvalidInput("Composition curriculum requires pinned components, checks and a complete step budget".into()));
+                }
+            }
             TrialExecution::Chaos { plan } => {
                 campaign::validate(plan)?;
                 if !plan.active_reflexes.is_empty()
@@ -370,7 +390,14 @@ impl CurriculumExecutor<'_> {
                     GoalStatus::Inconclusive
                 };
                 c.usage.realities += evidence.experiences.len();
-                if !matches!(t.execution, TrialExecution::Experiment { .. }) {
+                if let Some(composition) = &evidence.composition_evidence {
+                    c.usage.realities += composition.step_results.len();
+                    c.usage.commands += composition.step_results.len();
+                }
+                if !matches!(
+                    t.execution,
+                    TrialExecution::Experiment { .. } | TrialExecution::Composition { .. }
+                ) {
                     c.usage.agent_runs += evidence.experiences.len();
                 }
                 for id in &evidence.experiences {
@@ -461,6 +488,32 @@ impl CurriculumExecutor<'_> {
             })?)
         };
         match &t.execution {
+            TrialExecution::Composition {
+                request,
+                trusted_host,
+            } => {
+                use crate::{composition::CompositionExperimentEngine, tool_runtime::*};
+                let evidence = if *trusted_host {
+                    CompositionExperimentEngine::new(
+                        self.store,
+                        HostMicroSandboxProvider::trusted_development(),
+                    )?
+                    .run(request, cancel)
+                    .await?
+                } else {
+                    CompositionExperimentEngine::new(
+                        self.store,
+                        ContainerMicroSandboxProvider::new("docker", "alpine:3.20")?,
+                    )?
+                    .run(request, cancel)
+                    .await?
+                };
+                self.store.link_curriculum_engine(
+                    &t.id,
+                    "composition",
+                    &evidence.id.to_string(),
+                )?;
+            }
             TrialExecution::Experiment { request } => {
                 let engine = ExperimentOrchestrator {
                     store: self.store,
@@ -548,6 +601,27 @@ impl CurriculumExecutor<'_> {
         let mut l = LearningOutcome::default();
         if let Some((kind, id)) = self.store.curriculum_engine_link(&t.id)? {
             match kind.as_str() {
+                "composition" => {
+                    let TrialExecution::Composition { request, .. } = &t.execution else {
+                        return Err(Error::InvalidInput(
+                            "Composition trial link mismatch".into(),
+                        ));
+                    };
+                    let evidence = self
+                        .store
+                        .composition_evidence(&request.composition)?
+                        .into_iter()
+                        .find(|e| e.id.to_string() == id)
+                        .ok_or_else(|| {
+                            Error::NotFound("Composition trial evidence missing".into())
+                        })?;
+                    e.outcome = Some(match evidence.outcome {
+                        crate::composition::CompositionOutcome::Pass => ChaosTrialOutcome::Pass,
+                        crate::composition::CompositionOutcome::Fail => ChaosTrialOutcome::Fail,
+                        _ => ChaosTrialOutcome::Inconclusive,
+                    });
+                    e.composition_evidence = Some(evidence);
+                }
                 "experiment" => {
                     let exp = self.store.strategy_experiment(&id.parse()?)?;
                     e.experiment_id = Some(exp.id);

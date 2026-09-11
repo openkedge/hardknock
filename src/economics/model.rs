@@ -197,6 +197,11 @@ pub struct OpportunityRisk {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExperienceOpportunityKind {
+    ValidateComposition,
+    InvestigateInteractionFailure,
+    ValidateSequenceInvariant,
+    ValidateCompositionRecovery,
+    ReduceCompositionAuthority,
     ValidateLesson,
     RevalidateStaleExperience,
     ResolveContradiction,

@@ -100,6 +100,7 @@ fn investigation(store: &Store, target: &str) -> Result<CausalInvestigation> {
         .filter(|inv| {
             inv.hypotheses.iter().any(|h| h.to_string() == target)
                 || match &inv.target {
+                    CausalTarget::CompositionInteraction(x) => x.to_string() == target,
                     CausalTarget::FailureSignature(x) | CausalTarget::Outcome(x) => x == target,
                     CausalTarget::Claim(x) => x.to_string() == target,
                     CausalTarget::Lesson(x) => x.to_string() == target,

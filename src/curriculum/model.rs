@@ -73,6 +73,12 @@ impl CurriculumStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CurriculumGoalKind {
+    ValidateComposition,
+    FindInteractionFailure,
+    ValidateSequenceInvariant,
+    ValidateCompositionRecovery,
+    ChallengeOrderingConstraint,
+    MinimizeCompositionAuthority,
     ResolveKnowledgeConflict,
     ValidateException,
     ValidateSpecialization,
@@ -211,6 +217,11 @@ impl Default for RealityCapabilities {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "engine", rename_all = "snake_case")]
 pub enum TrialExecution {
+    Composition {
+        request: Box<crate::composition::CompositionExperimentRequest>,
+        #[serde(default)]
+        trusted_host: bool,
+    },
     Experiment {
         request: Box<crate::experimentation::ExperimentRequest>,
     },
@@ -229,6 +240,8 @@ pub enum TrialExecution {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct TrialEvidence {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composition_evidence: Option<crate::composition::CompositionEvidence>,
     pub experiment_id: Option<ExperimentId>,
     pub campaign_id: Option<ChaosCampaignId>,
     pub resilience_test_id: Option<ResilienceTestId>,

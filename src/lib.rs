@@ -51,3 +51,5 @@ pub mod validation;
 pub mod workflow;
 
 pub use error::{Error, Result};
+
+pub mod composition;

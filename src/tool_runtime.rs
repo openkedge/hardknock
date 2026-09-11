@@ -611,6 +611,22 @@ impl<P: MicroSandboxProvider> ToolRouter<P> {
         input: Value,
         grants: &[TemporaryCapabilityGrant],
     ) -> Result<ToolRun> {
+        self.execute_controlled(reality, reality_manifest, name_or_id, input, grants, None)
+            .await
+    }
+
+    /// Cancellation is observed inside the lifecycle so destruction and attestation
+    /// still occur before the caller releases the enclosing Reality.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn execute_controlled(
+        &self,
+        reality: &Reality,
+        reality_manifest: &CapabilityManifest,
+        name_or_id: &str,
+        input: Value,
+        grants: &[TemporaryCapabilityGrant],
+        control: Option<(&crate::cancellation::Cancellation, Duration)>,
+    ) -> Result<ToolRun> {
         let tool = self.registry.get(name_or_id)?.clone();
         if tool.disabled || tool.trust == ToolTrust::Blocked {
             return Err(Error::Intervention(format!(
@@ -658,14 +674,20 @@ impl<P: MicroSandboxProvider> ToolRouter<P> {
                 ..Default::default()
             }
         } else {
-            self.provider
-                .execute(&sandbox, &invocation)
-                .await
-                .unwrap_or_else(|error| ToolExecutionResult {
-                    status: ToolExecutionStatus::RuntimeFailure,
-                    error: Some(error.to_string()),
-                    ..Default::default()
-                })
+            let execution = async { self.provider.execute(&sandbox, &invocation).await };
+            let result = if let Some((cancel, deadline)) = control {
+                tokio::select! {
+                    _ = cancel.cancelled() => Err(Error::Intervention("Tool execution cancelled".into())),
+                    result = timeout(deadline, execution) => result.map_err(|_| Error::Intervention("Tool execution deadline elapsed".into())).and_then(|r| r),
+                }
+            } else {
+                execution.await
+            };
+            result.unwrap_or_else(|error| ToolExecutionResult {
+                status: ToolExecutionStatus::RuntimeFailure,
+                error: Some(error.to_string()),
+                ..Default::default()
+            })
         };
         if result.status == ToolExecutionStatus::Success
             && !tool
@@ -678,13 +700,8 @@ impl<P: MicroSandboxProvider> ToolRouter<P> {
             result.status = ToolExecutionStatus::InvalidOutput;
             result.error = Some("tool output did not conform to the declared schema".into());
         }
-        let destroy_result = self.provider.destroy(&sandbox).await;
+        self.provider.destroy(&sandbox).await?;
         sandbox.destroyed_at = Some(Utc::now());
-        if let Err(error) = destroy_result
-            && result.status == ToolExecutionStatus::Success
-        {
-            return Err(error);
-        }
         let started_at = result.started_at.unwrap_or(sandbox.created_at);
         let completed_at = result.completed_at.unwrap_or_else(Utc::now);
         let output_hashes = [result.stdout.as_bytes(), result.stderr.as_bytes()]

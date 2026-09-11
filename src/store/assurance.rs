@@ -200,6 +200,9 @@ impl AssuranceStore for Store {
         manifest.verify_hash()?;
         validate_manifest_references(self, manifest)?;
         let (subject_kind, subject_id, subject_revision) = match &manifest.subject {
+            EvidenceSubject::Composition { id, revision } => {
+                ("composition", id.to_string(), Some(sql_u64(*revision)?))
+            }
             EvidenceSubject::Skill(skill) => (
                 "skill",
                 skill.skill_id.to_string(),
@@ -875,6 +878,9 @@ fn manifest_capabilities(manifest: &CapabilityManifest) -> Vec<ExecutionCapabili
 
 fn validate_manifest_references(store: &Store, manifest: &EvidenceManifest) -> Result<()> {
     match &manifest.subject {
+        EvidenceSubject::Composition { id, revision } => {
+            store.composition_revision(id, *revision)?;
+        }
         EvidenceSubject::Skill(skill) => require_composite(
             store,
             "skill_revisions",

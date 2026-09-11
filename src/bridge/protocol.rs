@@ -102,6 +102,10 @@ pub enum NormalizedAction {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ActionContext {
+    /// Sequence identity supplied by the agent. Embedded facts are downgraded to
+    /// AgentReported before resolution; this field cannot confer state authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composition: Option<crate::composition::CompositionRuntimeContext>,
     /// Unverified claims from the proposing agent; never authoritative observations.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub knowledge_reports: std::collections::BTreeMap<String, crate::hierarchy::ScopeValue>,

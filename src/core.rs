@@ -386,3 +386,13 @@ identifier!(KnowledgeSnapshotId, "ks-");
 identifier!(KnowledgeResolutionId, "kr-");
 identifier!(KnowledgeApplicationId, "ka-");
 identifier!(GuardRevisionCandidateId, "guard-candidate-");
+
+identifier!(CompositionId, "composition-");
+identifier!(CompositionStepId, "composition-step-");
+identifier!(CompositionCommitPointId, "composition-commit-");
+identifier!(CompositionEvidenceId, "composition-evidence-");
+identifier!(SequenceInvariantId, "sequence-invariant-");
+identifier!(OperationalAssumptionId, "assumption-");
+identifier!(StateHandoffId, "handoff-");
+identifier!(InteractionFailureId, "interaction-");
+identifier!(CompositeSkillId, "composite-skill-");

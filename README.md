@@ -1083,3 +1083,9 @@ General experience supplies defaults. Validated local evidence can specialize or
 Hardknock exceptions affect what the experience engine recommends. They do not automatically change external execution authority. When learned evidence suggests an OpenKedge Guard should change, Hardknock produces a Guard Revision Candidate with provenance and evidence for separate governance review.
 
 Runtime decisions now bind immutable knowledge snapshots, so replay separates what was known then from what is known today. Conflicts can compile into controlled experiments and existing curricula. See [runtime resolution](docs/knowledge-resolution.md), [snapshots](docs/knowledge-snapshots.md), [conflict learning](docs/knowledge-conflicts.md), and [Guard candidates](docs/guard-revision-candidates.md).
+
+### Bounded operational composition (V0.19)
+
+Hardknock can inspect and test explicit sequences of pinned Skills, Tools and Recoveries, tracking cross-step requirements, sequence invariants, capability flows and immutable evidence. Static compatibility and component success do not establish sequence correctness. Each trial step uses its own ToolRouter sandbox and Reality; production effects retain their existing authorization boundary.
+
+Start with [`hardknock compose`](docs/composition.md). See the [V0.19 report](docs/v0.19-report.md) for fixtures, validation and limitations.

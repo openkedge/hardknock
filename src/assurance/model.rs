@@ -438,6 +438,10 @@ pub struct SkillCertification {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "subject", rename_all = "snake_case")]
 pub enum EvidenceSubject {
+    Composition {
+        id: crate::core::CompositionId,
+        revision: u64,
+    },
     Knowledge(crate::knowledge_runtime::KnowledgeRevisionRef),
     Skill(SkillRevisionRef),
     Tool(ToolId),

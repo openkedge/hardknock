@@ -297,6 +297,7 @@ pub struct InterventionPlan {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "target", rename_all = "snake_case")]
 pub enum CausalTarget {
+    CompositionInteraction(crate::core::InteractionFailureId),
     FailureSignature(String),
     Lesson(LessonId),
     Claim(ClaimId),

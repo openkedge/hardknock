@@ -168,6 +168,16 @@ impl RuntimeStore for Store {
         }
         let transaction =
             Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
+        let mut checked = record.context.clone();
+        self.attach_composition_knowledge(&mut checked)?;
+        if serde_json::to_value(&checked.composition_assessment)?
+            != serde_json::to_value(&record.context.composition_assessment)?
+            || checked.context_observations != record.context.context_observations
+        {
+            return Err(Error::Intervention(
+                "Composition state changed before decision publication; resolve again".into(),
+            ));
+        }
         if record.context.operational_knowledge.is_none()
             && !self.knowledge_hierarchies()?.is_empty()
         {
@@ -576,6 +586,7 @@ impl RuntimeStore for Store {
     ) -> Result<RuntimeDecisionRecord> {
         let previous = self.runtime_decision(id)?;
         let mut current = previous.context.clone();
+        self.attach_composition_knowledge(&mut current)?;
         current.operational_knowledge = if self.knowledge_hierarchies()?.is_empty() {
             None
         } else {

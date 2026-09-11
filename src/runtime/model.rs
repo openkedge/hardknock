@@ -346,6 +346,10 @@ impl ExperimentCapabilitySummary {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeDecisionContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composition: Option<crate::composition::CompositionRuntimeContext>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composition_assessment: Option<crate::composition::CompositionNextStepAssessment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub knowledge_action_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operational_knowledge: Option<crate::knowledge_runtime::RuntimeKnowledgeResolution>,

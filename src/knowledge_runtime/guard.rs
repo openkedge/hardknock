@@ -25,6 +25,7 @@ pub enum GovernanceRelevance {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GuardRevisionReason {
+    NewValidatedSequenceInvariant,
     NewValidatedConstraint,
     ValidatedException,
     ConstraintScopeNarrowed,

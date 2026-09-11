@@ -13,6 +13,7 @@ pub(crate) mod assurance;
 pub(crate) mod attestation;
 pub(crate) mod capability;
 mod causal;
+mod composition;
 pub mod curriculum;
 mod development;
 mod economics;
@@ -101,6 +102,10 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    Compose {
+        #[command(subcommand)]
+        command: composition::ComposeCommand,
+    },
     GuardCandidate {
         #[command(subcommand)]
         command: guard_candidate::GuardCandidateCommand,
@@ -1418,6 +1423,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if let Commands::Compose { command } = &cli.command {
+        return Ok(Response::Knowledge {
+            result: composition::execute(command, &store, cancel).await?,
+        });
+    }
     if let Commands::GuardCandidate { command } = &cli.command {
         return Ok(Response::Knowledge {
             result: guard_candidate::execute(command, &store)?,
@@ -1543,7 +1553,8 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
-        Commands::GuardCandidate { .. }
+        Commands::Compose { .. }
+        | Commands::GuardCandidate { .. }
         | Commands::Knowledge { .. }
         | Commands::Pattern { .. }
         | Commands::Abstract { .. } => {
