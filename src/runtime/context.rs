@@ -273,6 +273,7 @@ impl RuntimeContextSynthesizer<'_> {
 
         let mut context = RuntimeDecisionContext {
             composition: None,
+            team: None,
             plan: None,
             composition_assessment: None,
             knowledge_action_id: None,

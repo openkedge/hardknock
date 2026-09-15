@@ -552,6 +552,7 @@ impl Bridge {
                     }
                     runtime_context.knowledge_action_id=Some(proposed.action_id.clone());
                     let knowledge_store = Store::open(&self.home)?;
+                    runtime_context.team = proposed.context.team.clone();
                     if let Some(mut plan) = proposed.context.plan.clone() {
                         plan.validity = None;
                         plan.crossed_commitments.clear();

@@ -346,6 +346,8 @@ impl ExperimentCapabilitySummary {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RuntimeDecisionContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<crate::team::TeamRuntimeContext>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<crate::plan::PlanRuntimeContext>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composition: Option<crate::composition::CompositionRuntimeContext>,

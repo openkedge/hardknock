@@ -406,3 +406,9 @@ identifier!(OperationalAssumptionId, "assumption-");
 identifier!(StateHandoffId, "handoff-");
 identifier!(InteractionFailureId, "interaction-");
 identifier!(CompositeSkillId, "composite-skill-");
+
+identifier!(AgentTeamId, "team-");
+identifier!(TeamMemberId, "member-");
+identifier!(AgentRoleId, "role-");
+identifier!(RoleAssignmentId, "role-assignment-");
+identifier!(DelegationId, "delegation-");

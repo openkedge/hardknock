@@ -130,6 +130,7 @@ impl RuntimeStore for Store {
         }
         self.attach_runtime_knowledge(&mut context)?;
         self.attach_plan_validity(&mut context, true)?;
+        self.attach_team_authority(&mut context)?;
         let context = &context;
         config.refresh_version();
         config.validate()?;
@@ -173,6 +174,12 @@ impl RuntimeStore for Store {
         self.attach_composition_knowledge(&mut checked)?;
         self.attach_plan_identity(&mut checked)?;
         self.attach_plan_validity(&mut checked, false)?;
+        self.attach_team_authority(&mut checked)?;
+        if serde_json::to_value(&checked.team)? != serde_json::to_value(&record.context.team)? {
+            return Err(Error::Intervention(
+                "Team authority changed before publication; resolve again".into(),
+            ));
+        }
         if let Some(plan) = &mut checked.plan
             && let (Some(current), Some(original)) = (
                 &mut plan.validity,
@@ -625,6 +632,7 @@ impl RuntimeStore for Store {
             )
         };
         self.attach_plan_validity(&mut current, false)?;
+        self.attach_team_authority(&mut current)?;
         let evaluation = DeterministicRuntimeController::with_config(config)?.evaluate(&current)?;
         Ok(RuntimeDecisionRecord {
             id: RuntimeDecisionId::new(),

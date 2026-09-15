@@ -520,6 +520,23 @@ impl RuntimeDecisionPolicy for DeterministicRuntimeDecisionPolicy {
             }
         }
 
+        if let Some(team) = &context.team
+            && !team.assessment.as_ref().is_some_and(|a| a.allowed)
+        {
+            reasons.push(DecisionReason::CapabilityUnavailable);
+            blockers.push(DecisionBlocker::MissingCapability(
+                "Team role or delegation authority is not established".into(),
+            ));
+            let decision = abstain(context, AbstentionReason::CriticalUnknown, blockers.clone());
+            return Ok(self.finish(
+                decision,
+                knowledge,
+                reasons,
+                collected_evidence,
+                blockers,
+                GovernanceDisposition::SecurityBlocked,
+            ));
+        }
         if let Some(plan) = &context.plan {
             use crate::plan::{PlanValidityBlocker, PlanValidityStatus};
             let valid = plan.validity.as_ref().is_some_and(|a| {

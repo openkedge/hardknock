@@ -103,6 +103,8 @@ pub enum NormalizedAction {
 #[serde(deny_unknown_fields)]
 pub struct ActionContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<crate::team::TeamRuntimeContext>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<crate::plan::PlanRuntimeContext>,
     /// Sequence identity supplied by the agent. Embedded facts are downgraded to
     /// AgentReported before resolution; this field cannot confer state authority.

@@ -28,6 +28,7 @@ mod plan;
 mod predictive;
 mod resilience;
 pub(crate) mod runtime;
+mod team;
 pub(crate) mod tools;
 use resilience::{ChaosCommand, EnvelopeCommand, RecoveryCommand, ReflexCommand, SkillCommand};
 
@@ -103,6 +104,14 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    Team {
+        #[command(subcommand)]
+        command: team::TeamCommand,
+    },
+    Delegation {
+        #[command(subcommand)]
+        command: team::DelegationCommand,
+    },
     Plan {
         #[command(subcommand)]
         command: plan::PlanCommand,
@@ -1428,6 +1437,16 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if let Commands::Team { command } = &cli.command {
+        return Ok(Response::Knowledge {
+            result: team::execute(command, &store)?,
+        });
+    }
+    if let Commands::Delegation { command } = &cli.command {
+        return Ok(Response::Knowledge {
+            result: team::delegation(command, &store)?,
+        });
+    }
     if let Commands::Plan { command } = &cli.command {
         return Ok(Response::Knowledge {
             result: plan::execute(command, &store, cancel).await?,
@@ -1563,7 +1582,9 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
-        Commands::Plan { .. }
+        Commands::Team { .. }
+        | Commands::Delegation { .. }
+        | Commands::Plan { .. }
         | Commands::Compose { .. }
         | Commands::GuardCandidate { .. }
         | Commands::Knowledge { .. }
