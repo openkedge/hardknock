@@ -387,6 +387,16 @@ identifier!(KnowledgeResolutionId, "kr-");
 identifier!(KnowledgeApplicationId, "ka-");
 identifier!(GuardRevisionCandidateId, "guard-candidate-");
 
+identifier!(ExecutionPlanId, "plan-");
+identifier!(PlanStepId, "plan-step-");
+identifier!(PlanAssumptionId, "plan-assumption-");
+identifier!(PlanInvariantId, "plan-invariant-");
+identifier!(PlanCheckpointId, "plan-checkpoint-");
+identifier!(PlanCommitmentPointId, "plan-commitment-");
+identifier!(PlanObservationId, "plan-observation-");
+identifier!(PlanAssessmentId, "plan-assessment-");
+identifier!(PlanRunId, "plan-run-");
+identifier!(PlanCheckpointSnapshotId, "plan-snapshot-");
 identifier!(CompositionId, "composition-");
 identifier!(CompositionStepId, "composition-step-");
 identifier!(CompositionCommitPointId, "composition-commit-");

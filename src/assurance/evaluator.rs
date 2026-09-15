@@ -1051,6 +1051,28 @@ pub fn builtin_profiles() -> Vec<AssuranceProfile> {
     };
     vec![
         AssuranceProfile {
+            id: id("assurance-profile-00000000-0000-4000-8000-000000000005"),
+            name: "plan-continuity-basic-v1".into(),
+            version: "1".into(),
+            created_at,
+            requirements: vec![
+                AssuranceRequirement::ContractSatisfied { minimum_runs: 1 },
+                AssuranceRequirement::ControlledExperiments { minimum: 1 },
+                AssuranceRequirement::RecoveryCoverage {
+                    minimum_high_severity_classes: 1,
+                },
+                AssuranceRequirement::NoUnresolvedCriticalContradictions,
+                AssuranceRequirement::EvidenceFreshness {
+                    maximum_age_days: Some(1),
+                },
+                // Instance validity must never be mistaken for a certified plan family.
+                AssuranceRequirement::Custom {
+                    kind: "plan-family-continuity".into(),
+                    payload: serde_json::json!({"requires":["refreshable_critical_assumptions","commitment_inventory","validated_checkpoints","mid_plan_recovery","knowledge_snapshots"]}),
+                },
+            ],
+        },
+        AssuranceProfile {
             id: id("assurance-profile-00000000-0000-4000-8000-000000000001"),
             name: "basic-behavior-v1".into(),
             version: "1".into(),

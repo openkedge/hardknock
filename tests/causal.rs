@@ -231,13 +231,14 @@ async fn confounding_and_wrong_agent_explanations_never_promote_lessons() {
         .name = "memory_pressure".into();
     i.hypotheses[0].statement = "The agent confidently says memory pressure caused this".into();
     let inv = store.create_causal_investigation(&i).unwrap();
-    test_variable(&store, &i, &inv, "memory_pressure").await;
+    let report = test_variable(&store, &i, &inv, "memory_pressure").await;
     assert_eq!(
         store
             .causal_hypothesis(&hypothesis(&i, "memory_pressure"))
             .unwrap()
             .status,
-        CausalHypothesisStatus::Contradicted
+        CausalHypothesisStatus::Contradicted,
+        "{report:#}"
     );
     assert!(store.all_lessons().unwrap().is_empty());
 }
@@ -290,7 +291,8 @@ async fn interaction_requires_qualified_scope_and_does_not_establish_sufficiency
     assert_eq!(report["evidence"][0]["intervention_outcome"], "pass");
     assert_eq!(
         store.causal_hypothesis(&i.hypotheses[0].id).unwrap().status,
-        CausalHypothesisStatus::Contradicted
+        CausalHypothesisStatus::Contradicted,
+        "{report:#}"
     );
 }
 

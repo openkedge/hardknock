@@ -520,6 +520,48 @@ impl RuntimeDecisionPolicy for DeterministicRuntimeDecisionPolicy {
             }
         }
 
+        if let Some(plan) = &context.plan {
+            use crate::plan::{PlanValidityBlocker, PlanValidityStatus};
+            let valid = plan.validity.as_ref().is_some_and(|a| {
+                matches!(
+                    a.status,
+                    PlanValidityStatus::Valid | PlanValidityStatus::ValidWithWarnings
+                )
+            });
+            if !valid {
+                let decision = if governance.approval_required
+                    || plan.validity.as_ref().is_some_and(|a| {
+                        a.blockers.contains(&PlanValidityBlocker::ApprovalRequired)
+                    }) {
+                    approval(
+                        context,
+                        "Plan commitment requires current external approval",
+                    )
+                } else if plan
+                    .validity
+                    .as_ref()
+                    .is_some_and(|a| a.status == PlanValidityStatus::ReplanRequired)
+                {
+                    RuntimeDecision::Replan(ReplanDecision {
+                        reason: "Plan dependencies changed; revise the remaining plan".into(),
+                        matched_reflexes: vec![],
+                        relevant_lessons: vec![],
+                        excluded_actions: vec![],
+                    })
+                } else {
+                    abstain(context, AbstentionReason::CriticalUnknown, blockers.clone())
+                };
+                return Ok(self.finish(
+                    decision,
+                    knowledge,
+                    reasons,
+                    collected_evidence,
+                    blockers,
+                    GovernanceDisposition::RuntimeRecommendation,
+                ));
+            }
+        }
+
         if let Some(assessment) = &context.composition_assessment
             && (!assessment.findings.is_empty() || !assessment.unknown.is_empty())
         {

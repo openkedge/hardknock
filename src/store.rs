@@ -23,6 +23,7 @@ mod capabilities;
 mod composition;
 mod hierarchy;
 mod knowledge_runtime;
+mod plan;
 pub use assurance::AssuranceStore;
 mod causal;
 mod predictive;
@@ -125,7 +126,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 24 {
+        if version > 25 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -227,6 +228,10 @@ impl Store {
         if version < 24 {
             tx.execute_batch(include_str!("../migrations/024_composition.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (24)", [])?;
+        }
+        if version < 25 {
+            tx.execute_batch(include_str!("../migrations/025_plan.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (25)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

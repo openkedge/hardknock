@@ -492,6 +492,7 @@ impl ExperienceHotCache {
         }
         let decision_context = RuntimeDecisionContext {
             composition: None,
+            plan: None,
             composition_assessment: None,
             knowledge_action_id: None,
             operational_knowledge: None,

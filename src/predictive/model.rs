@@ -22,6 +22,7 @@ pub type PreventiveInterventionRef = PreventiveInterventionId;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "subject", content = "id", rename_all = "snake_case")]
 pub enum TrajectorySubject {
+    Plan(ExecutionPlanId),
     Composition(crate::core::CompositionId),
     Task(TaskId),
     Skill(SkillId),

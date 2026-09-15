@@ -552,6 +552,11 @@ impl Bridge {
                     }
                     runtime_context.knowledge_action_id=Some(proposed.action_id.clone());
                     let knowledge_store = Store::open(&self.home)?;
+                    if let Some(mut plan) = proposed.context.plan.clone() {
+                        plan.validity = None;
+                        plan.crossed_commitments.clear();
+                        runtime_context.plan = Some(plan);
+                    }
                     if let Some(mut composition) = proposed.context.composition.clone() {
                         for claim in &mut composition.state { claim.source = crate::composition::StateClaimSource::AgentReported; }
                         for handoff in &mut composition.current_handoffs { for claim in &mut handoff.facts { claim.source = crate::composition::StateClaimSource::AgentReported; } }

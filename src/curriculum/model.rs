@@ -73,6 +73,11 @@ impl CurriculumStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CurriculumGoalKind {
+    ValidatePlan,
+    ValidateCheckpoint,
+    ValidateCommitmentGate,
+    ValidatePlanRecovery,
+    ReduceUnnecessaryReplans,
     ValidateComposition,
     FindInteractionFailure,
     ValidateSequenceInvariant,

@@ -501,7 +501,8 @@ fn rank_key(
 
 fn portfolio_category(kind: &ExperienceOpportunityKind) -> EvidencePortfolioCategory {
     match kind {
-        ExperienceOpportunityKind::ValidateComposition
+        ExperienceOpportunityKind::ValidatePlan
+        | ExperienceOpportunityKind::ValidateComposition
         | ExperienceOpportunityKind::InvestigateInteractionFailure
         | ExperienceOpportunityKind::ValidateSequenceInvariant
         | ExperienceOpportunityKind::ValidateCompositionRecovery

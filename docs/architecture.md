@@ -584,3 +584,14 @@ flowchart TD
 `effects` materializes current state; `effect_events` is the append-only canonical lifecycle. Realities reference ledgers. Prepared records retain previews and before-state snapshots. Authorizations bind exact scopes. Receipts, compensation receipts, reconciliation attempts, group outcomes, and Effect-to-Experience links preserve the evidence chain.
 
 The mock external system is deliberately separate from the main ledger database. Its resource mutation and idempotency record commit in one local SQLite transaction. This proves adapter semantics without claiming arbitrary external systems share those guarantees. See [transactional Realities](transactional-realities.md), [commit semantics](commit-semantics.md), and the [V0.8 report](implementation-v08.md).
+
+## Plan validity
+
+`plan::{model,validity}` defines versioned bounded execution plans and deterministic
+next-step assessment. `store::plan` binds them to observations, immutable revision
+history, checkpoints, runtime decisions and the effect ledger. Migration 025 adds
+plan definitions, runs, observations, assessments, step records, snapshots and events.
+Runtime decision publication rechecks the live plan under the existing transaction;
+historical decision records retain their original assessment. Plan curricula use the
+existing experiment executor; forecasts and causal investigations reuse their existing
+engines. See `docs/plan-validity.md` for unsupported execution adapters.

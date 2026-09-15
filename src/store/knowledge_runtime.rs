@@ -280,6 +280,7 @@ impl Store {
     }
     pub fn attach_runtime_knowledge(&self, context: &mut RuntimeDecisionContext) -> Result<()> {
         self.attach_composition_knowledge(context)?;
+        self.attach_plan_identity(context)?;
         if self.knowledge_hierarchies()?.is_empty() {
             context.operational_knowledge = None;
             return Ok(());

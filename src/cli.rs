@@ -24,6 +24,7 @@ mod federation;
 mod guard_candidate;
 pub mod integrations;
 mod knowledge;
+mod plan;
 mod predictive;
 mod resilience;
 pub(crate) mod runtime;
@@ -102,6 +103,10 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    Plan {
+        #[command(subcommand)]
+        command: plan::PlanCommand,
+    },
     Compose {
         #[command(subcommand)]
         command: composition::ComposeCommand,
@@ -1423,6 +1428,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if let Commands::Plan { command } = &cli.command {
+        return Ok(Response::Knowledge {
+            result: plan::execute(command, &store, cancel).await?,
+        });
+    }
     if let Commands::Compose { command } = &cli.command {
         return Ok(Response::Knowledge {
             result: composition::execute(command, &store, cancel).await?,
@@ -1553,7 +1563,8 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
-        Commands::Compose { .. }
+        Commands::Plan { .. }
+        | Commands::Compose { .. }
         | Commands::GuardCandidate { .. }
         | Commands::Knowledge { .. }
         | Commands::Pattern { .. }

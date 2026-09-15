@@ -1,0 +1,41 @@
+{
+  "scope": "Deterministic local engineering samples; not production performance guarantees",
+  "stable_plan_walks": [
+    {
+      "steps": 10,
+      "assessments": 10,
+      "total_microseconds": 1652
+    },
+    {
+      "steps": 25,
+      "assessments": 25,
+      "total_microseconds": 4681
+    },
+    {
+      "steps": 50,
+      "assessments": 50,
+      "total_microseconds": 21318
+    },
+    {
+      "steps": 100,
+      "assessments": 100,
+      "total_microseconds": 170467
+    }
+  ],
+  "controlled_deployment_comparison": {
+    "static": {
+      "passed": 0,
+      "cases": 1
+    },
+    "checkpoint_only": {
+      "passed": 0,
+      "cases": 1
+    },
+    "adaptive": {
+      "passed": 1,
+      "cases": 1
+    },
+    "isolated_branches": 3,
+    "live_production_effects": 0
+  }
+}

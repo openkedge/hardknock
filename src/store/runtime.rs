@@ -129,6 +129,7 @@ impl RuntimeStore for Store {
                 .push("A supporting causal mechanism requires revalidation".into());
         }
         self.attach_runtime_knowledge(&mut context)?;
+        self.attach_plan_validity(&mut context, true)?;
         let context = &context;
         config.refresh_version();
         config.validate()?;
@@ -170,6 +171,27 @@ impl RuntimeStore for Store {
             Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
         let mut checked = record.context.clone();
         self.attach_composition_knowledge(&mut checked)?;
+        self.attach_plan_identity(&mut checked)?;
+        self.attach_plan_validity(&mut checked, false)?;
+        if let Some(plan) = &mut checked.plan
+            && let (Some(current), Some(original)) = (
+                &mut plan.validity,
+                record
+                    .context
+                    .plan
+                    .as_ref()
+                    .and_then(|p| p.validity.as_ref()),
+            )
+        {
+            current.id = original.id.clone();
+            current.assessed_at = original.assessed_at;
+        }
+        if serde_json::to_value(&checked.plan)? != serde_json::to_value(&record.context.plan)? {
+            return Err(Error::Intervention(
+                "Plan changed before decision publication; resolve again".into(),
+            ));
+        }
+
         if serde_json::to_value(&checked.composition_assessment)?
             != serde_json::to_value(&record.context.composition_assessment)?
             || checked.context_observations != record.context.context_observations
@@ -586,6 +608,7 @@ impl RuntimeStore for Store {
     ) -> Result<RuntimeDecisionRecord> {
         let previous = self.runtime_decision(id)?;
         let mut current = previous.context.clone();
+        self.attach_plan_identity(&mut current)?;
         self.attach_composition_knowledge(&mut current)?;
         current.operational_knowledge = if self.knowledge_hierarchies()?.is_empty() {
             None
@@ -601,6 +624,7 @@ impl RuntimeStore for Store {
                 .resolve_for_runtime(&current)?,
             )
         };
+        self.attach_plan_validity(&mut current, false)?;
         let evaluation = DeterministicRuntimeController::with_config(config)?.evaluate(&current)?;
         Ok(RuntimeDecisionRecord {
             id: RuntimeDecisionId::new(),

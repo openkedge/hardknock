@@ -1089,3 +1089,11 @@ Runtime decisions now bind immutable knowledge snapshots, so replay separates wh
 Hardknock can inspect and test explicit sequences of pinned Skills, Tools and Recoveries, tracking cross-step requirements, sequence invariants, capability flows and immutable evidence. Static compatibility and component success do not establish sequence correctness. Each trial step uses its own ToolRouter sandbox and Reality; production effects retain their existing authorization boundary.
 
 Start with [`hardknock compose`](docs/composition.md). See the [V0.19 report](docs/v0.19-report.md) for fixtures, validation and limitations.
+
+### A Good Plan Can Go Stale
+
+A previously valid deployment plan may become unsafe after dependency drift,
+expired approval, or loss of a recovery path. Hardknock's bounded plan-validity
+layer checks the next step against fresh evidence, preserves commitment history,
+and requests verification or replanning when necessary. See
+[plan validity](docs/plan-validity.md) for the implemented APIs and current limits.

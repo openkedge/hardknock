@@ -125,6 +125,7 @@ fn outcome_name(outcome: &TrajectoryOutcome) -> &'static str {
 
 fn subject_parts(subject: &TrajectorySubject) -> (&'static str, String) {
     match subject {
+        TrajectorySubject::Plan(id) => ("plan", id.to_string()),
         TrajectorySubject::Composition(id) => ("composition", id.to_string()),
         TrajectorySubject::Task(id) => ("task", id.to_string()),
         TrajectorySubject::Skill(id) => ("skill", id.to_string()),
