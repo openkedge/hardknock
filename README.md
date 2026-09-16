@@ -1097,3 +1097,12 @@ expired approval, or loss of a recovery path. Hardknock's bounded plan-validity
 layer checks the next step against fresh evidence, preserves commitment history,
 and requests verification or replanning when necessary. See
 [plan validity](docs/plan-validity.md) for the implemented APIs and current limits.
+
+### Scoped team review
+
+Team roles and bounded delegation constrain who may act. Review gates bind the
+proposed operation to structured contributions and existing evidence paths, with
+distinct proposer, reviewer and executor identities for high-risk execution.
+Repeated citations remain one evidence path; unresolved findings and common-mode
+evidence prevent a gate from passing. External effect approval is still required.
+See [team review](docs/team-review.md) and [V0.21 progress](docs/v0.21-progress.md).

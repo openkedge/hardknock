@@ -104,6 +104,10 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
+    Review {
+        #[command(subcommand)]
+        command: team::ReviewCommand,
+    },
     Team {
         #[command(subcommand)]
         command: team::TeamCommand,
@@ -1437,6 +1441,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if let Commands::Review { command } = &cli.command {
+        return Ok(Response::Knowledge {
+            result: team::review(command, &store)?,
+        });
+    }
     if let Commands::Team { command } = &cli.command {
         return Ok(Response::Knowledge {
             result: team::execute(command, &store)?,
@@ -1582,7 +1591,8 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     let provider = GitRealityProvider::new(&store);
     match &cli.command {
-        Commands::Team { .. }
+        Commands::Review { .. }
+        | Commands::Team { .. }
         | Commands::Delegation { .. }
         | Commands::Plan { .. }
         | Commands::Compose { .. }

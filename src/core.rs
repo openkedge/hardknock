@@ -412,3 +412,7 @@ identifier!(TeamMemberId, "member-");
 identifier!(AgentRoleId, "role-");
 identifier!(RoleAssignmentId, "role-assignment-");
 identifier!(DelegationId, "delegation-");
+
+identifier!(TeamReviewId, "team-review-");
+identifier!(AgentContributionId, "contribution-");
+identifier!(ReviewFindingId, "review-finding-");

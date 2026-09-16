@@ -12,6 +12,8 @@ pub enum TeamCommand {
     Roles { id: AgentTeamId },
     Authority { id: AgentTeamId },
     History { id: AgentTeamId },
+    Diversity { review: TeamReviewId },
+    CommonMode { review: TeamReviewId },
 }
 #[derive(Debug, Subcommand)]
 pub enum DelegationCommand {
@@ -53,6 +55,9 @@ pub fn execute(command: &TeamCommand, store: &Store) -> Result<Value> {
             json!({"team_ceiling":t.authority,"roles":t.roles,"delegation_depth":t.max_delegation_depth,"external_authority_required":true})
         }
         TeamCommand::History { id } => json!(store.team_history(id)?),
+        TeamCommand::Diversity { review } | TeamCommand::CommonMode { review } => {
+            json!(store.team_evidence(review)?)
+        }
     })
 }
 pub fn delegation(command: &DelegationCommand, store: &Store) -> Result<Value> {
@@ -75,6 +80,74 @@ pub fn delegation(command: &DelegationCommand, store: &Store) -> Result<Value> {
         DelegationCommand::Revoke { id, reason } => {
             store.revoke_delegation(id, reason)?;
             json!({"revoked":id})
+        }
+    })
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ReviewCommand {
+    Target {
+        #[arg(long)]
+        context: PathBuf,
+    },
+    Create {
+        file: PathBuf,
+    },
+    Show {
+        id: TeamReviewId,
+    },
+    Findings {
+        id: TeamReviewId,
+    },
+    Contribute {
+        file: PathBuf,
+        #[arg(long)]
+        context: PathBuf,
+        #[arg(long)]
+        findings: Option<PathBuf>,
+    },
+    ResolveFinding {
+        file: PathBuf,
+    },
+    Assess {
+        id: TeamReviewId,
+        #[arg(long)]
+        context: PathBuf,
+    },
+}
+pub fn review(command: &ReviewCommand, store: &Store) -> Result<Value> {
+    Ok(match command {
+        ReviewCommand::Target { context } => {
+            json!({"action_hash":crate::team::review_action_hash(&serde_json::from_slice(&fs::read(context)?)?)?})
+        }
+        ReviewCommand::Create { file } => {
+            json!(store.create_team_review(&serde_json::from_slice(&fs::read(file)?)?)?)
+        }
+        ReviewCommand::Show { id } => {
+            json!({"review":store.team_review(id)?,"contributions":store.team_contributions(id)?,"evidence":store.team_evidence(id)?})
+        }
+        ReviewCommand::Findings { id } => json!(store.review_findings(id)?),
+        ReviewCommand::Contribute {
+            file,
+            context,
+            findings,
+        } => {
+            let findings = if let Some(path) = findings {
+                serde_json::from_slice(&fs::read(path)?)?
+            } else {
+                Vec::new()
+            };
+            json!(store.record_team_contribution(
+                &serde_json::from_slice(&fs::read(file)?)?,
+                &findings,
+                &serde_json::from_slice(&fs::read(context)?)?
+            )?)
+        }
+        ReviewCommand::ResolveFinding { file } => {
+            json!(store.resolve_review_finding(&serde_json::from_slice(&fs::read(file)?)?)?)
+        }
+        ReviewCommand::Assess { id, context } => {
+            json!(store.assess_team_review(id, &serde_json::from_slice(&fs::read(context)?)?)?)
         }
     })
 }

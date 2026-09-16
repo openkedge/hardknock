@@ -241,12 +241,14 @@ fn runtime_discards_forged_assessment_and_checks_actual_action() {
     context.session_id = t.members[0].session.clone();
     context.agent = t.members[0].agent.clone();
     context.team = Some(TeamRuntimeContext {
+        review: None,
         team: t.id.clone(),
         revision: t.revision,
         member: t.members[0].id.clone(),
         assignment: t.role_assignments[0].id.clone(),
         delegation: None,
         assessment: Some(TeamAuthorityAssessment {
+            review: None,
             allowed: true,
             action: RoleActionClass::Observe,
             reasons: vec![],
@@ -298,6 +300,7 @@ fn runtime_rechecks_revision_revocation_and_session() {
     context.session_id = t.members[1].session.clone();
     context.agent = t.members[1].agent.clone();
     context.team = Some(TeamRuntimeContext {
+        review: None,
         team: t.id.clone(),
         revision: 1,
         member: t.members[1].id.clone(),
@@ -372,6 +375,7 @@ fn publication_rechecks_team_revision_without_rewriting_original_decision() {
     context.session_id = t.members[0].session.clone();
     context.agent = t.members[0].agent.clone();
     context.team = Some(TeamRuntimeContext {
+        review: None,
         team: t.id.clone(),
         revision: 1,
         member: t.members[0].id.clone(),
@@ -420,6 +424,7 @@ fn runtime_scope_requires_observation_even_without_knowledge_hierarchy() {
     context.session_id = t.members[0].session.clone();
     context.agent = t.members[0].agent.clone();
     context.team = Some(TeamRuntimeContext {
+        review: None,
         team: t.id.clone(),
         revision: 1,
         member: t.members[0].id.clone(),

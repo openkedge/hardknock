@@ -323,6 +323,8 @@ pub fn intersect_request(
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TeamRuntimeContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<TeamReviewId>,
     pub team: AgentTeamId,
     pub revision: u64,
     pub member: TeamMemberId,
@@ -333,7 +335,12 @@ pub struct TeamRuntimeContext {
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TeamAuthorityAssessment {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<ReviewGateAssessment>,
     pub allowed: bool,
     pub action: RoleActionClass,
     pub reasons: Vec<String>,
 }
+
+mod review;
+pub use review::*;

@@ -168,6 +168,7 @@ impl Store {
                 _ => RoleActionClass::Execute,
             }
         };
+        let mut review_assessment = None;
         let result = (|| -> Result<()> {
             let team = self.agent_team(&binding.team)?;
             if team.revision != binding.revision {
@@ -182,17 +183,7 @@ impl Store {
                     "Runtime identity does not match team member".into(),
                 ));
             }
-            let mut observed_context = context.clone();
-            for (key, values) in self.runtime_context_observations(&context.session_id)? {
-                observed_context
-                    .context_observations
-                    .entry(key)
-                    .or_default()
-                    .extend(values);
-            }
-            let scope_context = crate::knowledge_runtime::DefaultKnowledgeContextBuilder
-                .trusted(&observed_context)
-                .context;
+            let scope_context = self.team_scope_context(context)?;
             let assignment = team
                 .role_assignments
                 .iter()
@@ -253,9 +244,27 @@ impl Store {
                 &request,
             )?;
             intersect_request(&rights, &request)?;
+            if let Some(id) = &binding.review {
+                let assessment = self.assess_team_review(id, context)?;
+                let satisfied = assessment.status == ReviewGateStatus::Satisfied;
+                review_assessment = Some(assessment);
+                if !satisfied {
+                    return Err(Error::InvalidInput(
+                        "Team review gate is not satisfied".into(),
+                    ));
+                }
+            } else if self.team_action_has_review(&team.id, context)?
+                || (context.risk.severity >= crate::curriculum::Severity::High
+                    && action != RoleActionClass::Observe)
+            {
+                return Err(Error::InvalidInput(
+                    "This team action requires an evidence-backed review".into(),
+                ));
+            }
             Ok(())
         })();
         let assessment = TeamAuthorityAssessment {
+            review: review_assessment,
             allowed: result.is_ok(),
             action,
             reasons: result
