@@ -77,6 +77,6 @@ automatic claim that arbitrary findings have been empirically disproved.
 This layer does not run reviewers, schedule experiments, or verify arbitrary
 natural-language claims. It consumes canonical evidence already recorded by the
 existing evidence subsystem; it does not add stronger authentication to that
-subsystem. Full role-aware handoffs, blind knowledge exposure, responsibility maps,
-effect actor receipts, recovery coordination and the remaining V0.21 integrations
-are tracked in `v0.21-progress.md`.
+subsystem. Reference-only handoffs and plan responsibility are described in `team-handoffs.md`.
+Blind knowledge exposure, full responsibility maps, effect actor receipts, recovery
+coordination and remaining V0.21 integrations are tracked in `v0.21-progress.md`.

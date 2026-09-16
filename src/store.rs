@@ -25,6 +25,7 @@ mod hierarchy;
 mod knowledge_runtime;
 mod plan;
 mod team;
+mod team_handoff;
 mod team_review;
 pub use assurance::AssuranceStore;
 mod causal;
@@ -128,7 +129,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 27 {
+        if version > 28 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -242,6 +243,10 @@ impl Store {
         if version < 27 {
             tx.execute_batch(include_str!("../migrations/027_team_review.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (27)", [])?;
+        }
+        if version < 28 {
+            tx.execute_batch(include_str!("../migrations/028_team_handoff.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (28)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

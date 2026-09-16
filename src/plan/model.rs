@@ -41,6 +41,10 @@ pub struct PlanGoal {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PlanStep {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub responsible_role: Option<AgentRoleId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executing_member: Option<TeamMemberId>,
     pub id: PlanStepId,
     pub kind: PlanStepKind,
     pub dependencies: Vec<PlanStepId>,

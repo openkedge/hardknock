@@ -602,3 +602,153 @@ fn harmless_task_rename_cannot_change_review_identity() {
     c.task.description = "Renamed task".into();
     assert_eq!(hash, review_action_hash(&c).unwrap());
 }
+
+fn handoff_request(f: &Fixture, paths: BTreeSet<EvidencePathId>) -> AgentHandoffRequest {
+    let source = f
+        .store
+        .team_contributions(&f.review.id)
+        .unwrap()
+        .into_iter()
+        .find(|c| c.contribution_type == ContributionType::Review)
+        .unwrap();
+    AgentHandoffRequest {
+        id: AgentHandoffId::new(),
+        review: f.review.id.clone(),
+        from_contribution: source.id.clone(),
+        to_assignment: f.team.role_assignments[2].id.clone(),
+        payload: StructuredHandoff {
+            claims: [f.review.target.claim.clone()].into(),
+            observations: paths,
+            contributions: [source.id].into(),
+        },
+        classification: HandoffClassification::Operational,
+        knowledge_snapshot: None,
+    }
+}
+#[test]
+fn structured_handoff_preserves_evidence_paths_without_creating_support() {
+    let f = Fixture::new();
+    let paths = f.ready();
+    let before = f.store.team_evidence(&f.review.id).unwrap();
+    let request = handoff_request(&f, paths.clone());
+    let h = f
+        .store
+        .create_agent_handoff(&request, &f.context(1))
+        .unwrap();
+    h.verify().unwrap();
+    let received = f
+        .store
+        .receive_agent_handoff(&request.id, &f.context(2))
+        .unwrap();
+    assert_eq!(received.content_hash, h.content_hash);
+    assert_eq!(received.request.payload.observations, paths);
+    assert_eq!(
+        f.store
+            .evidence_paths(&f.review.target.claim)
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(
+        f.store.team_evidence(&f.review.id).unwrap().fused.diversity,
+        before.fused.diversity
+    );
+}
+#[test]
+fn handoff_rejects_wrong_sender_recipient_and_action() {
+    let f = Fixture::new();
+    let request = handoff_request(&f, f.ready());
+    assert!(
+        f.store
+            .create_agent_handoff(&request, &f.context(0))
+            .is_err()
+    );
+    f.store
+        .create_agent_handoff(&request, &f.context(1))
+        .unwrap();
+    assert!(
+        f.store
+            .receive_agent_handoff(&request.id, &f.context(0))
+            .is_err()
+    );
+    let mut wrong = f.context(2);
+    wrong.proposed_action = None;
+    assert!(f.store.receive_agent_handoff(&request.id, &wrong).is_err());
+}
+#[test]
+fn handoff_revision_change_blocks_delivery_but_preserves_history() {
+    let f = Fixture::new();
+    let request = handoff_request(&f, f.ready());
+    let mut h = f
+        .store
+        .create_agent_handoff(&request, &f.context(1))
+        .unwrap();
+    h.request.payload.claims.clear();
+    assert!(h.verify().is_err());
+    let mut t = f.team.clone();
+    t.revision += 1;
+    f.store.save_agent_team(&t).unwrap();
+    assert!(
+        f.store
+            .receive_agent_handoff(&request.id, &f.context(2))
+            .is_err()
+    );
+    assert!(f.store.agent_handoff(&request.id).is_ok());
+}
+#[test]
+fn sensitive_handoff_and_raw_scratchpad_are_not_accepted() {
+    let f = Fixture::new();
+    let mut request = handoff_request(&f, f.ready());
+    for class in [
+        HandoffClassification::Sensitive,
+        HandoffClassification::Restricted,
+    ] {
+        request.classification = class;
+        assert!(
+            f.store
+                .create_agent_handoff(&request, &f.context(1))
+                .is_err()
+        );
+    }
+    let value = serde_json::json!({"claims":[],"observations":[],"contributions":[],"scratchpad":"secret token AKIAABCDEFGHIJKLMNOP"});
+    assert!(serde_json::from_value::<StructuredHandoff>(value).is_err());
+}
+#[test]
+fn handoff_cannot_add_uncited_observations_or_unbound_snapshot() {
+    let f = Fixture::new();
+    let mut request = handoff_request(&f, f.ready());
+    request
+        .payload
+        .observations
+        .insert(f.path("uncited", EvidenceOutcome::Supports));
+    assert!(
+        f.store
+            .create_agent_handoff(&request, &f.context(1))
+            .is_err()
+    );
+    request.payload.observations.clear();
+    request.knowledge_snapshot = Some(KnowledgeSnapshotId::new());
+    assert!(
+        f.store
+            .create_agent_handoff(&request, &f.context(1))
+            .is_err()
+    );
+}
+#[test]
+fn handoff_requires_recipient_observation_authority() {
+    let mut f = Fixture::new();
+    f.team.roles[2]
+        .prohibited_actions
+        .insert(RoleActionClass::Observe);
+    f.team.revision += 1;
+    f.store.save_agent_team(&f.team).unwrap();
+    f.review.id = TeamReviewId::new();
+    f.review.team_revision = f.team.revision;
+    f.review = f.store.create_team_review(&f.review).unwrap();
+    let request = handoff_request(&f, f.ready());
+    assert!(
+        f.store
+            .create_agent_handoff(&request, &f.context(1))
+            .is_err()
+    );
+}

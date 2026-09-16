@@ -90,6 +90,8 @@ pub struct AgentTeam {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Delegation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan: Option<crate::plan::PlanRevisionRef>,
     pub id: DelegationId,
     pub team: AgentTeamId,
     pub team_revision: u64,
@@ -230,7 +232,8 @@ impl AgentTeam {
         let source = if let Some(parent) = &d.parent {
             let rights = self.delegated_inner(parent, all, revoked, now, seen)?;
             let p = &all[parent];
-            if p.delegate != d.delegator
+            if (p.plan.is_some() && p.plan != d.plan)
+                || p.delegate != d.delegator
                 || p.source_assignment != d.source_assignment
                 || d.expires_at > p.expires_at
                 || d.issued_at < p.issued_at
@@ -344,3 +347,6 @@ pub struct TeamAuthorityAssessment {
 
 mod review;
 pub use review::*;
+
+mod handoff;
+pub use handoff::*;

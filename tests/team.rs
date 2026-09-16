@@ -40,6 +40,7 @@ fn fixture() -> AgentTeam {
 }
 fn delegation(t: &AgentTeam) -> Delegation {
     Delegation {
+        plan: None,
         id: DelegationId::new(),
         team: t.id.clone(),
         team_revision: t.revision,
@@ -462,5 +463,39 @@ fn runtime_scope_requires_observation_even_without_knowledge_hierarchy() {
             .as_ref()
             .unwrap()
             .allowed
+    );
+}
+
+#[test]
+fn child_cannot_drop_or_change_parent_plan_binding() {
+    use hardknock::plan::PlanRevisionRef;
+    let t = fixture();
+    let mut p = delegation(&t);
+    p.plan = Some(PlanRevisionRef {
+        plan: ExecutionPlanId::new(),
+        revision: 1,
+    });
+    let mut d = p.clone();
+    d.id = DelegationId::new();
+    d.parent = Some(p.id.clone());
+    d.delegator = p.delegate.clone();
+    d.delegate = t.members[2].id.clone();
+    let mut all = BTreeMap::from([(p.id.clone(), p.clone()), (d.id.clone(), d.clone())]);
+    assert!(
+        t.delegated_authority(&d.id, &all, &BTreeSet::new(), Utc::now())
+            .is_ok()
+    );
+    d.plan = None;
+    all.insert(d.id.clone(), d.clone());
+    assert!(
+        t.delegated_authority(&d.id, &all, &BTreeSet::new(), Utc::now())
+            .is_err()
+    );
+    d.plan = p.plan.clone();
+    d.plan.as_mut().unwrap().revision = 2;
+    all.insert(d.id.clone(), d.clone());
+    assert!(
+        t.delegated_authority(&d.id, &all, &BTreeSet::new(), Utc::now())
+            .is_err()
     );
 }

@@ -578,6 +578,38 @@ impl Store {
             ));
         }
         let definition = self.plan_revision(&run.plan.plan, run.plan.revision)?;
+        let step = definition
+            .steps
+            .iter()
+            .find(|s| s.id == plan.next_step)
+            .ok_or_else(|| Error::InvalidInput("Plan next step is missing".into()))?;
+        if step.responsible_role.is_some() || step.executing_member.is_some() {
+            let binding = context.team.as_ref().ok_or_else(|| {
+                Error::InvalidInput("Responsible plan step requires a team binding".into())
+            })?;
+            let team = self.agent_team(&binding.team)?;
+            let assignment = team
+                .role_assignments
+                .iter()
+                .find(|a| a.id == binding.assignment && a.member == binding.member)
+                .ok_or_else(|| {
+                    Error::InvalidInput("Plan step assignment is not held by acting member".into())
+                })?;
+            if team.revision != binding.revision
+                || step
+                    .responsible_role
+                    .as_ref()
+                    .is_some_and(|id| id != &assignment.role)
+                || step
+                    .executing_member
+                    .as_ref()
+                    .is_some_and(|id| id != &binding.member)
+            {
+                return Err(Error::InvalidInput(
+                    "Plan responsibility does not match current acting role/member".into(),
+                ));
+            }
+        }
         // Remove old plan-owned facts before resolving current observations, including
         // facts invalidated at a commitment and absent from the current state.
         for key in definition
@@ -773,7 +805,18 @@ impl Store {
                 "Plan step needs its recorded ACT decision".into(),
             ));
         }
-        let assessment = self.assess_plan_run(&record.run, &decision.context, false)?;
+        let mut checked_context = decision.context.clone();
+        self.attach_plan_identity(&mut checked_context)?;
+        self.attach_team_authority(&mut checked_context)?;
+        if serde_json::to_value(&checked_context.team)?
+            != serde_json::to_value(&decision.context.team)?
+        {
+            return Err(Error::Intervention(
+                "Team authority changed before step completion; reconcile the outcome explicitly"
+                    .into(),
+            ));
+        }
+        let assessment = self.assess_plan_run(&record.run, &checked_context, false)?;
         if !matches!(
             assessment.status,
             PlanValidityStatus::Valid | PlanValidityStatus::ValidWithWarnings

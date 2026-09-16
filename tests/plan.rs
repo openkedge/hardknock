@@ -37,6 +37,8 @@ fn plan() -> ExecutionPlan {
         },
         revision: 1,
         steps: vec![PlanStep {
+            responsible_role: None,
+            executing_member: None,
             id: step.clone(),
             kind: PlanStepKind::Observe(ObservationSpec {
                 key: "ready".into(),
@@ -847,5 +849,188 @@ fn partial_effect_survives_replan_that_replaces_unfinished_step() {
             .unwrap()
             .mutation_count,
         0
+    );
+}
+
+fn responsible_team(store: &Store, ctx: &RuntimeDecisionContext) -> hardknock::team::AgentTeam {
+    use hardknock::{hierarchy::KnowledgeScope, team::*};
+    let role = AgentRole::builtin(BuiltInAgentRole::Executor);
+    let first = AgentTeamMember {
+        id: TeamMemberId::new(),
+        session: ctx.session_id.clone(),
+        agent: ctx.agent.clone(),
+    };
+    let second = AgentTeamMember {
+        id: TeamMemberId::new(),
+        session: HardknockSessionId::new(),
+        agent: ctx.agent.clone(),
+    };
+    let members = vec![first, second];
+    let now = Utc::now();
+    let t = AgentTeam {
+        id: AgentTeamId::new(),
+        revision: 1,
+        role_assignments: members
+            .iter()
+            .map(|m| RoleAssignment {
+                id: RoleAssignmentId::new(),
+                member: m.id.clone(),
+                role: role.id.clone(),
+                scope: KnowledgeScope::default(),
+                valid_from: now - chrono::Duration::minutes(1),
+                valid_until: now + chrono::Duration::hours(1),
+            })
+            .collect(),
+        members,
+        authority: role.authority(),
+        roles: vec![role],
+        max_delegation_depth: 2,
+        created_at: now,
+    };
+    store.save_agent_team(&t).unwrap();
+    t
+}
+fn bind_team(ctx: &mut RuntimeDecisionContext, t: &hardknock::team::AgentTeam, index: usize) {
+    ctx.session_id = t.members[index].session.clone();
+    ctx.agent = t.members[index].agent.clone();
+    ctx.team = Some(hardknock::team::TeamRuntimeContext {
+        team: t.id.clone(),
+        revision: t.revision,
+        member: t.members[index].id.clone(),
+        assignment: t.role_assignments[index].id.clone(),
+        delegation: None,
+        review: None,
+        assessment: None,
+    });
+}
+#[test]
+fn plan_responsibility_requires_matching_role_and_member() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(temp.path()).unwrap();
+    let mut ctx = context();
+    let team = responsible_team(&store, &ctx);
+    let mut p = plan();
+    p.steps[0].responsible_role = Some(team.roles[0].id.clone());
+    p.steps[0].executing_member = Some(team.members[0].id.clone());
+    let p = store
+        .save_execution_plan(&p, PlanRevisionReason::UserChange)
+        .unwrap();
+    let run = store.start_plan_run(&p.id).unwrap();
+    assert!(store.plan_runtime_context(&run.id, ctx.clone()).is_err());
+    bind_team(&mut ctx, &team, 0);
+    ctx = store.plan_runtime_context(&run.id, ctx).unwrap();
+    ctx.team = None;
+    assert!(store.attach_plan_identity(&mut ctx).is_err());
+    bind_team(&mut ctx, &team, 1);
+    assert!(store.attach_plan_identity(&mut ctx).is_err());
+    bind_team(&mut ctx, &team, 0);
+    assert!(store.attach_plan_identity(&mut ctx).is_ok());
+    let plain = serde_json::to_value(&plan().steps[0]).unwrap();
+    assert!(plain.get("responsible_role").is_none());
+    assert!(plain.get("executing_member").is_none());
+}
+#[test]
+fn plan_revision_invalidates_bound_delegation() {
+    use hardknock::{hierarchy::KnowledgeScope, team::*};
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(temp.path()).unwrap();
+    let ctx = context();
+    let team = responsible_team(&store, &ctx);
+    let mut p = store
+        .save_execution_plan(&plan(), PlanRevisionReason::UserChange)
+        .unwrap();
+    let d = Delegation {
+        id: DelegationId::new(),
+        plan: Some(PlanRevisionRef {
+            plan: p.id.clone(),
+            revision: 1,
+        }),
+        team: team.id.clone(),
+        team_revision: 1,
+        delegator: team.members[0].id.clone(),
+        delegate: team.members[1].id.clone(),
+        source_assignment: team.role_assignments[0].id.clone(),
+        parent: None,
+        role: team.roles[0].id.clone(),
+        task_scope: KnowledgeScope::default(),
+        authority: [RoleActionClass::Observe].into(),
+        issued_at: Utc::now(),
+        expires_at: Utc::now() + chrono::Duration::minutes(10),
+    };
+    store.record_delegation(&d).unwrap();
+    assert!(
+        store
+            .validate_delegation(&team.id, &d.id, Utc::now())
+            .is_ok()
+    );
+    let mut unbound = ctx;
+    bind_team(&mut unbound, &team, 1);
+    unbound.team.as_mut().unwrap().delegation = Some(d.id.clone());
+    unbound.proposed_action = Some(hardknock::bridge::protocol::NormalizedAction::FileRead {
+        path: "README.md".into(),
+    });
+    store.attach_team_authority(&mut unbound).unwrap();
+    assert!(!unbound.team.unwrap().assessment.unwrap().allowed);
+    p.revision = 2;
+    store
+        .save_execution_plan(&p, PlanRevisionReason::UserChange)
+        .unwrap();
+    assert!(
+        store
+            .validate_delegation(&team.id, &d.id, Utc::now())
+            .is_err()
+    );
+}
+#[test]
+fn plan_completion_rechecks_current_team_responsibility() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(temp.path()).unwrap();
+    let mut ctx = context();
+    let mut team = responsible_team(&store, &ctx);
+    bind_team(&mut ctx, &team, 0);
+    let mut p = plan();
+    p.steps[0].responsible_role = Some(team.roles[0].id.clone());
+    p.steps[0].executing_member = Some(team.members[0].id.clone());
+    let p = store
+        .save_execution_plan(&p, PlanRevisionReason::UserChange)
+        .unwrap();
+    let run = store.start_plan_run(&p.id).unwrap();
+    store
+        .record_plan_observation(
+            &run.id,
+            &PlanObservation {
+                id: PlanObservationId::new(),
+                source: StateClaimSource::RuntimeObservation,
+                claims: vec![claim(true)],
+                captured_at: Utc::now(),
+                attestation: None,
+            },
+        )
+        .unwrap();
+    let ctx = store.plan_runtime_context(&run.id, ctx).unwrap();
+    let decision = store
+        .record_runtime_decision(&ctx, Default::default())
+        .unwrap();
+    assert_eq!(decision.decision.kind(), RuntimeDecisionKind::Act);
+    team.revision += 1;
+    store.save_agent_team(&team).unwrap();
+    let step = PlanStepRun {
+        run: run.id.clone(),
+        step: p.steps[0].id.clone(),
+        decision: decision.id,
+        attestation: None,
+        receipts: vec![],
+        completed_at: Utc::now(),
+        composition_evidence: None,
+        experiment: None,
+    };
+    assert!(store.complete_plan_step(&step).is_err());
+    assert!(
+        store
+            .plan_run(&run.id)
+            .unwrap()
+            .state
+            .completed_steps
+            .is_empty()
     );
 }

@@ -5,15 +5,35 @@ use serde_json::{Value, json};
 use std::{fs, path::PathBuf};
 #[derive(Debug, Subcommand)]
 pub enum TeamCommand {
+    Handoff {
+        #[command(subcommand)]
+        command: HandoffCommand,
+    },
     List,
-    Import { file: PathBuf },
-    Show { id: AgentTeamId },
-    Inspect { id: AgentTeamId },
-    Roles { id: AgentTeamId },
-    Authority { id: AgentTeamId },
-    History { id: AgentTeamId },
-    Diversity { review: TeamReviewId },
-    CommonMode { review: TeamReviewId },
+    Import {
+        file: PathBuf,
+    },
+    Show {
+        id: AgentTeamId,
+    },
+    Inspect {
+        id: AgentTeamId,
+    },
+    Roles {
+        id: AgentTeamId,
+    },
+    Authority {
+        id: AgentTeamId,
+    },
+    History {
+        id: AgentTeamId,
+    },
+    Diversity {
+        review: TeamReviewId,
+    },
+    CommonMode {
+        review: TeamReviewId,
+    },
 }
 #[derive(Debug, Subcommand)]
 pub enum DelegationCommand {
@@ -39,6 +59,7 @@ pub enum DelegationCommand {
 }
 pub fn execute(command: &TeamCommand, store: &Store) -> Result<Value> {
     Ok(match command {
+        TeamCommand::Handoff { command } => handoff(command, store)?,
         TeamCommand::List => json!(store.agent_teams()?),
         TeamCommand::Import { file } => {
             let team: AgentTeam = serde_json::from_slice(&fs::read(file)?)?;
@@ -148,6 +169,35 @@ pub fn review(command: &ReviewCommand, store: &Store) -> Result<Value> {
         }
         ReviewCommand::Assess { id, context } => {
             json!(store.assess_team_review(id, &serde_json::from_slice(&fs::read(context)?)?)?)
+        }
+    })
+}
+
+#[derive(Debug, Subcommand)]
+pub enum HandoffCommand {
+    Create {
+        file: PathBuf,
+        #[arg(long)]
+        context: PathBuf,
+    },
+    Show {
+        id: AgentHandoffId,
+    },
+    Receive {
+        id: AgentHandoffId,
+        #[arg(long)]
+        context: PathBuf,
+    },
+}
+fn handoff(command: &HandoffCommand, store: &Store) -> Result<Value> {
+    Ok(match command {
+        HandoffCommand::Create { file, context } => json!(store.create_agent_handoff(
+            &serde_json::from_slice(&fs::read(file)?)?,
+            &serde_json::from_slice(&fs::read(context)?)?
+        )?),
+        HandoffCommand::Show { id } => json!(store.agent_handoff(id)?),
+        HandoffCommand::Receive { id, context } => {
+            json!(store.receive_agent_handoff(id, &serde_json::from_slice(&fs::read(context)?)?)?)
         }
     })
 }

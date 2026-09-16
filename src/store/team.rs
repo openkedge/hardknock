@@ -85,6 +85,7 @@ impl Store {
             &self.revoked_delegations()?,
             Utc::now(),
         )?;
+        self.validate_delegation_plan(delegation)?;
         let data = serde_json::to_string(delegation)?;
         tx.execute(
             "INSERT INTO agent_delegations(id,team,data) VALUES (?1,?2,?3)",
@@ -103,12 +104,15 @@ impl Store {
         id: &DelegationId,
         now: DateTime<Utc>,
     ) -> Result<RoleAuthority> {
-        self.agent_team(team)?.delegated_authority(
+        let all = self.team_delegations(team)?;
+        let rights = self.agent_team(team)?.delegated_authority(
             id,
-            &self.team_delegations(team)?,
+            &all,
             &self.revoked_delegations()?,
             now,
-        )
+        )?;
+        self.validate_delegation_plan(&all[id])?;
+        Ok(rights)
     }
     pub fn revoke_delegation(&self, id: &DelegationId, reason: &str) -> Result<()> {
         if reason.trim().is_empty() {
@@ -194,6 +198,17 @@ impl Store {
                 let rights =
                     team.delegated_authority(id, &all, &self.revoked_delegations()?, Utc::now())?;
                 let d = &all[id];
+                self.validate_delegation_plan(d)?;
+                if let Some(pin) = &d.plan
+                    && !context
+                        .plan
+                        .as_ref()
+                        .is_some_and(|p| p.plan == pin.plan && p.revision == pin.revision)
+                {
+                    return Err(Error::InvalidInput(
+                        "Delegation is bound to another plan revision".into(),
+                    ));
+                }
                 if d.delegate != binding.member
                     || assignment.member != binding.member
                     || d.role != assignment.role
@@ -273,6 +288,19 @@ impl Store {
                 .unwrap_or_default(),
         };
         context.team.as_mut().unwrap().assessment = Some(assessment);
+        Ok(())
+    }
+}
+
+impl Store {
+    fn validate_delegation_plan(&self, delegation: &Delegation) -> Result<()> {
+        if let Some(pin) = &delegation.plan
+            && self.execution_plan(&pin.plan)?.revision != pin.revision
+        {
+            return Err(Error::InvalidInput(
+                "Delegation plan revision is stale".into(),
+            ));
+        }
         Ok(())
     }
 }

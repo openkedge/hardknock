@@ -416,3 +416,5 @@ identifier!(DelegationId, "delegation-");
 identifier!(TeamReviewId, "team-review-");
 identifier!(AgentContributionId, "contribution-");
 identifier!(ReviewFindingId, "review-finding-");
+
+identifier!(AgentHandoffId, "handoff-");
