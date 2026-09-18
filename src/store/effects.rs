@@ -375,6 +375,7 @@ impl Store {
         effect: &mut Effect,
         receipt: &CommitReceipt,
         snapshot: &ExternalStateSnapshot,
+        actor: Option<&crate::team::EffectActorContext>,
     ) -> Result<()> {
         if !effect.lifecycle.allows(EffectLifecycle::Committed) {
             return Err(Error::InvalidInput(
@@ -389,6 +390,16 @@ impl Store {
             "INSERT OR IGNORE INTO commit_receipts(id,effect_id,committed_at,data) VALUES(?1,?2,?3,?4)",
             params![receipt.id.to_string(),effect.id.to_string(),receipt.committed_at.to_rfc3339(),serde_json::to_string(receipt)?],
         )?;
+        if let Some(actor) = actor {
+            transaction.execute(
+                "INSERT INTO effect_actor_contexts(effect_id,team,data) VALUES(?1,?2,?3)",
+                params![
+                    effect.id.to_string(),
+                    actor.team.to_string(),
+                    serde_json::to_string(actor)?
+                ],
+            )?;
+        }
         Self::insert_snapshot(&transaction, effect, "post_commit", snapshot)?;
         let changed = transaction.execute(
             "UPDATE effects SET lifecycle=?3,data=?4 WHERE id=?1 AND lifecycle=?2",

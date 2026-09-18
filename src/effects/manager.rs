@@ -508,6 +508,7 @@ impl<'a> EffectManager<'a> {
         }
         self.store
             .check_knowledge_before_commit(&effect.session_id, &effect.source_action.id)?;
+        let effect_actor = self.store.bind_effect_actor(&effect)?;
         let prepared = self.store.prepared_effect(&effect.id)?;
         let authorization = authorization.ok_or_else(|| {
             Error::Intervention("Explicit commit authorization is required".into())
@@ -540,10 +541,17 @@ impl<'a> EffectManager<'a> {
                 json!({"authorization":authorization.id,"retry":true,"idempotency_key":effect.idempotency_key}),
             )?;
             return match adapter.commit(&effect, &prepared)? {
-                AdapterCommitOutcome::Committed { receipt } => {
+                AdapterCommitOutcome::Committed { mut receipt } => {
+                    if let Some(actor) = &effect_actor {
+                        receipt.metadata["hardknock_actor"] = serde_json::to_value(actor)?;
+                    }
                     let after = adapter.observe(&effect)?;
-                    self.store
-                        .save_commit_receipt(&mut effect, &receipt, &after)?;
+                    self.store.save_commit_receipt(
+                        &mut effect,
+                        &receipt,
+                        &after,
+                        effect_actor.as_ref(),
+                    )?;
                     self.record_effect_experience(
                         &effect,
                         "commit",
@@ -613,10 +621,17 @@ impl<'a> EffectManager<'a> {
             json!({"authorization":authorization.id,"authority":authorization.authority,"scope_hash":authorization.scope_hash}),
         )?;
         match adapter.commit(&effect, &prepared)? {
-            AdapterCommitOutcome::Committed { receipt } => {
+            AdapterCommitOutcome::Committed { mut receipt } => {
+                if let Some(actor) = &effect_actor {
+                    receipt.metadata["hardknock_actor"] = serde_json::to_value(actor)?;
+                }
                 let after = adapter.observe(&effect)?;
-                self.store
-                    .save_commit_receipt(&mut effect, &receipt, &after)?;
+                self.store.save_commit_receipt(
+                    &mut effect,
+                    &receipt,
+                    &after,
+                    effect_actor.as_ref(),
+                )?;
                 self.record_effect_experience(
                     &effect,
                     "commit",
@@ -658,7 +673,8 @@ impl<'a> EffectManager<'a> {
             ));
         }
         let adapter = self.registry.select_effect(&effect)?;
-        let result = adapter.reconcile(&effect)?;
+        let effect_actor = self.store.historical_effect_actor(&effect)?;
+        let mut result = adapter.reconcile(&effect)?;
         let attempt = ReconciliationAttempt {
             id: ReconciliationAttemptId::new(),
             effect_id: effect.id.clone(),
@@ -666,16 +682,23 @@ impl<'a> EffectManager<'a> {
             result: result.clone(),
         };
         self.store.insert_reconciliation_attempt(&attempt)?;
-        match &result {
+        match &mut result {
             ReconciliationResult::Committed { receipt } => {
+                if let Some(actor) = &effect_actor {
+                    receipt.metadata["hardknock_actor"] = serde_json::to_value(actor)?;
+                }
                 let after = adapter.observe(&effect)?;
-                self.store
-                    .save_commit_receipt(&mut effect, receipt, &after)?;
+                self.store.save_commit_receipt(
+                    &mut effect,
+                    receipt,
+                    &after,
+                    effect_actor.as_ref(),
+                )?;
                 self.record_effect_experience(
                     &effect,
                     "reconciliation",
                     true,
-                    serde_json::to_value(receipt)?,
+                    serde_json::to_value(&*receipt)?,
                 )?;
                 self.store.append_effect_event(
                     &effect,

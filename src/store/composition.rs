@@ -427,6 +427,7 @@ impl Store {
             context.composition_assessment = None;
             return Ok(());
         };
+        self.validate_composition_responsibility(context, &composition)?;
         let state = trusted_state(
             &composition.state,
             &composition.external_versions,

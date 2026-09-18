@@ -42,7 +42,7 @@ parallel with that product work.
 | --- | --- | --- |
 | V0.16 — Experience economics | Implemented locally | Bounded portfolios, saturation, budget reservation, adaptive replanning, and learning-yield reporting |
 | V0.17 — Experience abstraction | Implemented locally | Structural patterns, held-out transfer, negative controls, boundaries, exceptions, and reversible distillation |
-| V0.18–V0.20 | Planned next | Hierarchical knowledge, composition safety, and long-horizon experience |
+| V0.18–V0.21 | Implemented | Hierarchical knowledge, composition safety, long-horizon validity, and bounded role-separated teams |
 | V0.21+ | Directional | Organizational experience, governed continuous learning, and production hardening |
 | Runtime and agent acceptance | Ongoing | Live containers, PostgreSQL, installed-agent workflows, and provider measurements |
 
@@ -614,6 +614,26 @@ hardknock chaos run --fixture retry-resilience \
 The bundled local fixture observes control PASS, 0/100/500ms PASS, 1000ms DEGRADED, and 2000ms FAIL. It simulates dependency delay; it does not shape network traffic. The result records Experiences, a Candidate Lesson/Reflex/Recovery, and an Operating Envelope containing those tested points. All untested conditions remain unknown.
 
 Use the emitted IDs with `reflex test`, `reflex enable`, and `recovery test`. Tests can support a response but do not activate it. A transient-failure negative case records when the original action would have succeeded and disables the overbroad Reflex. See the [runnable chaos guide](docs/chaos.md), [Reflex rules](docs/reflexes.md), and [recovery protocol](docs/recovery.md).
+
+## More Agents Can Repeat the Same Mistake
+
+Multi-agent agreement is not evidence independence. Agents using the same model,
+retrieval, lessons, tools, and evaluator can reproduce one common-mode error several
+times. Hardknock records those observable dependencies, separates planning, review,
+investigation, execution, and recovery authority, and only credits new canonical
+evidence paths.
+
+```text
+Planner proposal ─┬─ Reviewer challenge ─┐
+                  └─ Investigator trial ─┼─ Evidence/dependency analysis
+                                         └─ Runtime decision → scoped Executor
+```
+
+A blind reviewer may omit selected dominant experience, but never hard constraints
+or governance invariants. Team roles do not grant external effect authority: the
+existing capability checks and explicit commit authorization still decide whether
+an effect may occur. See [team review semantics](docs/team-review.md) and
+[structured handoffs](docs/team-handoffs.md).
 
 ## How it works
 

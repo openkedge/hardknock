@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::{EpistemicStore, Store};
 use crate::{
-    Error, Result, core::*, curriculum::Severity, epistemic::*, hierarchy::*,
-    runtime::RuntimeDecisionContext, team::*,
+    Error, Result, core::*, epistemic::*, hierarchy::*, runtime::RuntimeDecisionContext, team::*,
 };
 use chrono::{Duration, Utc};
 use rusqlite::{Transaction, TransactionBehavior, params};
@@ -326,7 +325,7 @@ impl Store {
         let contributions = self.team_contributions(id)?;
         let findings = self.review_findings(id)?;
         let evidence = self.team_evidence(id)?;
-        let high = context.risk.severity >= Severity::High;
+        let high = self.team_requires_separation(&team.id, team.revision, context.risk.severity)?;
         let mut reasons = vec![];
         let mut status = ReviewGateStatus::Satisfied;
         let binding = context

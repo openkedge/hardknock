@@ -33,25 +33,78 @@ pub struct AgentRole {
     pub id: AgentRoleId,
     pub name: String,
     pub purpose: String,
+    #[serde(default)]
+    pub responsibilities: Vec<String>,
     pub allowed_actions: RoleAuthority,
     pub prohibited_actions: RoleAuthority,
+    #[serde(default)]
+    pub required_capabilities: crate::assurance::CapabilityEnvelope,
+    #[serde(default)]
+    pub knowledge_policy: RoleKnowledgePolicy,
 }
 impl AgentRole {
     pub fn builtin(kind: BuiltInAgentRole) -> Self {
         use RoleActionClass::*;
-        let (name, actions) = match kind {
-            BuiltInAgentRole::Planner => ("Planner", vec![Observe, Propose]),
-            BuiltInAgentRole::Investigator => ("Investigator", vec![Observe, Experiment, Prepare]),
-            BuiltInAgentRole::Reviewer => ("Reviewer", vec![Observe, Challenge, Recommend]),
-            BuiltInAgentRole::Executor => ("Executor", vec![Observe, Execute, Prepare, Commit]),
-            BuiltInAgentRole::Recovery => ("Recovery", vec![Observe, Recover]),
+        let (name, actions, responsibilities) = match kind {
+            BuiltInAgentRole::Planner => (
+                "Planner",
+                vec![Observe, Propose],
+                vec![
+                    "propose plan",
+                    "identify assumptions",
+                    "request evidence",
+                    "propose alternatives",
+                ],
+            ),
+            BuiltInAgentRole::Investigator => (
+                "Investigator",
+                vec![Observe, Experiment, Prepare],
+                vec![
+                    "gather evidence",
+                    "run controlled experiments",
+                    "inspect state",
+                    "challenge unknowns",
+                ],
+            ),
+            BuiltInAgentRole::Reviewer => (
+                "Reviewer",
+                vec![Observe, Challenge, Recommend],
+                vec![
+                    "challenge plans and assumptions",
+                    "inspect evidence",
+                    "identify contradictions",
+                    "request evidence",
+                ],
+            ),
+            BuiltInAgentRole::Executor => (
+                "Executor",
+                vec![Observe, Execute, Prepare, Commit],
+                vec![
+                    "execute approved plan step",
+                    "use scoped tools",
+                    "produce attestations",
+                ],
+            ),
+            BuiltInAgentRole::Recovery => (
+                "Recovery",
+                vec![Observe, Recover],
+                vec![
+                    "recognize failure",
+                    "apply validated recovery",
+                    "stabilize system",
+                    "reconcile effects",
+                ],
+            ),
         };
         Self {
             id: AgentRoleId::new(),
             name: name.into(),
             purpose: format!("Bounded {name} responsibilities"),
+            responsibilities: responsibilities.into_iter().map(str::to_owned).collect(),
             allowed_actions: actions.into_iter().collect(),
             prohibited_actions: BTreeSet::new(),
+            required_capabilities: Default::default(),
+            knowledge_policy: Default::default(),
         }
     }
     pub fn authority(&self) -> RoleAuthority {
@@ -350,3 +403,9 @@ pub use review::*;
 
 mod handoff;
 pub use handoff::*;
+
+mod governance;
+pub use governance::*;
+
+mod benchmark;
+pub use benchmark::*;

@@ -260,6 +260,29 @@ impl RuntimeStore for Store {
                 ));
             }
         }
+        if let Some(binding) = &checked.team
+            && let Some(assessment) = &binding.assessment
+            && !assessment.allowed
+        {
+            let violation = crate::team::RoleViolation {
+                team: binding.team.clone(),
+                member: binding.member.clone(),
+                role: binding.assignment.clone(),
+                attempted_action: assessment.action,
+                reasons: assessment.reasons.clone(),
+                created_at: Utc::now(),
+            };
+            let id = uuid::Uuid::new_v4().to_string();
+            let data = serde_json::to_string(&violation)?;
+            transaction.execute(
+                "INSERT INTO team_records(kind,id,team,data) VALUES('role_violation_attempted',?1,?2,?3)",
+                params![id, binding.team.to_string(), data],
+            )?;
+            transaction.execute(
+                "INSERT INTO team_events(team,kind,data) VALUES(?1,'role_violation_attempted',?2)",
+                params![binding.team.to_string(), data],
+            )?;
+        }
         transaction.execute(
             "INSERT INTO runtime_policy_versions(version,created_at,data) VALUES(?1,?2,?3) ON CONFLICT(version) DO NOTHING",
             params![config.version, record.created_at.to_rfc3339(), serde_json::to_string(&config)?],

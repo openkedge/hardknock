@@ -1,0 +1,51 @@
+{
+  "scenario": "contaminated core-first deployment lesson",
+  "measurement_scope": "deterministic local fixture",
+  "arms": [
+    {
+      "arm": "single_agent",
+      "task_success": false,
+      "correlated_error_escaped": true,
+      "redundant_agent_runs": 0,
+      "challenge_yield": 0,
+      "authority_escapes": 1,
+      "effect_bypasses": 0,
+      "agent_runs": 1,
+      "logical_latency_steps": 2
+    },
+    {
+      "arm": "naive_majority",
+      "task_success": false,
+      "correlated_error_escaped": true,
+      "redundant_agent_runs": 2,
+      "challenge_yield": 0,
+      "authority_escapes": 3,
+      "effect_bypasses": 0,
+      "agent_runs": 3,
+      "logical_latency_steps": 3
+    },
+    {
+      "arm": "role_separated",
+      "task_success": true,
+      "correlated_error_escaped": false,
+      "redundant_agent_runs": 0,
+      "challenge_yield": 1,
+      "authority_escapes": 0,
+      "effect_bypasses": 0,
+      "agent_runs": 3,
+      "logical_latency_steps": 6,
+      "root_evidence_paths": 2,
+      "evaluator_paths": 1,
+      "experimental_paths": 2,
+      "contradictions_discovered": 1
+    }
+  ],
+  "authority_fast_path": {
+    "profile": "unoptimized local test build",
+    "iterations": 10000,
+    "elapsed_ns": 70864083,
+    "ns_per_operation": 7086,
+    "external_models_invoked": 0
+  },
+  "claim": "In this deterministic common-mode fixture, role-separated evidence acquisition avoided the reproduced majority failure while scoped delegation prevented non-execution mutation authority."
+}

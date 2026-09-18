@@ -72,11 +72,11 @@ self-approval endpoints. Mutation commands require the same local administrative
 trust as team/role import. Review resolution is explicit user governance, not an
 automatic claim that arbitrary findings have been empirically disproved.
 
-## Current limits
+## Boundary
 
-This layer does not run reviewers, schedule experiments, or verify arbitrary
-natural-language claims. It consumes canonical evidence already recorded by the
-existing evidence subsystem; it does not add stronger authentication to that
-subsystem. Reference-only handoffs and plan responsibility are described in `team-handoffs.md`.
-Blind knowledge exposure, full responsibility maps, effect actor receipts, recovery
-coordination and remaining V0.21 integrations are tracked in `v0.21-progress.md`.
+This layer does not run reviewers or verify arbitrary natural-language claims. It
+consumes canonical evidence already recorded by the evidence subsystem; it does not
+add stronger authentication to that subsystem. Reference-only handoffs and plan
+responsibility are described in `team-handoffs.md`. Knowledge exposure, challenge,
+recovery, effect attribution, economics and assurance are described in
+`team-governance.md`.

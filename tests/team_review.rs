@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use chrono::{Duration, Utc};
 use hardknock::{
+    assurance::{CapabilityEnvelope, ExecutionCapabilityPattern},
     core::*,
     curriculum::Severity,
     epistemic::*,
@@ -207,6 +208,53 @@ fn base_context() -> RuntimeDecisionContext {
     });
     c.risk.severity = Severity::High;
     c
+}
+fn governance(f: &Fixture) -> TeamGovernance {
+    let dependencies = EpistemicDependencySet {
+        model_family: Some("shared-model-family".into()),
+        experience_profile: Some("shared-lesson-bundle".into()),
+        evaluators: vec!["shared-evaluator".into()],
+        ..Default::default()
+    };
+    let envelope = CapabilityEnvelope {
+        allowed: vec![ExecutionCapabilityPattern::EffectCommit],
+        ..Default::default()
+    };
+    TeamGovernance {
+        team: f.team.id.clone(),
+        revision: f.team.revision,
+        members: f
+            .team
+            .members
+            .iter()
+            .map(|member| {
+                (
+                    member.id.clone(),
+                    TeamMemberProfile {
+                        experience_profile: "shared-lesson-bundle".into(),
+                        dependencies: dependencies.clone(),
+                        capabilities: envelope.clone(),
+                    },
+                )
+            })
+            .collect(),
+        role_capabilities: f
+            .team
+            .roles
+            .iter()
+            .map(|role| (role.id.clone(), envelope.clone()))
+            .collect(),
+        knowledge: f
+            .team
+            .roles
+            .iter()
+            .map(|role| (role.id.clone(), RoleKnowledgePolicy::default()))
+            .collect(),
+        separation: RoleSeparationPolicy::default(),
+        max_agent_runs: 2,
+        max_tokens: 20_000,
+        max_latency_ms: 60_000,
+    }
 }
 #[test]
 fn exact_action_review_with_distinct_roles_and_diverse_evidence_passes() {
@@ -750,5 +798,144 @@ fn handoff_requires_recipient_observation_authority() {
         f.store
             .create_agent_handoff(&request, &f.context(1))
             .is_err()
+    );
+}
+
+#[test]
+fn governance_detects_shared_dependencies_without_counting_declared_profiles_as_evidence() {
+    let f = Fixture::new();
+    f.store.save_team_governance(&governance(&f)).unwrap();
+    let profile = f.store.team_epistemic_profile(&f.team.id).unwrap();
+    assert_eq!(profile.diversity.path_count, 0);
+    assert!(profile.common_mode_risks.iter().any(|risk| {
+        risk.affected_members.len() == 3 && matches!(risk.severity, CommonModeRiskClass::High)
+    }));
+    let roles = f.team.roles.iter().map(|role| role.id.clone()).collect();
+    let formation = f
+        .store
+        .assess_team_formation(&f.team.id, &roles, DiversityClass::Moderate)
+        .unwrap();
+    assert_eq!(
+        formation.status,
+        TeamFormationStatus::AdditionalDiversityRecommended
+    );
+    assert_eq!(formation.additional_agent_runs, 1);
+}
+
+#[test]
+fn sufficient_diverse_evidence_avoids_a_redundant_agent_run() {
+    let f = Fixture::new();
+    f.store.save_team_governance(&governance(&f)).unwrap();
+    f.ready();
+    let roles = f.team.roles.iter().map(|role| role.id.clone()).collect();
+    let formation = f
+        .store
+        .assess_team_formation(&f.team.id, &roles, DiversityClass::Moderate)
+        .unwrap();
+    assert_eq!(formation.status, TeamFormationStatus::Suitable);
+    assert_eq!(formation.additional_agent_runs, 0);
+}
+
+#[test]
+fn bounded_challenge_records_delivered_blind_view_and_measures_new_evidence() {
+    let f = Fixture::new();
+    f.store.save_team_governance(&governance(&f)).unwrap();
+    let mut policy = RoleKnowledgePolicy {
+        mode: KnowledgeExposureMode::BlindChallenge,
+        ..Default::default()
+    };
+    policy.hidden_artifacts.insert("lesson-dominant".into());
+    let challenge = f
+        .store
+        .assign_team_challenge(&ChallengeAssignment {
+            id: ChallengeAssignmentId::new(),
+            review: f.review.id.clone(),
+            challenger: f.team.role_assignments[1].id.clone(),
+            strategy: ChallengeStrategy::RemoveDominantExperience,
+            knowledge_policy: policy,
+            require_controlled_evidence: false,
+            baseline_paths: BTreeSet::new(),
+            max_tokens: 1_000,
+            max_latency_ms: 5_000,
+            created_at: Utc::now(),
+            expires_at: f.review.expires_at,
+        })
+        .unwrap();
+    let view = f.store.role_knowledge_view(&f.context(1)).unwrap();
+    assert_eq!(view.mode, KnowledgeExposureMode::BlindChallenge);
+    assert!(view.hidden_artifacts.contains("lesson-dominant"));
+    assert!(!view.visible_artifacts.contains("lesson-dominant"));
+    let path = f.path("alternative-evaluator", EvidenceOutcome::Contradicts);
+    let contribution = f.submit(
+        1,
+        ContributionType::Challenge,
+        [path.clone()].into(),
+        Some(ReviewFindingKind::Contradiction),
+    );
+    let completion = f
+        .store
+        .complete_team_challenge(&challenge.id, &contribution.id, &f.context(1), 800, 1_000)
+        .unwrap();
+    assert_eq!(completion.new_paths, [path].into());
+    assert_eq!(completion.contradictions, 1);
+}
+
+#[test]
+fn team_assurance_is_scoped_and_requires_recorded_governance() {
+    let f = Fixture::new();
+    let paths = f.ready();
+    f.store.save_team_governance(&governance(&f)).unwrap();
+    let assessment = f
+        .store
+        .assess_team_assurance(TeamAssuranceProfile::TeamAssuranceBasicV1, &f.context(2))
+        .unwrap();
+    assert_eq!(assessment.status, TeamAssuranceStatus::Satisfied);
+    assert_eq!(assessment.evidence_paths, paths);
+    assert!(assessment.scope.contains(&f.team.revision.to_string()));
+    assert!(!assessment.scope.contains("team is safe"));
+}
+
+#[test]
+fn role_reassignment_advances_revision_and_invalidates_old_review() {
+    let f = Fixture::new();
+    f.store.save_team_governance(&governance(&f)).unwrap();
+    let evidence = f.path("reassignment-evidence", EvidenceOutcome::Supports);
+    let snapshot = f
+        .store
+        .create_knowledge_snapshot(&hardknock::hierarchy::KnowledgeResolutionPolicy::default())
+        .unwrap();
+    let revised = f
+        .store
+        .reassign_team_role(&RoleReassignment {
+            id: RoleReassignmentId::new(),
+            team: f.team.id.clone(),
+            revision: 1,
+            assignment: f.team.role_assignments[1].id.clone(),
+            from: f.team.members[1].id.clone(),
+            to: f.team.members[0].id.clone(),
+            reason: RoleReassignmentReason::AgentUnavailable,
+            evidence: [evidence].into(),
+            snapshot: hardknock::knowledge_runtime::KnowledgeSnapshotRef {
+                id: snapshot.id,
+                fingerprint: snapshot.fingerprint,
+            },
+        })
+        .unwrap();
+    assert_eq!(revised.revision, 2);
+    assert_eq!(revised.role_assignments[1].member, f.team.members[0].id);
+    assert_eq!(
+        f.store
+            .team_governance(&f.team.id, 2)
+            .unwrap()
+            .unwrap()
+            .revision,
+        2
+    );
+    assert_ne!(
+        f.store
+            .assess_team_review(&f.review.id, &f.context(2))
+            .unwrap()
+            .status,
+        ReviewGateStatus::Satisfied
     );
 }

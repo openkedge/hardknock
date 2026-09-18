@@ -29,10 +29,23 @@ impl Store {
             params![team.id.to_string(), revision, data],
         )?;
         tx.execute("INSERT INTO agent_teams(id,revision,data) VALUES (?1,?2,?3) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,data=excluded.data", params![team.id.to_string(),revision,data])?;
+        let event_kind = if previous.is_none() {
+            "team_created"
+        } else {
+            "team_revision_recorded"
+        };
         tx.execute(
-            "INSERT INTO team_events(team,kind,data) VALUES (?1,'team_revision_recorded',?2)",
-            params![team.id.to_string(), data],
+            "INSERT INTO team_events(team,kind,data) VALUES (?1,?2,?3)",
+            params![team.id.to_string(), event_kind, data],
         )?;
+        if previous.is_none() {
+            for assignment in &team.role_assignments {
+                tx.execute(
+                    "INSERT INTO team_events(team,kind,data) VALUES (?1,'role_assigned',?2)",
+                    params![team.id.to_string(), serde_json::to_string(assignment)?],
+                )?;
+            }
+        }
         tx.commit()?;
         Ok(())
     }
@@ -164,7 +177,10 @@ impl Store {
             return Ok(());
         };
         use crate::bridge::protocol::NormalizedAction;
-        let action = if context.proposed_effect.is_some() {
+        let action = if matches!(context.proposed_action, Some(NormalizedAction::Custom { ref kind, .. }) if kind == "recovery")
+        {
+            RoleActionClass::Recover
+        } else if context.proposed_effect.is_some() {
             RoleActionClass::Commit
         } else {
             match context.proposed_action {
@@ -175,6 +191,7 @@ impl Store {
         let mut review_assessment = None;
         let result = (|| -> Result<()> {
             let team = self.agent_team(&binding.team)?;
+            self.validate_team_capabilities(context)?;
             if team.revision != binding.revision {
                 return Err(Error::InvalidInput("Stale team revision".into()));
             }
@@ -259,6 +276,11 @@ impl Store {
                 &request,
             )?;
             intersect_request(&rights, &request)?;
+            if action == RoleActionClass::Recover && !self.team_recovery_action(context)? {
+                return Err(Error::InvalidInput(
+                    "Recovery action requires an explicit current recovery handoff".into(),
+                ));
+            }
             if let Some(id) = &binding.review {
                 let assessment = self.assess_team_review(id, context)?;
                 let satisfied = assessment.status == ReviewGateStatus::Satisfied;
@@ -269,8 +291,11 @@ impl Store {
                     ));
                 }
             } else if self.team_action_has_review(&team.id, context)?
-                || (context.risk.severity >= crate::curriculum::Severity::High
-                    && action != RoleActionClass::Observe)
+                || (self.team_requires_separation(
+                    &team.id,
+                    team.revision,
+                    context.risk.severity,
+                )? && action != RoleActionClass::Observe)
             {
                 return Err(Error::InvalidInput(
                     "This team action requires an evidence-backed review".into(),

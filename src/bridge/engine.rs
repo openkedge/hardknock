@@ -518,7 +518,8 @@ impl Bridge {
                     sanitize_action(&mut proposed.action)?;
                     if let Some(existing) = s.actions.iter().find(|a|a.action_id == proposed.action_id) {
                         if existing.action != proposed.action { return Err(invalid("Action id reused with different action")); }
-                        if Store::open(&self.home)?.knowledge_hierarchies()?.is_empty() { return Ok(serde_json::to_value(&existing.decision)?); }
+                        let session_id=crate::core::HardknockSessionId::from_external(&s.id);
+                        if proposed.context.team.is_none() && Store::open(&self.home)?.agent_teams()?.iter().all(|t| t.members.iter().all(|m| m.session!=session_id)) && Store::open(&self.home)?.knowledge_hierarchies()?.is_empty() { return Ok(serde_json::to_value(&existing.decision)?); }
                         return Err(Error::Intervention("Repeat action requires a new action id and fresh knowledge resolution".into()));
                     }
                     if s.actions.len() >= self.config.bridge.max_actions { return Err(invalid("Session action budget exhausted")); }
@@ -565,7 +566,8 @@ impl Bridge {
                     }
                     for (key,value) in &proposed.context.knowledge_reports {runtime_context.context_observations.entry(key.clone()).or_default().push(crate::knowledge_runtime::ContextValue{value:value.clone(),source:crate::knowledge_runtime::ContextValueSource::AgentReported});}
                     knowledge_store.attach_runtime_knowledge(&mut runtime_context)?;
-                    if runtime_context.operational_knowledge.is_some() {
+                    knowledge_store.attach_team_authority(&mut runtime_context)?;
+                    if runtime_context.operational_knowledge.is_some() || runtime_context.team.is_some() {
                         runtime_evaluation=crate::runtime::DeterministicRuntimeController::with_config(self.config.runtime.policy_config())?.evaluate(&runtime_context)?;
                     }
                     let decision = bridge_decision_from_runtime(&runtime_evaluation,self.config.runtime.mode);
@@ -578,7 +580,7 @@ impl Bridge {
                         evaluation: runtime_evaluation,
                         created_at: Utc::now(),
                     };
-                    if runtime_record.context.operational_knowledge.is_some() {
+                    if runtime_record.context.operational_knowledge.is_some() || runtime_record.context.team.is_some() {
                         knowledge_store.persist_runtime_decision(&runtime_record,self.config.runtime.policy_config())?;
                     } else { self.enqueue_runtime_decision(runtime_record.clone())?; }
                     // Deliver matching action-time advice as well as startup context.
@@ -596,7 +598,12 @@ impl Bridge {
                     self.enqueue(&s.id,"action_proposed",json!({"action_id":proposed.action_id,"decision":decision,"runtime_decision_id":runtime_record.id}))?;
                     if matches!(decision,ActionDecision::Warn{..}|ActionDecision::Replan{..}) { self.enqueue(&s.id,"reflex_matched",json!({"action_id":proposed.action_id}))?; }
                     let mut response=serde_json::to_value(decision)?;
-                    if let Some(k)=&runtime_record.context.operational_knowledge { response["knowledge"]=serde_json::to_value(&k.bundle)?; }
+                    if runtime_record.context.team.is_some() {
+                        let view=knowledge_store.role_knowledge_view(&runtime_record.context)?;
+                        response["knowledge"]=serde_json::to_value(&view.bundle)?;
+                        response["experience"]=serde_json::to_value(&view.lessons)?;
+                        response["team_knowledge"]=serde_json::to_value(serde_json::json!({"mode":view.mode,"visible_artifacts":view.visible_artifacts,"hidden_artifacts":view.hidden_artifacts,"snapshot":view.snapshot}))?;
+                    } else if let Some(k)=&runtime_record.context.operational_knowledge { response["knowledge"]=serde_json::to_value(&k.bundle)?; }
                     Ok(response)
                 })
             }

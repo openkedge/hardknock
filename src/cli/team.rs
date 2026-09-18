@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-use crate::{Result, core::*, store::Store, team::AgentTeam};
+use crate::{Result, core::*, store::Store, team::*};
 use clap::Subcommand;
 use serde_json::{Value, json};
 use std::{fs, path::PathBuf};
@@ -33,6 +33,66 @@ pub enum TeamCommand {
     },
     CommonMode {
         review: TeamReviewId,
+    },
+    GovernanceImport {
+        file: PathBuf,
+    },
+    GovernanceShow {
+        id: AgentTeamId,
+        revision: u64,
+    },
+    Epistemic {
+        id: AgentTeamId,
+    },
+    Formation {
+        id: AgentTeamId,
+        roles: PathBuf,
+        #[arg(long, default_value = "moderate")]
+        minimum: String,
+    },
+    Challenge {
+        #[command(subcommand)]
+        command: ChallengeCommand,
+    },
+    Responsibility {
+        file: PathBuf,
+    },
+    Reassign {
+        file: PathBuf,
+    },
+    RecoveryHandoff {
+        file: PathBuf,
+        #[arg(long)]
+        context: PathBuf,
+    },
+    Assurance {
+        #[arg(long)]
+        context: PathBuf,
+        #[arg(long, default_value = "basic")]
+        profile: String,
+    },
+    Why {
+        id: AgentTeamId,
+    },
+    Benchmark,
+}
+#[derive(Debug, Subcommand)]
+pub enum ChallengeCommand {
+    Assign {
+        file: PathBuf,
+    },
+    Complete {
+        id: ChallengeAssignmentId,
+        contribution: AgentContributionId,
+        #[arg(long)]
+        context: PathBuf,
+        #[arg(long)]
+        tokens: u64,
+        #[arg(long)]
+        latency_ms: u64,
+    },
+    List {
+        team: AgentTeamId,
     },
 }
 #[derive(Debug, Subcommand)]
@@ -78,6 +138,91 @@ pub fn execute(command: &TeamCommand, store: &Store) -> Result<Value> {
         TeamCommand::History { id } => json!(store.team_history(id)?),
         TeamCommand::Diversity { review } | TeamCommand::CommonMode { review } => {
             json!(store.team_evidence(review)?)
+        }
+        TeamCommand::GovernanceImport { file } => {
+            let governance: TeamGovernance = serde_json::from_slice(&fs::read(file)?)?;
+            store.save_team_governance(&governance)?;
+            json!(governance)
+        }
+        TeamCommand::GovernanceShow { id, revision } => {
+            json!(store.team_governance(id, *revision)?)
+        }
+        TeamCommand::Epistemic { id } => json!(store.team_epistemic_profile(id)?),
+        TeamCommand::Formation { id, roles, minimum } => {
+            let roles = serde_json::from_slice(&fs::read(roles)?)?;
+            let minimum = match minimum.as_str() {
+                "unknown" => crate::epistemic::DiversityClass::Unknown,
+                "low" => crate::epistemic::DiversityClass::Low,
+                "moderate" => crate::epistemic::DiversityClass::Moderate,
+                "high" => crate::epistemic::DiversityClass::High,
+                _ => {
+                    return Err(crate::Error::InvalidInput(
+                        "minimum must be unknown|low|moderate|high".into(),
+                    ));
+                }
+            };
+            json!(store.assess_team_formation(id, &roles, minimum)?)
+        }
+        TeamCommand::Challenge { command } => challenge(command, store)?,
+        TeamCommand::Responsibility { file } => {
+            let value: ResponsibilityAssignment = serde_json::from_slice(&fs::read(file)?)?;
+            store.assign_responsibility(&value)?;
+            json!(value)
+        }
+        TeamCommand::Reassign { file } => {
+            json!(store.reassign_team_role(&serde_json::from_slice(&fs::read(file)?)?)?)
+        }
+        TeamCommand::RecoveryHandoff { file, context } => {
+            let value: TeamRecoveryHandoff = serde_json::from_slice(&fs::read(file)?)?;
+            store.record_team_recovery_handoff(
+                &value,
+                &serde_json::from_slice(&fs::read(context)?)?,
+            )?;
+            json!(value)
+        }
+        TeamCommand::Assurance { context, profile } => {
+            let profile = match profile.as_str() {
+                "basic" => TeamAssuranceProfile::TeamAssuranceBasicV1,
+                "diversity" => TeamAssuranceProfile::TeamEpistemicDiversityV1,
+                _ => {
+                    return Err(crate::Error::InvalidInput(
+                        "profile must be basic|diversity".into(),
+                    ));
+                }
+            };
+            json!(
+                store.assess_team_assurance(
+                    profile,
+                    &serde_json::from_slice(&fs::read(context)?)?
+                )?
+            )
+        }
+        TeamCommand::Why { id } => {
+            json!({"team":store.agent_team(id)?,"epistemic":store.team_epistemic_profile(id)?,"responsibilities":store.team_records::<ResponsibilityAssignment>(id,"responsibility_assigned")?,"challenges":store.team_records::<ChallengeCompletion>(id,"challenge_completed")?,"violations":store.team_records::<RoleViolation>(id,"role_violation_attempted")?,"guard_recommendations":store.team_guard_recommendations(id)?,"history":store.team_history(id)?})
+        }
+        TeamCommand::Benchmark => json!(run_flagship_team_benchmark()),
+    })
+}
+fn challenge(command: &ChallengeCommand, store: &Store) -> Result<Value> {
+    Ok(match command {
+        ChallengeCommand::Assign { file } => {
+            json!(store.assign_team_challenge(&serde_json::from_slice(&fs::read(file)?)?)?)
+        }
+        ChallengeCommand::Complete {
+            id,
+            contribution,
+            context,
+            tokens,
+            latency_ms,
+        } => json!(store.complete_team_challenge(
+            id,
+            contribution,
+            &serde_json::from_slice(&fs::read(context)?)?,
+            *tokens,
+            *latency_ms
+        )?),
+        ChallengeCommand::List { team } => {
+            json!({"assigned":store.team_records::<ChallengeAssignment>(team,"challenge_assigned")?,"completed":store.team_records::<ChallengeCompletion>(team,"challenge_completed")?})
         }
     })
 }

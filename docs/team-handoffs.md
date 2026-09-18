@@ -48,3 +48,8 @@ Plan step completion rechecks live team authority, responsibility and review sta
 If authority changed after the recorded decision, completion requires explicit outcome
 reconciliation. Existing effect receipts remain in the effect store; this check does
 not infer rollback or erase completed external effects.
+
+Recovery handoffs add a validated Recovery ID, plan run, failure evidence, committed
+effect IDs and the exact recovery action hash. The recipient must hold the current
+Recovery role. Referenced effects require receipts and must already appear in the
+plan's committed state; the handoff grants no new commit capability.

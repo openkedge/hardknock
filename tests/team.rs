@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 use chrono::{Duration, Utc};
-use hardknock::{core::*, hierarchy::*, store::Store, team::*};
+use hardknock::{
+    core::*,
+    effects::*,
+    hierarchy::*,
+    store::{RuntimeStore, Store},
+    team::*,
+};
 use std::collections::{BTreeMap, BTreeSet};
 fn fixture() -> AgentTeam {
     let now = Utc::now();
@@ -207,7 +213,7 @@ fn persistence_preserves_revocation_and_team_revision_history() {
     t.revision += 1;
     store.save_agent_team(&t).unwrap();
     assert!(store.save_agent_team(&t).is_err());
-    assert_eq!(store.team_history(&t.id).unwrap().len(), 4);
+    assert_eq!(store.team_history(&t.id).unwrap().len(), 7);
     drop(store);
     let reopened = Store::open(home.path()).unwrap();
     assert!(
@@ -363,7 +369,6 @@ fn runtime_rechecks_revision_revocation_and_session() {
 
 #[test]
 fn publication_rechecks_team_revision_without_rewriting_original_decision() {
-    use hardknock::store::RuntimeStore;
     let home = tempfile::tempdir().unwrap();
     let store = Store::open(home.path()).unwrap();
     let mut t = fixture();
@@ -498,4 +503,153 @@ fn child_cannot_drop_or_change_parent_plan_binding() {
         t.delegated_authority(&d.id, &all, &BTreeSet::new(), Utc::now())
             .is_err()
     );
+}
+
+#[test]
+fn denied_runtime_action_is_recorded_as_role_violation() {
+    let home = tempfile::tempdir().unwrap();
+    let store = Store::open(home.path()).unwrap();
+    let mut team = fixture();
+    let planner = AgentRole::builtin(BuiltInAgentRole::Planner);
+    team.role_assignments[0].role = planner.id.clone();
+    team.roles.push(planner);
+    store.save_agent_team(&team).unwrap();
+    let mut context = runtime_context();
+    context.proposed_action = Some(hardknock::bridge::protocol::NormalizedAction::Shell {
+        command: "true".into(),
+        cwd: ".".into(),
+    });
+    context.session_id = team.members[0].session.clone();
+    context.agent = team.members[0].agent.clone();
+    context.team = Some(TeamRuntimeContext {
+        review: None,
+        team: team.id.clone(),
+        revision: 1,
+        member: team.members[0].id.clone(),
+        assignment: team.role_assignments[0].id.clone(),
+        delegation: None,
+        assessment: None,
+    });
+    let record = store
+        .record_runtime_decision(&context, Default::default())
+        .unwrap();
+    assert!(!record.context.team.unwrap().assessment.unwrap().allowed);
+    let violations = store
+        .team_records::<RoleViolation>(&team.id, "role_violation_attempted")
+        .unwrap();
+    assert_eq!(violations.len(), 1);
+    assert_eq!(violations[0].attempted_action, RoleActionClass::Execute);
+}
+
+#[test]
+fn authority_fast_path_is_bounded_and_model_free() {
+    let team = fixture();
+    let assignment = &team.role_assignments[0];
+    let member = &team.members[0];
+    let request = TeamAuthorityRequest {
+        action: RoleActionClass::Observe,
+        context: KnowledgeContext::default(),
+        runtime_grant: team.authority.clone(),
+        external_grant: team.authority.clone(),
+        now: Utc::now(),
+    };
+    let started = std::time::Instant::now();
+    for _ in 0..10_000 {
+        team.authorize_assignment(&assignment.id, &member.id, &member.session, &request)
+            .unwrap();
+    }
+    let elapsed = started.elapsed();
+    eprintln!(
+        "team_authority_fast_path iterations=10000 elapsed_ns={} ns_per_op={}",
+        elapsed.as_nanos(),
+        elapsed.as_nanos() / 10_000
+    );
+    assert!(elapsed < std::time::Duration::from_secs(5));
+}
+
+#[test]
+fn recovery_role_requires_exact_explicit_handoff() {
+    let home = tempfile::tempdir().unwrap();
+    let store = Store::open(home.path()).unwrap();
+    let mut team = fixture();
+    let recovery = AgentRole::builtin(BuiltInAgentRole::Recovery);
+    team.role_assignments[0].role = recovery.id.clone();
+    team.authority.extend(recovery.authority());
+    team.roles.push(recovery);
+    store.save_agent_team(&team).unwrap();
+    let mut context = runtime_context();
+    context.proposed_action = Some(hardknock::bridge::protocol::NormalizedAction::Custom {
+        kind: "recovery".into(),
+        payload: serde_json::json!({"recovery":"bounded"}),
+    });
+    context.session_id = team.members[0].session.clone();
+    context.agent = team.members[0].agent.clone();
+    context.team = Some(TeamRuntimeContext {
+        review: None,
+        team: team.id.clone(),
+        revision: 1,
+        member: team.members[0].id.clone(),
+        assignment: team.role_assignments[0].id.clone(),
+        delegation: None,
+        assessment: None,
+    });
+    store.attach_team_authority(&mut context).unwrap();
+    let assessment = context.team.unwrap().assessment.unwrap();
+    assert!(!assessment.allowed);
+    assert!(assessment.reasons[0].contains("explicit current recovery handoff"));
+}
+
+#[test]
+fn effect_actor_context_is_derived_from_persisted_runtime_identity() {
+    let home = tempfile::tempdir().unwrap();
+    let store = Store::open(home.path()).unwrap();
+    let team = fixture();
+    store.save_agent_team(&team).unwrap();
+    let request = EffectRequest {
+        session_id: team.members[0].session.to_string(),
+        reality_id: None,
+        source_action: ActionRef {
+            id: "team-effect-action".into(),
+            kind: "test".into(),
+        },
+        kind: EffectKind::HttpApi,
+        target: EffectTarget {
+            uri: "mock://deployment/team-test".into(),
+        },
+        operation: EffectOperation::Update,
+        payload: serde_json::json!({"version":2}),
+        adapter: Some("mock-http".into()),
+        evidence: vec![],
+        fault: EffectFault::None,
+    };
+    let mut context = runtime_context();
+    context.session_id = team.members[0].session.clone();
+    context.agent = team.members[0].agent.clone();
+    context.knowledge_action_id = Some(request.source_action.id.clone());
+    context.proposed_effect = Some(request.clone());
+    context.capability_context.commit_authority = true;
+    context.team = Some(TeamRuntimeContext {
+        review: None,
+        team: team.id.clone(),
+        revision: 1,
+        member: team.members[0].id.clone(),
+        assignment: team.role_assignments[0].id.clone(),
+        delegation: None,
+        assessment: None,
+    });
+    store
+        .record_runtime_decision(&context, Default::default())
+        .unwrap();
+    let ledger = store.ensure_effect_ledger(None).unwrap();
+    let effect = Effect::from_request(request, ledger.id, "mock-http".into());
+    store.insert_effect(&effect).unwrap();
+    let actor = store.bind_effect_actor(&effect).unwrap().unwrap();
+    assert_eq!(actor.team, team.id);
+    assert_eq!(actor.member, team.members[0].id);
+    assert_eq!(actor.role, team.roles[0].id);
+    assert_eq!(
+        actor.authority_source,
+        "local runtime intersection plus external commit authorization"
+    );
+    assert!(store.effect_actor(&effect.id).unwrap().is_none());
 }

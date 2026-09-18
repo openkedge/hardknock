@@ -121,6 +121,48 @@ pub struct ActionContext {
     #[serde(default)]
     pub can_intercept: bool,
 }
+/// Bounded team protocol payloads. They carry typed IDs/references only and do not
+/// grant authority; the local Store re-resolves every referenced object.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum TeamProtocolMessage {
+    RoleAssigned {
+        team: String,
+        team_revision: u64,
+        member: String,
+        assignment: String,
+    },
+    DelegationGranted {
+        team: String,
+        team_revision: u64,
+        delegation: String,
+    },
+    StructuredHandoff {
+        team: String,
+        handoff: String,
+        content_hash: String,
+    },
+    ReviewFinding {
+        review: String,
+        finding: String,
+        contribution: String,
+    },
+    ChallengeRequested {
+        review: String,
+        challenge: String,
+        challenger_assignment: String,
+    },
+    TeamDecisionContext {
+        team: String,
+        team_revision: u64,
+        member: String,
+        assignment: String,
+        #[serde(default)]
+        delegation: Option<String>,
+        #[serde(default)]
+        review: Option<String>,
+    },
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ActionProposed {

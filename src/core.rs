@@ -418,3 +418,8 @@ identifier!(AgentContributionId, "contribution-");
 identifier!(ReviewFindingId, "review-finding-");
 
 identifier!(AgentHandoffId, "handoff-");
+
+identifier!(ChallengeAssignmentId, "challenge-");
+identifier!(ResponsibilityAssignmentId, "responsibility-");
+identifier!(RoleReassignmentId, "reassignment-");
+identifier!(TeamRecoveryHandoffId, "team-recovery-");
