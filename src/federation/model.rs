@@ -87,9 +87,15 @@ pub struct NodePublicIdentity {
     pub public_key: String,
 }
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct NodeCapabilities {
     pub schemas: Vec<String>,
     pub transports: Vec<String>,
+    pub can_publish_experience: bool,
+    pub can_publish_knowledge: bool,
+    pub can_publish_certifications: bool,
+    pub can_receive_sync: bool,
+    pub supports_reproduction: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExperienceNode {

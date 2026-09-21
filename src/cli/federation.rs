@@ -10,6 +10,30 @@ use serde_json::{Value, json};
 use std::{io::Write, path::PathBuf};
 
 #[derive(Debug, Subcommand)]
+pub enum NodeCommand {
+    Show,
+    Identity,
+    Environment,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SyncCommand {
+    Pull {
+        peer: String,
+    },
+    Push {
+        peer: String,
+        #[arg(long)]
+        envelope: PathBuf,
+    },
+    Status,
+    History,
+    Inspect {
+        session: SyncSessionId,
+    },
+}
+
+#[derive(Debug, Subcommand)]
 pub enum PeerCommand {
     List,
     Add {
@@ -17,6 +41,8 @@ pub enum PeerCommand {
         name: String,
         #[arg(long)]
         public_key: PathBuf,
+        #[arg(long)]
+        sync_dir: Option<PathBuf>,
     },
     Show {
         peer: String,
@@ -95,6 +121,11 @@ pub enum FederateCommand {
     },
     Backlog,
     Audit,
+    Reproduce {
+        artifact_hash: String,
+        #[arg(long)]
+        relevance: String,
+    },
     Compare {
         left: FederatedObjectId,
         right: FederatedObjectId,
@@ -116,7 +147,9 @@ pub enum ConflictCommand {
 pub fn handles(command: &Commands) -> bool {
     matches!(
         command,
-        Commands::Peer { .. }
+        Commands::Node { .. }
+            | Commands::Sync { .. }
+            | Commands::Peer { .. }
             | Commands::Federate { .. }
             | Commands::Provenance { .. }
             | Commands::Conflict { .. }
@@ -179,28 +212,171 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
         config: &config,
     };
     Ok(match &cli.command {
+        Commands::Node { command } => {
+            let identity = service.identity()?;
+            let node = if let Some(node) = store.hardknock_node()? {
+                node
+            } else {
+                store.initialize_hardknock_node(&identity, EnvironmentIdentity::default())?
+            };
+            match command {
+                NodeCommand::Show => json!({"kind":"hardknock_node","node":node}),
+                NodeCommand::Identity => {
+                    json!({"kind":"node_identity","node":node.id,"identity":node.identity,"key_revision":node.key_revision,"label":node.label})
+                }
+                NodeCommand::Environment => {
+                    json!({"kind":"node_environment","node":node.id,"environment":node.environment})
+                }
+            }
+        }
+        Commands::Sync { command } => match command {
+            SyncCommand::Pull { peer } => {
+                let configured = store.sync_peer(peer)?;
+                let transport =
+                    FilesystemSyncTransport::new(config.federation.limits.max_bundle_bytes)?;
+                let cursor = store.sync_cursor(&configured.node, SyncStreamKind::Knowledge)?;
+                let envelopes = transport.pull(&configured, cursor.as_ref())?;
+                let local = store.hardknock_node()?.ok_or_else(|| {
+                    Error::InvalidInput(
+                        "Initialize the local node with `hardknock node show`".into(),
+                    )
+                })?;
+                let mut sessions = Vec::new();
+                for envelope in &envelopes {
+                    let session = store.receive_sync_envelope(envelope, &local.environment)?;
+                    let position = format!(
+                        "{}-{}.hksync",
+                        envelope.created_at.timestamp_micros(),
+                        envelope.id
+                    );
+                    store.save_sync_cursor(&SyncCursor {
+                        peer: configured.node.clone(),
+                        stream: SyncStreamKind::Knowledge,
+                        position,
+                        updated_at: chrono::Utc::now(),
+                    })?;
+                    sessions.push(session);
+                }
+                json!({"kind":"sync_pull","peer":configured.node,"sessions":sessions,"envelopes":envelopes.len()})
+            }
+            SyncCommand::Push { peer, envelope } => {
+                let configured = store.sync_peer(peer)?;
+                let metadata = std::fs::symlink_metadata(envelope)?;
+                if !metadata.is_file()
+                    || metadata.file_type().is_symlink()
+                    || metadata.len() > config.federation.limits.max_bundle_bytes
+                {
+                    return Err(Error::InvalidInput(
+                        "Sync envelope must be a bounded regular file".into(),
+                    ));
+                }
+                let bytes = std::fs::read(envelope)?;
+                if bytes.len() as u64 > config.federation.limits.max_bundle_bytes {
+                    return Err(Error::InvalidInput(
+                        "Sync envelope size limit exceeded".into(),
+                    ));
+                }
+                let signed: SyncEnvelope = serde_json::from_slice(&bytes)?;
+                let local = store.hardknock_node()?.ok_or_else(|| {
+                    Error::InvalidInput(
+                        "Initialize the local node with `hardknock node show`".into(),
+                    )
+                })?;
+                if signed.sender != local.id {
+                    return Err(Error::InvalidInput(
+                        "Only locally signed envelopes may be pushed".into(),
+                    ));
+                }
+                if signed.key_revision != local.key_revision {
+                    return Err(Error::InvalidInput(
+                        "Sync envelope key revision differs from local node".into(),
+                    ));
+                }
+                signed.verify(&local.identity.public_key)?;
+                let transport =
+                    FilesystemSyncTransport::new(config.federation.limits.max_bundle_bytes)?;
+                json!({"kind":"sync_push","receipt":transport.push(&configured,&signed)?})
+            }
+            SyncCommand::Status => {
+                json!({"kind":"sync_status","node":store.hardknock_node()?,"peers":store.sync_peers()?,"remote":store.remote_knowledge_records()?,"metrics":store.sync_metrics()?})
+            }
+            SyncCommand::History => {
+                json!({"kind":"sync_history","sessions":store.sync_sessions()?})
+            }
+            SyncCommand::Inspect { session } => {
+                json!({"kind":"sync_session","session":store.sync_session(session)?})
+            }
+        },
         Commands::Peer { command } => match command {
             PeerCommand::List => json!({"kind":"peers","peers":store.peers()?}),
-            PeerCommand::Add { name, public_key } => {
+            PeerCommand::Add {
+                name,
+                public_key,
+                sync_dir,
+            } => {
                 let key = read_public_key(public_key)?;
                 let node = node_id(key.as_bytes())?;
-                json!({"kind":"peer","peer":store.add_peer(name,&public_key_hex(&key),&node)?})
+                let directory = sync_dir
+                    .as_ref()
+                    .map(|path| {
+                        path.to_str().map(str::to_owned).ok_or_else(|| {
+                            Error::InvalidInput("Sync directory must be valid UTF-8".into())
+                        })
+                    })
+                    .transpose()?;
+                let peer = store.add_peer(name, &public_key_hex(&key), &node)?;
+                if let Some(directory) = directory {
+                    store.save_sync_peer(&SyncPeer {
+                        node,
+                        name: name.clone(),
+                        public_key: public_key_hex(&key),
+                        endpoint: PeerEndpoint::Filesystem(directory),
+                        trust: PeerTrust::from(peer.trust),
+                        trust_policy: PeerTrustPolicy::default(),
+                        filters: SyncFilter::default(),
+                        status: PeerStatus::Active,
+                        last_sync: None,
+                    })?;
+                }
+                json!({"kind":"peer","peer":peer})
             }
             PeerCommand::Show { peer } => json!({"kind":"peer","peer":store.peer(peer)?}),
             PeerCommand::Trust { peer } => {
-                json!({"kind":"peer","peer":store.set_peer_trust(peer,ProducerTrust::Trusted)?})
+                let updated = store.set_peer_trust(peer, ProducerTrust::Trusted)?;
+                if let Some(mut sync_peer) = store
+                    .sync_peers()?
+                    .into_iter()
+                    .find(|candidate| candidate.node == updated.node_id)
+                {
+                    sync_peer.trust = PeerTrust::from(updated.trust);
+                    sync_peer.status = PeerStatus::Active;
+                    store.save_sync_peer(&sync_peer)?;
+                }
+                json!({"kind":"peer","peer":updated})
             }
             PeerCommand::Block { peer } => {
-                json!({"kind":"peer","peer":store.set_peer_trust(peer,ProducerTrust::Blocked)?})
+                let updated = store.set_peer_trust(peer, ProducerTrust::Blocked)?;
+                if let Some(mut sync_peer) = store
+                    .sync_peers()?
+                    .into_iter()
+                    .find(|candidate| candidate.node == updated.node_id)
+                {
+                    sync_peer.trust = PeerTrust::Blocked;
+                    sync_peer.status = PeerStatus::Blocked;
+                    store.save_sync_peer(&sync_peer)?;
+                }
+                json!({"kind":"peer","peer":updated})
             }
             PeerCommand::Remove { peer } => {
-                json!({"kind":"peer_removed","peer":store.remove_peer(peer)?})
+                let removed = store.remove_peer(peer)?;
+                store.remove_sync_peer(&removed.node_id)?;
+                json!({"kind":"peer_removed","peer":removed})
             }
         },
         Commands::Federate { command } => match command {
             FederateCommand::Status => {
                 service.identity()?;
-                json!({"kind":"federation_status","status":store.federation_status()?})
+                json!({"kind":"federation_status","status":store.federation_status()?,"distributed":{"node":store.hardknock_node()?,"remote":store.remote_knowledge_records()?,"metrics":store.sync_metrics()?}})
             }
             FederateCommand::Export(args) => {
                 let signed = bundle(&service, args)?;
@@ -258,10 +434,26 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
                 }
             }
             FederateCommand::Backlog => {
-                json!({"kind":"federation_backlog","items":store.federated_objects()?.into_iter().filter(|o|matches!(o.state,FederatedExperienceState::ContextMatched|FederatedExperienceState::ReproductionRecommended)).collect::<Vec<_>>()})
+                json!({"kind":"federation_backlog","items":store.federated_objects()?.into_iter().filter(|o|matches!(o.state,FederatedExperienceState::ContextMatched|FederatedExperienceState::ReproductionRecommended)).collect::<Vec<_>>(),"remote":store.reproduction_queue()?})
             }
             FederateCommand::Audit => {
-                json!({"kind":"federation_audit","events":store.federation_audit()?})
+                json!({"kind":"federation_audit","events":store.federation_audit()?,"sync_events":store.sync_events()?})
+            }
+            FederateCommand::Reproduce {
+                artifact_hash,
+                relevance,
+            } => {
+                let record = store
+                    .remote_knowledge_records()?
+                    .into_iter()
+                    .find(|record| record.remote_artifact.content_hash == *artifact_hash)
+                    .ok_or_else(|| Error::NotFound(artifact_hash.clone()))?;
+                let node = store.hardknock_node()?.ok_or_else(|| {
+                    Error::InvalidInput(
+                        "Initialize the local node with `hardknock node show`".into(),
+                    )
+                })?;
+                json!({"kind":"remote_reproduction_queued","item":store.enqueue_remote_reproduction(&record,node.environment,None,relevance.clone())?})
             }
             FederateCommand::Compare { left, right } => {
                 let a = store.federated_object(left)?;

@@ -2,6 +2,10 @@
 
 Hardknock federation exchanges signed, normalized evidence between local nodes. It does not synchronize mutable Lessons and does not create distributed consensus.
 
+The V0.22 distributed-sync checkpoint extends this package exchange with persistent
+envelopes, cursors, sessions, and remote advisory records. Its current boundary and
+unfinished integration are documented in [V0.22 progress](v0.22-progress.md).
+
 ## Trust model
 
 Every node has an Ed25519 keypair in `identity/node.key` and `identity/node.pub`; the private key is mode `0600`. The node ID is the BLAKE3 digest of the public key. Compact canonical JSON for the redacted `hardknock.bundle.v1` payload is signed with a domain separator. The payload hash and content-addressed bundle ID are verified independently.

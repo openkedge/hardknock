@@ -49,6 +49,7 @@ mod development;
 mod learning;
 mod resilience;
 mod runtime;
+mod sync;
 pub use runtime::RuntimeStore;
 mod tools;
 mod transfer;
@@ -130,7 +131,7 @@ impl Store {
             [],
             |row| row.get(0),
         )?;
-        if version > 29 {
+        if version > 30 {
             return Err(Error::Intervention(
                 "Database was created by a newer Hardknock; upgrade the CLI.".into(),
             ));
@@ -252,6 +253,10 @@ impl Store {
         if version < 29 {
             tx.execute_batch(include_str!("../migrations/029_team_governance.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (29)", [])?;
+        }
+        if version < 30 {
+            tx.execute_batch(include_str!("../migrations/030_distributed_sync.sql"))?;
+            tx.execute("INSERT INTO schema_migrations(version) VALUES (30)", [])?;
         }
         tx.commit()?;
         tracing::debug!("SQLite migrations ready");

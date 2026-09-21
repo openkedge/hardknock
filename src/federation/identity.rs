@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::{
     BUNDLE_SCHEMA_V1, ExperienceBundle, ExperienceNode, ExperienceNodeId, ExperienceNodeType,
-    NodeCapabilities, NodePublicIdentity, SIGNING_DOMAIN, SignedExperienceBundle,
+    NodeCapabilities, NodePublicIdentity, SIGNING_DOMAIN, SYNC_ARTIFACT_SCHEMA_V1,
+    SignedExperienceBundle,
 };
 use crate::{Error, Result};
 use chrono::Utc;
@@ -127,8 +128,13 @@ impl NodeIdentity {
                 public_key: encode_hex(verifying.as_bytes()),
             },
             capabilities: NodeCapabilities {
-                schemas: vec![BUNDLE_SCHEMA_V1.into()],
-                transports: vec!["filesystem".into()],
+                schemas: vec![BUNDLE_SCHEMA_V1.into(), SYNC_ARTIFACT_SCHEMA_V1.into()],
+                transports: vec!["filesystem".into(), "filesystem-sync".into()],
+                can_publish_experience: true,
+                can_publish_knowledge: true,
+                can_publish_certifications: true,
+                can_receive_sync: true,
+                supports_reproduction: true,
             },
             created_at: Utc::now(),
         };

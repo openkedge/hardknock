@@ -43,6 +43,7 @@ parallel with that product work.
 | V0.16 — Experience economics | Implemented locally | Bounded portfolios, saturation, budget reservation, adaptive replanning, and learning-yield reporting |
 | V0.17 — Experience abstraction | Implemented locally | Structural patterns, held-out transfer, negative controls, boundaries, exceptions, and reversible distillation |
 | V0.18–V0.21 | Implemented | Hierarchical knowledge, composition safety, long-horizon validity, and bounded role-separated teams |
+| V0.22 | In progress | Signed, persistent filesystem sync with local advisory import and conservative provenance gates |
 | V0.21+ | Directional | Organizational experience, governed continuous learning, and production hardening |
 | Runtime and agent acceptance | Ongoing | Live containers, PostgreSQL, installed-agent workflows, and provider measurements |
 
@@ -427,6 +428,23 @@ hardknock profile federation
 ```
 
 The deterministic three-node benchmark records **2/2** critical successes with evidence federation versus **1/2** for isolated teams and **1/2** for naive shared rules. Node B supports and benefits from the Lesson; Node C contradicts it and keeps the local action. This is designed fixture evidence, not a production reliability estimate. Hardknock turns individual agent failures into institutional experience without requiring every agent to make the same mistake independently, while imported experience remains contextual and advisory until locally supported.
+
+### Share Experience, Not Truth
+
+> **Share evidence. Earn trust locally.**
+
+The V0.22 checkpoint adds signed sync envelopes, filesystem cursors, remote lifecycle
+records, and revocation history. A direct-origin artifact can be received as advisory
+after signature, hash, and compatibility checks. Relay copies retain one root identity;
+an unverified relay origin remains quarantined. A remote Constraint cannot become
+critical local guidance merely because its origin reports validation. See the
+[distributed sync checkpoint](docs/v0.22-progress.md) for the implemented boundary
+and remaining V0.22 work.
+
+To configure a local filesystem sync peer, add its public key with
+`hardknock peer add --name platform-team --public-key ./platform-team.pub --sync-dir ./shared-sync`.
+Then run `hardknock sync pull platform-team` and inspect the result with
+`hardknock sync status` or `hardknock sync history`.
 
 ## Does Your Agent Actually Get Better?
 

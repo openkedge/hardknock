@@ -212,6 +212,16 @@ pub enum Commands {
         #[command(subcommand)]
         command: federation::PeerCommand,
     },
+    /// Inspect the local distributed-experience node identity and environment.
+    Node {
+        #[command(subcommand)]
+        command: federation::NodeCommand,
+    },
+    /// Exchange signed, cursor-based experience envelopes with configured peers.
+    Sync {
+        #[command(subcommand)]
+        command: federation::SyncCommand,
+    },
     /// Export, import, reproduce, and inspect signed external evidence.
     Federate {
         #[command(subcommand)]
@@ -1626,7 +1636,9 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             Err(Error::InvalidInput("Capability dispatch failed".into()))
         }
         Commands::Effect { .. } => Err(Error::InvalidInput("Effect dispatch failed".into())),
-        Commands::Peer { .. }
+        Commands::Node { .. }
+        | Commands::Sync { .. }
+        | Commands::Peer { .. }
         | Commands::Federate { .. }
         | Commands::Provenance { .. }
         | Commands::Conflict { .. } => {

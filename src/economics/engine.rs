@@ -521,6 +521,7 @@ fn portfolio_category(kind: &ExperienceOpportunityKind) -> EvidencePortfolioCate
             EvidencePortfolioCategory::Revalidation
         }
         ExperienceOpportunityKind::ResolveContradiction
+        | ExperienceOpportunityKind::ChallengeRemoteContradiction
         | ExperienceOpportunityKind::ChallengeCausalHypothesis
         | ExperienceOpportunityKind::DiscriminateCausalHypotheses
         | ExperienceOpportunityKind::ChallengeAbstraction
@@ -545,6 +546,9 @@ fn portfolio_category(kind: &ExperienceOpportunityKind) -> EvidencePortfolioCate
         | ExperienceOpportunityKind::ValidateRecovery
         | ExperienceOpportunityKind::ValidateReflex
         | ExperienceOpportunityKind::ReproduceFederatedExperience
+        | ExperienceOpportunityKind::ReproduceRemoteKnowledge
+        | ExperienceOpportunityKind::ValidateCrossEnvironmentTransfer
+        | ExperienceOpportunityKind::RevalidateAfterRemoteRevocation
         | ExperienceOpportunityKind::CloseAssuranceGap
         | ExperienceOpportunityKind::ValidateAbstraction
         | ExperienceOpportunityKind::ValidateTransfer
@@ -780,7 +784,11 @@ impl ExperienceOpportunityCompiler for DeterministicExperienceOpportunityCompile
                 ExperienceOpportunityTarget::CausalHypothesis(id),
             ) => Ok(ExecutableLearningPlan::CausalInvestigation(id.clone())),
             (
-                ExperienceOpportunityKind::ReproduceFederatedExperience,
+                ExperienceOpportunityKind::ReproduceFederatedExperience
+                | ExperienceOpportunityKind::ReproduceRemoteKnowledge
+                | ExperienceOpportunityKind::ChallengeRemoteContradiction
+                | ExperienceOpportunityKind::ValidateCrossEnvironmentTransfer
+                | ExperienceOpportunityKind::RevalidateAfterRemoteRevocation,
                 ExperienceOpportunityTarget::FederatedObject(object),
             ) => Ok(ExecutableLearningPlan::FederationReproduction(
                 object.clone(),
