@@ -3,7 +3,7 @@
 mod support;
 use hardknock::{
     experience::{Experience, Outcome},
-    store::{ExperienceQuery, ExperienceStore, Store, artifact},
+    store::{ExperienceQuery, ExperienceStore, LATEST_SCHEMA_VERSION, Store, artifact},
 };
 use std::fs;
 use support::Fixture;
@@ -227,7 +227,7 @@ fn v1_database_migrates_without_rewriting_old_execution_json() {
         db.query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
             .get::<_, i64>(0))
             .unwrap(),
-        30
+        LATEST_SCHEMA_VERSION
     );
 }
 
@@ -290,7 +290,7 @@ fn v3_migration_preserves_raw_experience_json_and_defaults_new_provenance() {
         db.query_row("SELECT MAX(version) FROM schema_migrations", [], |r| r
             .get::<_, i64>(0))
             .unwrap(),
-        30
+        LATEST_SCHEMA_VERSION
     );
     assert!(
         !db.prepare("PRAGMA foreign_key_check")

@@ -11,7 +11,7 @@ use std::{
 use hardknock::{
     core::{RealityId, RealityStatus},
     dojo::{GitRealityProvider, RealityProvider, capture_state},
-    store::Store,
+    store::{LATEST_SCHEMA_VERSION, Store},
 };
 use support::{Fixture, git};
 
@@ -120,6 +120,25 @@ fn discard_refuses_unmanaged_paths_and_symlink_replacements() {
 }
 
 #[test]
+fn new_data_home_is_migrated_to_latest_schema() {
+    let f = Fixture::new();
+    let store = Store::open(&f.home).unwrap();
+    assert_eq!(
+        store.applied_schema_version().unwrap(),
+        LATEST_SCHEMA_VERSION
+    );
+    let connection = rusqlite::Connection::open(f.home.join("hardknock.db")).unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+        LATEST_SCHEMA_VERSION
+    );
+}
+
+#[test]
 fn migrations_are_idempotent_and_reality_history_survives_reopen() {
     let f = Fixture::new();
     let id = {
@@ -135,22 +154,44 @@ fn migrations_are_idempotent_and_reality_history_survives_reopen() {
         RealityStatus::Discarded
     );
     assert!(reopened.reality(&RealityId::new()).is_err());
+    assert_eq!(
+        reopened.applied_schema_version().unwrap(),
+        LATEST_SCHEMA_VERSION
+    );
     let connection = rusqlite::Connection::open(f.home.join("hardknock.db")).unwrap();
     assert_eq!(
         connection
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r
                 .get::<_, i64>(0))
             .unwrap(),
-        30
+        LATEST_SCHEMA_VERSION
     );
     assert_eq!(
         fs::metadata(&f.home).unwrap().permissions().mode() & 0o777,
         0o700
     );
+}
+
+#[test]
+fn newer_database_schema_is_rejected_with_version_diagnostic() {
+    let f = Fixture::new();
+    drop(Store::open(&f.home).unwrap());
+    let connection = rusqlite::Connection::open(f.home.join("hardknock.db")).unwrap();
+    let newer_schema_version = LATEST_SCHEMA_VERSION + 1;
     connection
-        .execute("INSERT INTO schema_migrations(version) VALUES(99)", [])
+        .execute(
+            "INSERT INTO schema_migrations(version) VALUES(?1)",
+            [newer_schema_version],
+        )
         .unwrap();
-    assert!(Store::open(&f.home).is_err());
+    drop(connection);
+    let error = Store::open(&f.home)
+        .err()
+        .expect("a newer database schema must be rejected");
+    let diagnostic = error.to_string();
+    assert!(diagnostic.contains(&newer_schema_version.to_string()));
+    assert!(diagnostic.contains(&LATEST_SCHEMA_VERSION.to_string()));
+    assert!(diagnostic.contains("upgrade the CLI"));
 }
 
 #[test]

@@ -13,7 +13,7 @@ use hardknock::{
     retrieval::{
         DeterministicRetriever, LessonRetriever, QueryContext, RetrievalOptions, freshness_score,
     },
-    store::{LessonStore, Store},
+    store::{LATEST_SCHEMA_VERSION, LessonStore, Store},
 };
 use serde_json::{Value, json};
 use std::{fs, time::Instant};
@@ -102,6 +102,20 @@ fn empty_profiles_and_missing_metrics_are_unknown_not_zero() {
     assert_eq!(
         f.cli(&["doctor"], 0)["result"]["database"]["integrity"],
         "ok"
+    );
+}
+
+#[test]
+fn doctor_reports_the_applied_database_schema() {
+    let f = Fixture::new();
+    let store = Store::open(&f.home).unwrap();
+    let applied_schema_version = store.applied_schema_version().unwrap();
+    assert_eq!(applied_schema_version, LATEST_SCHEMA_VERSION);
+    drop(store);
+
+    assert_eq!(
+        f.cli(&["doctor"], 0)["result"]["schema_version"].as_i64(),
+        Some(applied_schema_version)
     );
 }
 

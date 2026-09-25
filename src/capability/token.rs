@@ -213,8 +213,7 @@ fn decode<const N: usize>(value: &str) -> Result<[u8; N]> {
         ));
     }
     let mut result = [0_u8; N];
-    #[allow(clippy::chunks_exact_to_as_chunks)]
-    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
+    for (index, chunk) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let pair = std::str::from_utf8(chunk)
             .map_err(|_| Error::Intervention("Capability token is not UTF-8".into()))?;
         result[index] = u8::from_str_radix(pair, 16)

@@ -19,6 +19,26 @@ fn identity(name: &str) -> AgentIdentity {
         model: None,
     }
 }
+
+fn process_state(pid: i32) -> String {
+    let output = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "stat="])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+async fn wait_for_process_to_stop(pid: i32) -> String {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let state = process_state(pid);
+        if state.is_empty() || state.starts_with('Z') || tokio::time::Instant::now() >= deadline {
+            return state;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
 fn request(f: &Fixture) -> ExperimentRequest {
     ExperimentRequest {
         id: ExperimentRequestId::new(),
@@ -346,7 +366,7 @@ async fn cancellation_kills_child_discards_realities_and_retains_interrupted_exp
     let r = shell_request(
         &f,
         &[
-            "sleep 60 & child=$!; printf '%s' \"$child\" > child.pid; wait",
+            "(sleep 60 & grandchild=$!; printf '%s' \"$grandchild\" > grandchild.pid; printf ready > descendants.ready; wait) & child=$!; printf '%s' \"$child\" > child.pid; wait",
             "true",
         ],
     );
@@ -355,11 +375,15 @@ async fn cancellation_kills_child_discards_realities_and_retains_interrupted_exp
     let monitor = async {
         for _ in 0..200 {
             for reality in store.realities().unwrap() {
-                if let Ok(pid) = std::fs::read_to_string(reality.root.join("child.pid"))
-                    && let Ok(pid) = pid.parse::<i32>()
+                if reality.root.join("descendants.ready").exists()
+                    && let Ok(child) = std::fs::read_to_string(reality.root.join("child.pid"))
+                    && let Ok(child) = child.parse::<i32>()
+                    && let Ok(grandchild) =
+                        std::fs::read_to_string(reality.root.join("grandchild.pid"))
+                    && let Ok(grandchild) = grandchild.parse::<i32>()
                 {
                     store.cancel_experiment(&accepted.id).unwrap();
-                    return pid;
+                    return [child, grandchild];
                 }
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
@@ -379,15 +403,13 @@ async fn cancellation_kills_child_discards_realities_and_retains_interrupted_exp
             .outcome,
         hardknock::experience::Outcome::Interrupted
     );
-    let process = std::process::Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "stat="])
-        .output()
-        .unwrap();
-    let status = String::from_utf8_lossy(&process.stdout);
-    assert!(
-        status.trim().is_empty() || status.trim().starts_with('Z'),
-        "child still active: {status}"
-    );
+    for pid in pid {
+        let state = wait_for_process_to_stop(pid).await;
+        assert!(
+            state.is_empty() || state.starts_with('Z'),
+            "descendant {pid} still active: {state}"
+        );
+    }
     f.assert_source_unchanged();
 }
 

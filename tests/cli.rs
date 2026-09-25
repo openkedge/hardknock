@@ -21,6 +21,29 @@ use nix::{
 use serde_json::Value;
 use support::Fixture;
 
+fn process_state(pid: i32) -> String {
+    let output = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "stat="])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+fn assert_process_stopped(pid: i32) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let state = process_state(pid);
+        if state.is_empty() || state.starts_with('Z') {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "background descendant {pid} still active with state {state}"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
 #[test]
 fn help_version_empty_listing_and_json_errors() {
     let f = Fixture::new();
@@ -194,11 +217,13 @@ fn failures_timeouts_and_missing_executable_do_not_leave_worktrees() {
 fn ctrl_c_stops_process_group_records_interruption_and_cleans_up() {
     let f = Fixture::new();
     let ready = f.temp.path().join("ready");
+    let descendant_pid = f.temp.path().join("descendant.pid");
     let sentinel = f.temp.path().join("must-not-be-written");
     let task = format!(
-        "printf ready > '{}'; (sleep 2; touch '{}') & wait",
+        "(printf ready > '{}'; sleep 2; touch '{}') & printf '%s' \"$!\" > '{}'; wait",
         ready.display(),
-        sentinel.display()
+        sentinel.display(),
+        descendant_pid.display()
     );
     let mut child = f
         .command()
@@ -208,14 +233,21 @@ fn ctrl_c_stops_process_group_records_interruption_and_cleans_up() {
         .spawn()
         .unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !ready.exists() {
+    let descendant_pid = loop {
+        if ready.exists()
+            && let Ok(pid) = fs::read_to_string(&descendant_pid)
+            && let Ok(pid) = pid.parse::<i32>()
+        {
+            break pid;
+        }
         if Instant::now() > deadline {
             let _ = child.kill();
-            panic!("Agent did not start");
+            panic!("Background descendant did not start");
         }
         thread::sleep(Duration::from_millis(10));
-    }
+    };
     kill(Pid::from_raw(child.id() as i32), Signal::SIGINT).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
     while child.try_wait().unwrap().is_none() {
         if Instant::now() > deadline {
             let _ = child.kill();
@@ -232,6 +264,7 @@ fn ctrl_c_stops_process_group_records_interruption_and_cleans_up() {
     );
     let result: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(result["execution"]["status"], "interrupted");
+    assert_process_stopped(descendant_pid);
     f.assert_source_unchanged();
     thread::sleep(Duration::from_millis(2200));
     assert!(

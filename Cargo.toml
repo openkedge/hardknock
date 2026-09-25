@@ -1,12 +1,31 @@
 [package]
 name = "hardknock"
 default-run = "hardknock"
-version = "0.17.0-dev.1"
+version = "0.22.0-dev.1"
 edition = "2024"
+rust-version = "1.88"
 license = "Apache-2.0"
 description = "Experience control plane for scoped, evidence-backed operational knowledge"
 repository = "https://github.com/openkedge/hardknock"
 publish = false
+autobins = false
+
+[features]
+default = []
+test-adapter = []
+
+[[bin]]
+name = "hardknock"
+path = "src/main.rs"
+
+[[bin]]
+name = "hk-effect"
+path = "src/bin/hk-effect.rs"
+
+[[bin]]
+name = "hardknock-test-adapter"
+path = "src/bin/hardknock-test-adapter.rs"
+required-features = ["test-adapter"]
 
 [dependencies]
 async-trait = "0.1"
@@ -37,3 +56,6 @@ unsafe_code = "forbid"
 [lints.clippy]
 dbg_macro = "deny"
 todo = "deny"
+
+[profile.release]
+strip = "symbols"

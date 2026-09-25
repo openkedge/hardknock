@@ -57,9 +57,20 @@ pub use curriculum::CurriculumStore;
 pub use learning::{LessonQuery, LessonStore, LessonSummary};
 pub use tools::ToolStore;
 
+/// Schema version produced by all migrations compiled into this binary.
+pub const LATEST_SCHEMA_VERSION: i64 = 30;
+
 pub struct Store {
     pub home: PathBuf,
     connection: Connection,
+}
+
+fn query_applied_schema_version(connection: &Connection) -> Result<i64> {
+    Ok(connection.query_row(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+        [],
+        |row| row.get(0),
+    )?)
 }
 
 impl Store {
@@ -126,15 +137,11 @@ impl Store {
         connection.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;")?;
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);")?;
-        let version: i64 = tx.query_row(
-            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
-            [],
-            |row| row.get(0),
-        )?;
-        if version > 30 {
-            return Err(Error::Intervention(
-                "Database was created by a newer Hardknock; upgrade the CLI.".into(),
-            ));
+        let version = query_applied_schema_version(&tx)?;
+        if version > LATEST_SCHEMA_VERSION {
+            return Err(Error::Intervention(format!(
+                "Database schema {version} is newer than the latest supported schema {LATEST_SCHEMA_VERSION}; upgrade the CLI."
+            )));
         }
         if version < 1 {
             tx.execute_batch(include_str!("../migrations/001_substrate.sql"))?;
@@ -254,13 +261,31 @@ impl Store {
             tx.execute_batch(include_str!("../migrations/029_team_governance.sql"))?;
             tx.execute("INSERT INTO schema_migrations(version) VALUES (29)", [])?;
         }
-        if version < 30 {
+        if version < LATEST_SCHEMA_VERSION {
             tx.execute_batch(include_str!("../migrations/030_distributed_sync.sql"))?;
-            tx.execute("INSERT INTO schema_migrations(version) VALUES (30)", [])?;
+            tx.execute(
+                "INSERT INTO schema_migrations(version) VALUES (?1)",
+                [LATEST_SCHEMA_VERSION],
+            )?;
+        }
+        let applied_schema_version = query_applied_schema_version(&tx)?;
+        if applied_schema_version != LATEST_SCHEMA_VERSION {
+            return Err(Error::Intervention(format!(
+                "Database migration reached schema {applied_schema_version}; this Hardknock expects schema {LATEST_SCHEMA_VERSION}."
+            )));
         }
         tx.commit()?;
-        tracing::debug!("SQLite migrations ready");
+        tracing::debug!(
+            schema_version = applied_schema_version,
+            latest_schema_version = LATEST_SCHEMA_VERSION,
+            "SQLite migrations ready"
+        );
         Ok(Self { home, connection })
+    }
+
+    /// Returns the highest database migration recorded as applied.
+    pub fn applied_schema_version(&self) -> Result<i64> {
+        query_applied_schema_version(&self.connection)
     }
 
     pub fn insert_reality(&self, reality: &Reality) -> Result<()> {

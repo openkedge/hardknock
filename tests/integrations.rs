@@ -15,6 +15,22 @@ use support::Fixture;
 fn fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
+#[cfg(feature = "test-adapter")]
+#[test]
+fn explicit_test_adapter_feature_builds_conformance_driver() {
+    let f = Fixture::new();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_hardknock-test-adapter"))
+        .env("HARDKNOCK_HOME", &f.home)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+}
 #[test]
 fn claude_fixture_normalization_preserves_permissions_and_privacy() {
     let fixtures: Vec<Value> =

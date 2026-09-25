@@ -494,7 +494,7 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
                 ProfileWindow::AllTime,
             )?;
             let database = store.database_health()?;
-            json!({"kind":"doctor","snapshots":database["snapshot_count"],"database":database,"schema_version":20,"policy_hash":p.policy_hash,"health":p.freshness,"experience_count":p.experience_count,"queue_pending":store.revalidations()?.iter().filter(|i|i.status=="pending").count(),"latest_benchmark":store.benchmark_runs()?.last().map(|b|json!({"id":b.id,"status":b.status})),"latest_federation_benchmark":store.federation_benchmarks()?.last().map(|b|json!({"id":b.id,"status":b.status})),"latest_transactional_effects_benchmark":store.latest_effect_benchmark()?.map(|b|json!({"id":b.id,"created_at":b.created_at})),"auto_run":false})
+            json!({"kind":"doctor","snapshots":database["snapshot_count"],"database":database,"schema_version":store.applied_schema_version()?,"policy_hash":p.policy_hash,"health":p.freshness,"experience_count":p.experience_count,"queue_pending":store.revalidations()?.iter().filter(|i|i.status=="pending").count(),"latest_benchmark":store.benchmark_runs()?.last().map(|b|json!({"id":b.id,"status":b.status})),"latest_federation_benchmark":store.federation_benchmarks()?.last().map(|b|json!({"id":b.id,"status":b.status})),"latest_transactional_effects_benchmark":store.latest_effect_benchmark()?.map(|b|json!({"id":b.id,"created_at":b.created_at})),"auto_run":false})
         }
         _ => return Err(Error::InvalidInput("Not a development command".into())),
     })

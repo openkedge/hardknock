@@ -1,0 +1,55 @@
+# Dependency policy for cargo-deny 0.20.x.
+#
+# Keep the graph aligned with the release matrix and include optional tooling
+# such as the test adapter so dependency checks cover every shipped/tested mode.
+[graph]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+all-features = true
+
+# cargo-deny 0.20 always treats vulnerability advisories as errors. Yanked
+# packages default to warnings, so elevate them explicitly and keep checking
+# enabled. There are deliberately no advisory ignores or exceptions.
+[advisories]
+yanked = "deny"
+disable-yank-checking = false
+
+[licenses]
+# This is the minimal SPDX set needed to satisfy the current locked graph:
+# - Apache-2.0 and MIT cover Hardknock and the common permissive dependencies.
+# - BSD-3-Clause is required by the Dalek cryptography stack and subtle.
+# - Unicode-3.0 is an additional required term for unicode-ident.
+# - Zlib is required by foldhash.
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+# The workspace package is unpublished, but its declared license remains part
+# of the policy check.
+[licenses.private]
+ignore = false
+
+[bans]
+# Duplicate versions remain visible while a consolidation milestone is planned,
+# without blocking otherwise safe dependency updates.
+multiple-versions = "warn"
+# Version requirements must be bounded; wildcard requirements are not accepted.
+wildcards = "deny"
+highlight = "all"
+
+[sources]
+# Only crates.io registry packages are accepted. New registries and all git
+# dependencies require an explicit policy review before they can enter the graph.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
