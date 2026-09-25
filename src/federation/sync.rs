@@ -20,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const SYNC_PROTOCOL_V1: &str = "hardknock.sync.v1";
 pub const SYNC_ARTIFACT_SCHEMA_V1: &str = "hardknock.sync-artifact.v1";
 pub const SYNC_SIGNING_DOMAIN: &[u8] = b"hardknock.sync-envelope.v1\0";
+pub const SYNC_ORIGIN_SIGNING_DOMAIN: &[u8] = b"hardknock.sync-artifact-origin.v1\0";
 pub const REVOCATION_SIGNING_DOMAIN: &[u8] = b"hardknock.artifact-revocation.v1\0";
 pub type NodeId = ExperienceNodeId;
 
@@ -341,6 +342,10 @@ pub struct SyncArtifact {
     pub environment: EnvironmentIdentity,
     pub dependencies: Vec<SyncArtifactRef>,
     pub content_hash: String,
+    /// Origin authentication survives relay envelopes. It covers the immutable content hash;
+    /// the current sender separately signs the delivery envelope.
+    #[serde(default)]
+    pub origin_signature: Option<String>,
     pub task_family: Option<String>,
     pub origin_maturity: Option<KnowledgeMaturity>,
     pub critical: bool,
@@ -369,6 +374,38 @@ struct ArtifactContent<'a> {
 }
 
 impl SyncArtifact {
+    pub fn sign_origin(&mut self, identity: &NodeIdentity) -> Result<()> {
+        self.verify_hash()?;
+        if self.origin != identity.node.id {
+            return Err(Error::InvalidInput(
+                "Only an artifact origin may sign its content".into(),
+            ));
+        }
+        self.origin_signature =
+            Some(identity.sign_detached(SYNC_ORIGIN_SIGNING_DOMAIN, self.content_hash.as_bytes()));
+        Ok(())
+    }
+
+    pub fn verify_origin(&self, public_key: &str) -> Result<()> {
+        self.verify_hash()?;
+        let key = super::parse_public_key(public_key)?;
+        if super::node_id(key.as_bytes())? != self.origin {
+            return Err(Error::InvalidInput(
+                "Artifact origin key does not identify declared origin".into(),
+            ));
+        }
+        let signature = self
+            .origin_signature
+            .as_ref()
+            .ok_or_else(|| Error::InvalidInput("Artifact has no origin signature".into()))?;
+        verify_detached(
+            public_key,
+            SYNC_ORIGIN_SIGNING_DOMAIN,
+            self.content_hash.as_bytes(),
+            signature,
+        )
+    }
+
     pub fn computed_content_hash(&self) -> Result<String> {
         let content = ArtifactContent {
             artifact_type: &self.artifact_type,
@@ -464,8 +501,11 @@ impl SyncEnvelope {
                 "Sync envelope sender does not match signing node".into(),
             ));
         }
-        for artifact in &self.artifacts {
+        for artifact in &mut self.artifacts {
             artifact.verify_hash()?;
+            if artifact.origin == identity.node.id {
+                artifact.sign_origin(identity)?;
+            }
         }
         self.signature = identity.sign_detached(SYNC_SIGNING_DOMAIN, &self.signing_bytes()?);
         Ok(())

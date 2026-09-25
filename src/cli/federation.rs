@@ -18,6 +18,24 @@ pub enum NodeCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum SyncCommand {
+    Publish {
+        peer: String,
+        #[arg(long)]
+        lesson: LessonId,
+    },
+    Import {
+        artifact_hash: String,
+    },
+    Relay {
+        peer: String,
+        artifact_hash: String,
+    },
+    Revoke {
+        peer: String,
+        artifact_hash: String,
+        #[arg(long)]
+        reason: String,
+    },
     Pull {
         peer: String,
     },
@@ -230,8 +248,309 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
             }
         }
         Commands::Sync { command } => match command {
+            SyncCommand::Publish { peer, lesson } => {
+                let configured = store.sync_peer(peer)?;
+                if configured.status != PeerStatus::Active || configured.trust == PeerTrust::Blocked
+                {
+                    return Err(Error::Intervention("Sync peer is not active".into()));
+                }
+                let identity = service.identity()?;
+                let local = if let Some(node) = store.hardknock_node()? {
+                    node
+                } else {
+                    store.initialize_hardknock_node(&identity, EnvironmentIdentity::default())?
+                };
+                if local.id != identity.node.id {
+                    return Err(Error::Intervention(
+                        "Local sync identity differs from signing identity".into(),
+                    ));
+                }
+                let lesson_record = store.lesson(lesson)?;
+                if lesson_record.status != crate::lesson::LessonStatus::Validated {
+                    return Err(Error::Intervention(
+                        "Only currently validated Lessons may be published".into(),
+                    ));
+                }
+                let revision = u64::from(lesson_record.version);
+                let envelope = if let Some(previous) =
+                    store.published_sync_envelope(&local.id, &lesson.to_string(), revision)?
+                {
+                    previous
+                } else {
+                    // V0.7 export applies the validated-Lesson policy and redacts
+                    // portable evidence before the sync wrapper is signed.
+                    let bundle = service.export_lesson(lesson, Vec::new())?;
+                    let now = chrono::Utc::now();
+                    let mut artifact = SyncArtifact {
+                        id: SyncArtifactId::new(),
+                        artifact_type: SyncArtifactType::Lesson,
+                        artifact_ref: PortableArtifactRef {
+                            artifact_id: lesson.to_string(),
+                            schema_version: SYNC_ARTIFACT_SCHEMA_V1.into(),
+                        },
+                        lineage: ArtifactLineage {
+                            artifact_id: lesson.to_string(),
+                            origin: local.id.clone(),
+                            revision,
+                            parent_revision: revision.checked_sub(1).filter(|value| *value > 0),
+                        },
+                        origin: local.id.clone(),
+                        root_origin: RootEvidenceOrigin {
+                            node: local.id.clone(),
+                            artifact_id: lesson.to_string(),
+                            revision,
+                        },
+                        relay_nodes: Vec::new(),
+                        environment: local.environment,
+                        dependencies: Vec::new(),
+                        content_hash: String::new(),
+                        origin_signature: None,
+                        task_family: None,
+                        origin_maturity: Some(crate::abstraction::KnowledgeMaturity::Validated),
+                        critical: false,
+                        availability: ArtifactAvailability::Full,
+                        reproducibility: RemoteReproducibility::PartiallyReproducible,
+                        payload: Some(serde_json::to_value(bundle)?),
+                        created_at: now,
+                    };
+                    artifact.content_hash = artifact.computed_content_hash()?;
+                    let mut envelope = SyncEnvelope {
+                        id: SyncEnvelopeId::new(),
+                        protocol: SYNC_PROTOCOL_V1.into(),
+                        sender: local.id,
+                        key_revision: local.key_revision,
+                        artifacts: vec![artifact],
+                        created_at: now,
+                        nonce: SyncEnvelopeId::new().to_string(),
+                        signature: String::new(),
+                    };
+                    envelope.sign(&identity)?;
+                    envelope
+                };
+                let transport =
+                    FilesystemSyncTransport::new(config.federation.limits.max_bundle_bytes)?;
+                let receipt = transport.push(&configured, &envelope)?;
+                let session = store.record_sync_publication(&configured.node, &envelope, true)?;
+                json!({"kind":"sync_publish","receipt":receipt,"session":session,"artifact":envelope.artifacts[0].reference()})
+            }
+            SyncCommand::Import { artifact_hash } => {
+                let artifact = store
+                    .sync_artifacts()?
+                    .into_iter()
+                    .find(|candidate| candidate.content_hash == *artifact_hash)
+                    .ok_or_else(|| Error::NotFound(artifact_hash.clone()))?;
+                let record = store.remote_knowledge_record(&artifact.reference())?;
+                if !matches!(
+                    record.local_state,
+                    RemoteArtifactState::Advisory | RemoteArtifactState::LocallySupported
+                ) || artifact.artifact_type != SyncArtifactType::Lesson
+                {
+                    return Err(Error::Intervention(
+                        "Only verified advisory or locally supported remote Lessons can enter the local reproduction flow".into(),
+                    ));
+                }
+                let signed: SignedExperienceBundle =
+                    serde_json::from_value(artifact.payload.ok_or_else(|| {
+                        Error::InvalidInput("Remote Lesson has no portable evidence payload".into())
+                    })?)?;
+                let (_, query) = context(cli)?;
+                let imported = service.import(signed, &query)?;
+                json!({"kind":"sync_import","artifact":record.remote_artifact,"import":imported})
+            }
+            SyncCommand::Relay {
+                peer,
+                artifact_hash,
+            } => {
+                let configured = store.sync_peer(peer)?;
+                if configured.status != PeerStatus::Active || configured.trust == PeerTrust::Blocked
+                {
+                    return Err(Error::Intervention("Sync peer is not active".into()));
+                }
+                let mut artifact = store
+                    .sync_artifacts()?
+                    .into_iter()
+                    .find(|candidate| candidate.content_hash == *artifact_hash)
+                    .ok_or_else(|| Error::NotFound(artifact_hash.clone()))?;
+                let record = store.remote_knowledge_record(&artifact.reference())?;
+                if !matches!(
+                    record.local_state,
+                    RemoteArtifactState::Advisory | RemoteArtifactState::LocallySupported
+                ) || record.origin_revoked
+                    || artifact.origin_signature.is_none()
+                {
+                    return Err(Error::Intervention(
+                        "Only origin-authenticated, non-revoked evidence may be relayed".into(),
+                    ));
+                }
+                let origin = store.sync_peer(&artifact.origin.to_string())?;
+                if origin.status != PeerStatus::Active
+                    || origin.trust != PeerTrust::TrustedForAdvisoryEvidence
+                {
+                    return Err(Error::Intervention(
+                        "Relay requires current trusted origin configuration".into(),
+                    ));
+                }
+                artifact.verify_origin(&origin.public_key)?;
+                let identity = service.identity()?;
+                let local = store.hardknock_node()?.ok_or_else(|| {
+                    Error::InvalidInput(
+                        "Initialize the local node with `hardknock node show`".into(),
+                    )
+                })?;
+                if local.id != identity.node.id || artifact.relay_nodes.contains(&local.id) {
+                    return Err(Error::Intervention(
+                        "Invalid relay identity or repeated relay node".into(),
+                    ));
+                }
+                artifact.id = SyncArtifactId::new();
+                artifact.relay_nodes.push(local.id.clone());
+                let mut envelope = SyncEnvelope {
+                    id: SyncEnvelopeId::new(),
+                    protocol: SYNC_PROTOCOL_V1.into(),
+                    sender: local.id,
+                    key_revision: local.key_revision,
+                    artifacts: vec![artifact],
+                    created_at: chrono::Utc::now(),
+                    nonce: SyncEnvelopeId::new().to_string(),
+                    signature: String::new(),
+                };
+                envelope.sign(&identity)?;
+                let transport =
+                    FilesystemSyncTransport::new(config.federation.limits.max_bundle_bytes)?;
+                let receipt = transport.push(&configured, &envelope)?;
+                let session = store.record_sync_publication(&configured.node, &envelope, false)?;
+                json!({"kind":"sync_relay","receipt":receipt,"session":session,"artifact":envelope.artifacts[0].reference()})
+            }
+            SyncCommand::Revoke {
+                peer,
+                artifact_hash,
+                reason,
+            } => {
+                let configured = store.sync_peer(peer)?;
+                if configured.status != PeerStatus::Active || configured.trust == PeerTrust::Blocked
+                {
+                    return Err(Error::Intervention("Sync peer is not active".into()));
+                }
+                let identity = service.identity()?;
+                let local = store.hardknock_node()?.ok_or_else(|| {
+                    Error::InvalidInput(
+                        "Initialize the local node with `hardknock node show`".into(),
+                    )
+                })?;
+                if local.id != identity.node.id {
+                    return Err(Error::Intervention(
+                        "Local sync identity differs from signing identity".into(),
+                    ));
+                }
+                let published = store
+                    .published_lesson_sync_artifact(&local.id, artifact_hash)?
+                    .ok_or_else(|| {
+                        Error::NotFound(format!("Locally published artifact {artifact_hash}"))
+                    })?;
+                let reason = match reason.as_str() {
+                    "contradicted" => RevocationReason::Contradicted,
+                    "security_issue" => RevocationReason::SecurityIssue,
+                    "corrupt_evidence" => RevocationReason::CorruptEvidence,
+                    "superseded" => RevocationReason::Superseded,
+                    "scope_incorrect" => RevocationReason::ScopeIncorrect,
+                    "origin_compromised" => RevocationReason::OriginCompromised,
+                    custom if !custom.trim().is_empty() => {
+                        RevocationReason::Custom(custom.to_owned())
+                    }
+                    _ => {
+                        return Err(Error::InvalidInput(
+                            "Revocation reason cannot be empty".into(),
+                        ));
+                    }
+                };
+                let envelope = if let Some(previous) =
+                    store.published_revocation_envelope(&local.id, artifact_hash)?
+                {
+                    let previous_revocation: ArtifactRevocation =
+                        serde_json::from_value(previous.artifacts[0].payload.clone().ok_or_else(
+                            || Error::InvalidInput("Published revocation has no payload".into()),
+                        )?)?;
+                    if previous_revocation.reason != reason {
+                        return Err(Error::Intervention(
+                            "Artifact already revoked with a different reason".into(),
+                        ));
+                    }
+                    previous
+                } else {
+                    let now = chrono::Utc::now();
+                    let mut revocation = ArtifactRevocation {
+                        id: ArtifactRevocationId::new(),
+                        artifact: published.reference(),
+                        origin: local.id.clone(),
+                        reason,
+                        evidence: Vec::new(),
+                        created_at: now,
+                        signature: String::new(),
+                    };
+                    revocation.sign(&identity)?;
+                    let revocation_id = revocation.id.to_string();
+                    let mut artifact = SyncArtifact {
+                        id: SyncArtifactId::new(),
+                        artifact_type: SyncArtifactType::Revocation,
+                        artifact_ref: PortableArtifactRef {
+                            artifact_id: revocation_id.clone(),
+                            schema_version: SYNC_ARTIFACT_SCHEMA_V1.into(),
+                        },
+                        lineage: ArtifactLineage {
+                            artifact_id: revocation_id.clone(),
+                            origin: local.id.clone(),
+                            revision: 1,
+                            parent_revision: None,
+                        },
+                        origin: local.id.clone(),
+                        root_origin: RootEvidenceOrigin {
+                            node: local.id.clone(),
+                            artifact_id: revocation_id,
+                            revision: 1,
+                        },
+                        relay_nodes: Vec::new(),
+                        environment: local.environment,
+                        dependencies: vec![published.reference()],
+                        content_hash: String::new(),
+                        origin_signature: None,
+                        task_family: None,
+                        origin_maturity: None,
+                        critical: false,
+                        availability: ArtifactAvailability::Full,
+                        reproducibility: RemoteReproducibility::NotReproducible,
+                        payload: Some(serde_json::to_value(&revocation)?),
+                        created_at: now,
+                    };
+                    artifact.content_hash = artifact.computed_content_hash()?;
+                    let mut envelope = SyncEnvelope {
+                        id: SyncEnvelopeId::new(),
+                        protocol: SYNC_PROTOCOL_V1.into(),
+                        sender: local.id,
+                        key_revision: local.key_revision,
+                        artifacts: vec![artifact],
+                        created_at: now,
+                        nonce: SyncEnvelopeId::new().to_string(),
+                        signature: String::new(),
+                    };
+                    envelope.sign(&identity)?;
+                    envelope
+                };
+                let transport =
+                    FilesystemSyncTransport::new(config.federation.limits.max_bundle_bytes)?;
+                let receipt = transport.push(&configured, &envelope)?;
+                let session = store.record_sync_revocation_publication(
+                    &configured.node,
+                    &envelope,
+                    artifact_hash,
+                )?;
+                json!({"kind":"sync_revoke","receipt":receipt,"session":session,"artifact":envelope.artifacts[0].reference()})
+            }
             SyncCommand::Pull { peer } => {
                 let configured = store.sync_peer(peer)?;
+                if configured.status != PeerStatus::Active || configured.trust == PeerTrust::Blocked
+                {
+                    return Err(Error::Intervention("Sync peer is not active".into()));
+                }
                 let transport =
                     FilesystemSyncTransport::new(config.federation.limits.max_bundle_bytes)?;
                 let cursor = store.sync_cursor(&configured.node, SyncStreamKind::Knowledge)?;
@@ -261,6 +580,10 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
             }
             SyncCommand::Push { peer, envelope } => {
                 let configured = store.sync_peer(peer)?;
+                if configured.status != PeerStatus::Active || configured.trust == PeerTrust::Blocked
+                {
+                    return Err(Error::Intervention("Sync peer is not active".into()));
+                }
                 let metadata = std::fs::symlink_metadata(envelope)?;
                 if !metadata.is_file()
                     || metadata.file_type().is_symlink()
@@ -295,7 +618,9 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
                 signed.verify(&local.identity.public_key)?;
                 let transport =
                     FilesystemSyncTransport::new(config.federation.limits.max_bundle_bytes)?;
-                json!({"kind":"sync_push","receipt":transport.push(&configured,&signed)?})
+                let receipt = transport.push(&configured, &signed)?;
+                let session = store.record_sync_publication(&configured.node, &signed, false)?;
+                json!({"kind":"sync_push","receipt":receipt,"session":session})
             }
             SyncCommand::Status => {
                 json!({"kind":"sync_status","node":store.hardknock_node()?,"peers":store.sync_peers()?,"remote":store.remote_knowledge_records()?,"metrics":store.sync_metrics()?})

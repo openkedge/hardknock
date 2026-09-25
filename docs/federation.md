@@ -6,6 +6,48 @@ The V0.22 distributed-sync checkpoint extends this package exchange with persist
 envelopes, cursors, sessions, and remote advisory records. Its current boundary and
 unfinished integration are documented in [V0.22 progress](v0.22-progress.md).
 
+## Distributed Lesson exchange
+
+With both nodes configured as peers using `peer add --public-key ... --sync-dir ...`,
+the origin can publish a locally validated Lesson to a filesystem endpoint:
+
+```bash
+hardknock sync publish receiver --lesson lesson-<uuid>
+hardknock sync status
+```
+
+On the receiver, pull the origin's endpoint and use the returned artifact hash to
+enter the existing federation import and controlled reproduction flow:
+
+```bash
+hardknock sync pull origin
+hardknock sync import <content-hash>
+hardknock federate search --kind lesson
+hardknock federate test <federated-object-id>
+```
+
+The receiver may run `sync relay downstream <content-hash>` for a verified,
+non-revoked artifact after trusting the origin. Downstream must trust both the
+relay and the origin before the copy is advisory. The origin signature proves
+the origin signed the artifact content; it does not prove the Lesson is correct or make remote knowledge local
+authority. See the [checkpoint](v0.22-progress.md) for remaining integration work.
+
+The origin can withdraw a published Lesson artifact by hash. The signed revocation
+travels through the same pull and relay path:
+
+```bash
+hardknock sync revoke receiver <content-hash> --reason corrupt_evidence
+hardknock sync pull origin
+```
+
+Supported reasons are `contradicted`, `security_issue`, `corrupt_evidence`,
+`superseded`, `scope_incorrect`, and `origin_compromised`; other nonempty text
+is recorded as a custom reason. Repeating the same command reuses the original
+signed revocation. On receipt, unreproduced sync advice is revoked. Imported
+federation objects from a revoked Lesson bundle leave search results and cannot
+be newly reproduced or promoted; any earlier independent local reproduction is
+retained for review.
+
 ## Trust model
 
 Every node has an Ed25519 keypair in `identity/node.key` and `identity/node.pub`; the private key is mode `0600`. The node ID is the BLAKE3 digest of the public key. Compact canonical JSON for the redacted `hardknock.bundle.v1` payload is signed with a domain separator. The payload hash and content-addressed bundle ID are verified independently.

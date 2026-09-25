@@ -498,6 +498,205 @@ fn cli_exports_imports_and_reproduces_a_real_validated_lesson() {
 }
 
 #[test]
+fn cli_publishes_pulls_and_imports_a_validated_lesson() {
+    let origin = Fixture::from_fixture("pnpm-workspace-conflict");
+    let trained = origin.cli(
+        &[
+            "run",
+            "--agent",
+            "test-agent",
+            "--check",
+            "./test.sh",
+            "--retry-with-experience",
+            "learn package manager",
+        ],
+        0,
+    );
+    let lesson = trained["lesson"]["id"].as_str().unwrap();
+    let mut validation = Fixture::from_fixture("pnpm-workspace-transfer");
+    validation.home = origin.home.clone();
+    validation.cli(
+        &[
+            "run",
+            "--agent",
+            "test-agent",
+            "--check",
+            "./test.sh",
+            "validate transfer",
+        ],
+        0,
+    );
+
+    let receiver = Fixture::from_fixture("pnpm-workspace-transfer");
+    origin.cli(&["node", "show"], 0);
+    receiver.cli(&["node", "show"], 0);
+    let exchange = tempfile::tempdir().unwrap();
+    origin.cli(
+        &[
+            "peer",
+            "add",
+            "--name",
+            "receiver",
+            "--public-key",
+            receiver.home.join("identity/node.pub").to_str().unwrap(),
+            "--sync-dir",
+            exchange.path().to_str().unwrap(),
+        ],
+        0,
+    );
+    receiver.cli(
+        &[
+            "peer",
+            "add",
+            "--name",
+            "origin",
+            "--public-key",
+            origin.home.join("identity/node.pub").to_str().unwrap(),
+            "--sync-dir",
+            exchange.path().to_str().unwrap(),
+        ],
+        0,
+    );
+    let published = origin.cli(&["sync", "publish", "receiver", "--lesson", lesson], 0);
+    assert_eq!(published["result"]["session"]["accepted"], 1);
+    let hash = published["result"]["artifact"]["content_hash"]
+        .as_str()
+        .unwrap();
+    let repeated = origin.cli(&["sync", "publish", "receiver", "--lesson", lesson], 0);
+    assert_eq!(repeated["result"]["artifact"]["content_hash"], hash);
+    assert_eq!(
+        origin.cli(&["sync", "status"], 0)["result"]["metrics"]["artifacts_published"],
+        2
+    );
+    let pulled = receiver.cli(&["sync", "pull", "origin"], 0);
+    assert_eq!(pulled["result"]["sessions"][0]["accepted"], 1);
+    let imported = receiver.cli(&["sync", "import", hash], 0);
+    assert_eq!(
+        imported["result"]["import"]["authenticity"],
+        "signature_valid"
+    );
+    let search = receiver.cli(&["federate", "search", "--kind", "lesson"], 0);
+    let id = search["result"]["results"][0]["id"].as_str().unwrap();
+    let reproduced = receiver.cli(&["federate", "test", id], 0);
+    assert_eq!(reproduced["result"]["reproduction"]["result"], "supports");
+
+    let downstream = Fixture::from_fixture("pnpm-workspace-transfer");
+    downstream.cli(&["node", "show"], 0);
+    let relay_exchange = tempfile::tempdir().unwrap();
+    receiver.cli(
+        &[
+            "peer",
+            "add",
+            "--name",
+            "downstream",
+            "--public-key",
+            downstream.home.join("identity/node.pub").to_str().unwrap(),
+            "--sync-dir",
+            relay_exchange.path().to_str().unwrap(),
+        ],
+        0,
+    );
+    downstream.cli(
+        &[
+            "peer",
+            "add",
+            "--name",
+            "relay",
+            "--public-key",
+            receiver.home.join("identity/node.pub").to_str().unwrap(),
+            "--sync-dir",
+            relay_exchange.path().to_str().unwrap(),
+        ],
+        0,
+    );
+    downstream.cli(
+        &[
+            "peer",
+            "add",
+            "--name",
+            "origin",
+            "--public-key",
+            origin.home.join("identity/node.pub").to_str().unwrap(),
+            "--sync-dir",
+            relay_exchange.path().to_str().unwrap(),
+        ],
+        0,
+    );
+    downstream.cli(&["peer", "trust", "origin"], 0);
+    receiver.cli(&["peer", "trust", "origin"], 0);
+    receiver.cli(&["sync", "relay", "downstream", hash], 0);
+    assert_eq!(
+        receiver.cli(&["sync", "status"], 0)["result"]["metrics"]["artifacts_published"],
+        1
+    );
+    let relay_pull = downstream.cli(&["sync", "pull", "relay"], 0);
+    assert_eq!(relay_pull["result"]["sessions"][0]["accepted"], 1);
+
+    let revoked = origin.cli(
+        &[
+            "sync",
+            "revoke",
+            "receiver",
+            hash,
+            "--reason",
+            "corrupt_evidence",
+        ],
+        0,
+    );
+    let revocation_hash = revoked["result"]["artifact"]["content_hash"]
+        .as_str()
+        .unwrap();
+    assert_eq!(
+        origin.cli(
+            &[
+                "sync",
+                "revoke",
+                "receiver",
+                hash,
+                "--reason",
+                "corrupt_evidence"
+            ],
+            0,
+        )["result"]["artifact"]["content_hash"],
+        revocation_hash
+    );
+    receiver.cli(&["sync", "pull", "origin"], 0);
+    let receiver_status = receiver.cli(&["sync", "status"], 0);
+    assert!(
+        receiver_status["result"]["remote"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|record| record["remote_artifact"]["content_hash"] == hash
+                && record["origin_revoked"] == true)
+    );
+    let imported_after_revocation = receiver.cli(&["federate", "search", "--kind", "lesson"], 0);
+    assert!(
+        imported_after_revocation["result"]["results"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let retained = Store::open(&receiver.home)
+        .unwrap()
+        .federated_object(&id.parse().unwrap())
+        .unwrap();
+    assert!(retained.origin_revoked);
+    assert_eq!(retained.state, FederatedExperienceState::LocallySupported);
+    receiver.cli(&["sync", "relay", "downstream", revocation_hash], 0);
+    downstream.cli(&["sync", "pull", "relay"], 0);
+    let downstream_status = downstream.cli(&["sync", "status"], 0);
+    assert!(
+        downstream_status["result"]["remote"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|record| record["remote_artifact"]["content_hash"] == hash
+                && record["origin_revoked"] == true)
+    );
+}
+
+#[test]
 fn thousand_bundles_and_ten_thousand_external_objects_remain_practical() {
     let signing = tempfile::tempdir().unwrap();
     let identity = sender(signing.path());

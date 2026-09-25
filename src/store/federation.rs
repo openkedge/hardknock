@@ -226,7 +226,8 @@ impl Store {
             .federated_objects()?
             .into_iter()
             .filter(|o| {
-                kind.is_none_or(|k| o.object_type == k)
+                !o.origin_revoked
+                    && kind.is_none_or(|k| o.object_type == k)
                     && marker.is_none_or(|m| {
                         o.object
                             .pointer("/context/markers")

@@ -120,6 +120,7 @@ fn artifact(
         environment: node.environment.clone(),
         dependencies: Vec::new(),
         content_hash: String::new(),
+        origin_signature: None,
         task_family: Some("deployment".into()),
         origin_maturity: Some(KnowledgeMaturity::Validated),
         critical,
@@ -322,6 +323,91 @@ fn unverified_relay_origin_is_quarantined() {
             .unwrap()
             .is_empty()
     );
+}
+
+#[test]
+fn origin_signed_relay_is_advisory_only_when_origin_is_trusted() {
+    let cluster = TestNodeCluster::new(&[
+        EnvironmentKind::Ci,
+        EnvironmentKind::Ci,
+        EnvironmentKind::Ci,
+    ]);
+    cluster.trust(2, 1, PeerEndpoint::Filesystem("/tmp/unused".into()));
+    let direct = envelope(
+        &cluster.nodes[0],
+        vec![artifact(
+            &cluster.nodes[0],
+            SyncArtifactType::Lesson,
+            false,
+            ArtifactAvailability::Full,
+        )],
+    );
+    let mut relayed = direct.artifacts[0].clone();
+    assert!(relayed.origin_signature.is_some());
+    relayed
+        .relay_nodes
+        .push(cluster.nodes[1].identity.node.id.clone());
+    let signed_relay = envelope(&cluster.nodes[1], vec![relayed.clone()]);
+    let quarantined = cluster.nodes[2]
+        .store
+        .receive_sync_envelope(&signed_relay, &cluster.nodes[2].environment)
+        .unwrap();
+    assert_eq!(quarantined.quarantined, 1);
+    cluster.trust(2, 0, PeerEndpoint::Filesystem("/tmp/unused".into()));
+    let mut verified_copy = relayed.clone();
+    verified_copy.id = SyncArtifactId::new();
+    let upgraded = cluster.nodes[2]
+        .store
+        .receive_sync_envelope(
+            &envelope(&cluster.nodes[1], vec![verified_copy]),
+            &cluster.nodes[2].environment,
+        )
+        .unwrap();
+    assert_eq!(upgraded.deduplicated, 1);
+    assert_eq!(upgraded.accepted, 1);
+    assert_eq!(
+        cluster.nodes[2]
+            .store
+            .advisory_remote_knowledge()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let receiver = TestNodeCluster::new(&[EnvironmentKind::Ci]);
+    let store = &receiver.nodes[0].store;
+    let relay = &cluster.nodes[1].identity.node;
+    let origin = &cluster.nodes[0].identity.node;
+    for node in [relay, origin] {
+        store
+            .save_sync_peer(&SyncPeer {
+                node: node.id.clone(),
+                name: node.name.clone(),
+                public_key: node.public_identity.public_key.clone(),
+                endpoint: PeerEndpoint::Filesystem("/tmp/unused".into()),
+                trust: PeerTrust::TrustedForAdvisoryEvidence,
+                trust_policy: PeerTrustPolicy::default(),
+                filters: SyncFilter::default(),
+                status: PeerStatus::Active,
+                last_sync: None,
+            })
+            .unwrap();
+    }
+    let accepted = store
+        .receive_sync_envelope(&signed_relay, &receiver.nodes[0].environment)
+        .unwrap();
+    assert_eq!(accepted.accepted, 1);
+    assert_eq!(store.advisory_remote_knowledge().unwrap().len(), 1);
+
+    // A relay can sign a modified envelope, but it cannot sign new origin content.
+    relayed.id = SyncArtifactId::new();
+    relayed.payload = Some(json!({"claim":"forged"}));
+    relayed.content_hash = relayed.computed_content_hash().unwrap();
+    let forged = envelope(&cluster.nodes[1], vec![relayed]);
+    let result = store
+        .receive_sync_envelope(&forged, &receiver.nodes[0].environment)
+        .unwrap();
+    assert_eq!(result.quarantined, 1);
 }
 
 #[test]
@@ -584,6 +670,132 @@ fn revocation_removes_unreproduced_advice_but_preserves_independent_local_suppor
     assert!(preserved.review_required);
 }
 
+fn signed_revocation_artifact(node: &TestHardknockNode, target: &SyncArtifact) -> SyncArtifact {
+    let mut revocation = ArtifactRevocation {
+        id: ArtifactRevocationId::new(),
+        artifact: target.reference(),
+        origin: node.identity.node.id.clone(),
+        reason: RevocationReason::CorruptEvidence,
+        evidence: Vec::new(),
+        created_at: Utc::now(),
+        signature: String::new(),
+    };
+    revocation.sign(&node.identity).unwrap();
+    let id = revocation.id.to_string();
+    let mut control = artifact(
+        node,
+        SyncArtifactType::Revocation,
+        false,
+        ArtifactAvailability::Full,
+    );
+    control.artifact_ref.artifact_id = id.clone();
+    control.lineage.artifact_id = id.clone();
+    control.root_origin.artifact_id = id;
+    control.dependencies = vec![target.reference()];
+    control.payload = Some(serde_json::to_value(revocation).unwrap());
+    control.content_hash = control.computed_content_hash().unwrap();
+    control
+}
+
+#[test]
+fn signed_sync_revocation_withdraws_advice_and_is_not_advisory_knowledge() {
+    let cluster = TestNodeCluster::new(&[EnvironmentKind::Ci, EnvironmentKind::Ci]);
+    let target = artifact(
+        &cluster.nodes[0],
+        SyncArtifactType::Lesson,
+        false,
+        ArtifactAvailability::Full,
+    );
+    let reference = target.reference();
+    receive_one(&cluster, 1, 0, target.clone());
+    let control = signed_revocation_artifact(&cluster.nodes[0], &target);
+    cluster.nodes[1]
+        .store
+        .receive_sync_envelope(
+            &envelope(&cluster.nodes[0], vec![control]),
+            &cluster.nodes[1].environment,
+        )
+        .unwrap();
+    let revoked = cluster.nodes[1]
+        .store
+        .remote_knowledge_record(&reference)
+        .unwrap();
+    assert_eq!(revoked.local_state, RemoteArtifactState::Revoked);
+    assert!(revoked.origin_revoked);
+    assert!(
+        cluster.nodes[1]
+            .store
+            .advisory_remote_knowledge()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn signed_sync_revocation_arriving_first_applies_when_target_arrives() {
+    let cluster = TestNodeCluster::new(&[EnvironmentKind::Ci, EnvironmentKind::Ci]);
+    let target = artifact(
+        &cluster.nodes[0],
+        SyncArtifactType::Lesson,
+        false,
+        ArtifactAvailability::Full,
+    );
+    let reference = target.reference();
+    let control = signed_revocation_artifact(&cluster.nodes[0], &target);
+    cluster.trust(1, 0, PeerEndpoint::Filesystem("/tmp/unused".into()));
+    cluster.nodes[1]
+        .store
+        .receive_sync_envelope(
+            &envelope(&cluster.nodes[0], vec![control]),
+            &cluster.nodes[1].environment,
+        )
+        .unwrap();
+    cluster.nodes[1]
+        .store
+        .receive_sync_envelope(
+            &envelope(&cluster.nodes[0], vec![target]),
+            &cluster.nodes[1].environment,
+        )
+        .unwrap();
+    let revoked = cluster.nodes[1]
+        .store
+        .remote_knowledge_record(&reference)
+        .unwrap();
+    assert_eq!(revoked.local_state, RemoteArtifactState::Revoked);
+    assert!(revoked.origin_revoked);
+}
+
+#[test]
+fn forged_sync_revocation_does_not_withdraw_advice() {
+    let cluster = TestNodeCluster::new(&[EnvironmentKind::Ci, EnvironmentKind::Ci]);
+    let target = artifact(
+        &cluster.nodes[0],
+        SyncArtifactType::Lesson,
+        false,
+        ArtifactAvailability::Full,
+    );
+    let reference = target.reference();
+    receive_one(&cluster, 1, 0, target.clone());
+    let mut forged = signed_revocation_artifact(&cluster.nodes[0], &target);
+    let mut payload = forged.payload.take().unwrap();
+    payload["reason"] = json!("security_issue");
+    forged.payload = Some(payload);
+    forged.content_hash = forged.computed_content_hash().unwrap();
+    let result = cluster.nodes[1].store.receive_sync_envelope(
+        &envelope(&cluster.nodes[0], vec![forged]),
+        &cluster.nodes[1].environment,
+    );
+    assert!(result.is_err());
+    assert_eq!(
+        cluster.nodes[1]
+            .store
+            .remote_knowledge_record(&reference)
+            .unwrap()
+            .local_state,
+        RemoteArtifactState::Advisory
+    );
+}
+
 fn receive_one_fresh(cluster: &TestNodeCluster, artifact: SyncArtifact) -> RemoteKnowledgeRecord {
     cluster.nodes[1]
         .store
@@ -716,6 +928,34 @@ fn filesystem_sync_resumes_after_cursor_without_full_rescan() {
     let resumed = transport.pull(&peer, Some(&cursor)).unwrap();
     assert_eq!(resumed.len(), 1);
     assert_eq!(resumed[0].id, second.id);
+}
+
+#[test]
+fn filesystem_pull_selects_only_the_configured_sender() {
+    let cluster = TestNodeCluster::new(&[EnvironmentKind::Ci, EnvironmentKind::Ci]);
+    let repository = tempfile::tempdir().unwrap();
+    let transport = FilesystemSyncTransport::new(1024 * 1024).unwrap();
+    let peers: Vec<_> = cluster
+        .nodes
+        .iter()
+        .map(|node| SyncPeer {
+            node: node.identity.node.id.clone(),
+            name: node.identity.node.name.clone(),
+            public_key: node.identity.node.public_identity.public_key.clone(),
+            endpoint: PeerEndpoint::Filesystem(repository.path().display().to_string()),
+            trust: PeerTrust::Known,
+            trust_policy: PeerTrustPolicy::default(),
+            filters: SyncFilter::default(),
+            status: PeerStatus::Active,
+            last_sync: None,
+        })
+        .collect();
+    for (node, peer) in cluster.nodes.iter().zip(&peers) {
+        transport.push(peer, &envelope(node, vec![])).unwrap();
+    }
+    let selected = transport.pull(&peers[0], None).unwrap();
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].sender, peers[0].node);
 }
 
 #[test]

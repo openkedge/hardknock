@@ -58,7 +58,7 @@ The [documentation index](docs/README.md) groups the full guides, design details
 
 ## Current status and limits
 
-The local implementation covers the V0.1–V0.21 feature work described in the docs. **V0.22 distributed sync is a partial checkpoint:** signed filesystem exchange and conservative advisory import are present; complete cross-component integration and the flagship end-to-end benchmark remain unfinished. The Cargo package version is still `0.17.0-dev.1`; milestone labels describe implementation work, not published releases. See the [V0.22 checkpoint](docs/v0.22-progress.md) for the exact boundary.
+Hardknock is pre-alpha and built from source. The local feature work through V0.21 is documented; V0.22 distributed sync is in development. The [V0.22 progress record](docs/v0.22-progress.md) lists the verified workflows and remaining release criteria.
 
 Git worktrees are disposable working states, **not security sandboxes**. They share access to host files, credentials, network, and Git state. Use trusted commands and disposable tasks; choose a documented container or tool capability boundary where isolation matters. Supported external Effects require a separate explicit commit, and Hardknock does not intercept arbitrary external calls. Read the [execution boundary](docs/execution-boundary.md) and [effect security guide](docs/effect-security.md) before using those features.
 

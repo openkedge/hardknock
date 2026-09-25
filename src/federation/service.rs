@@ -925,6 +925,7 @@ impl FederationService for LocalFederationService<'_> {
                 },
                 object: value,
                 received_at: Utc::now(),
+                origin_revoked: false,
             };
             let remote = provenance_ref_for(&object.object)?;
             let local_prov = Self::provenance_id(&(local_node.id.clone(), object.id.to_string()))?;
@@ -1001,6 +1002,11 @@ impl FederationService for LocalFederationService<'_> {
         cancel: &Cancellation,
     ) -> Result<FederationReproduction> {
         let mut object = self.store.federated_object(id)?;
+        if object.origin_revoked {
+            return Err(Error::Intervention(
+                "Origin-revoked evidence requires review before new reproduction".into(),
+            ));
+        }
         if object.object_type != "lesson" {
             return Err(Error::InvalidInput(
                 "V0.7 controlled reproduction currently supports external Lessons".into(),
@@ -1211,6 +1217,11 @@ impl FederationService for LocalFederationService<'_> {
         application: &crate::core::ExperienceId,
     ) -> Result<FederatedObject> {
         let mut object = self.store.federated_object(id)?;
+        if object.origin_revoked {
+            return Err(Error::Intervention(
+                "Origin-revoked evidence cannot be promoted".into(),
+            ));
+        }
         if object.state != FederatedExperienceState::LocallySupported {
             return Err(Error::Intervention("Only locally supported external evidence can be promoted after a separate application".into()));
         }

@@ -452,6 +452,8 @@ pub struct FederatedObject {
     pub trust: ExperienceTrust,
     pub object: serde_json::Value,
     pub received_at: DateTime<Utc>,
+    #[serde(default)]
+    pub origin_revoked: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

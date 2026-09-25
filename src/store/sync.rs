@@ -47,6 +47,137 @@ fn state_for(
     }
 }
 
+fn persist_revocation(
+    connection: &rusqlite::Connection,
+    revocation: &ArtifactRevocation,
+) -> Result<Option<RemoteKnowledgeRecord>> {
+    let previous: Option<String> = connection
+        .query_row(
+            "SELECT data FROM artifact_revocations WHERE origin_node=?1 AND artifact_hash=?2",
+            params![
+                revocation.origin.to_string(),
+                revocation.artifact.content_hash
+            ],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(previous) = previous {
+        let stored: ArtifactRevocation = serde_json::from_str(&previous)?;
+        if stored.id != revocation.id || stored.signature != revocation.signature {
+            return Err(Error::InvalidInput(
+                "Conflicting revocation for the same origin artifact".into(),
+            ));
+        }
+    } else {
+        connection.execute(
+            "INSERT INTO artifact_revocations(id,origin_node,artifact_hash,created_at,data) VALUES(?1,?2,?3,?4,?5)",
+            params![
+                revocation.id.to_string(),
+                revocation.origin.to_string(),
+                revocation.artifact.content_hash,
+                revocation.created_at.to_rfc3339(),
+                serde_json::to_string(revocation)?
+            ],
+        )?;
+    }
+
+    let target: Option<String> = connection
+        .query_row(
+            "SELECT data FROM remote_knowledge_records WHERE json_extract(data,'$.remote_artifact.content_hash')=?1",
+            [&revocation.artifact.content_hash],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(target) = target else {
+        event(
+            connection,
+            "artifact_revocation_pending",
+            Some(&revocation.id.to_string()),
+            serde_json::json!({"target":revocation.artifact}),
+        )?;
+        return Ok(None);
+    };
+    let mut record: RemoteKnowledgeRecord = serde_json::from_str(&target)?;
+    if record.remote_artifact != revocation.artifact {
+        return Err(Error::InvalidInput(
+            "Revocation target does not match stored artifact identity".into(),
+        ));
+    }
+    let has_local_support = !record.local_evidence.is_empty();
+    record.local_state = if has_local_support {
+        RemoteArtifactState::LocallySupported
+    } else {
+        RemoteArtifactState::Revoked
+    };
+    record.review_required = has_local_support;
+    record.origin_revoked = true;
+    connection.execute(
+        "UPDATE remote_knowledge_records SET local_state=?2,updated_at=?3,data=?4 WHERE json_extract(data,'$.remote_artifact.content_hash')=?1",
+        params![
+            revocation.artifact.content_hash,
+            serde_json::to_value(record.local_state)?.as_str(),
+            Utc::now().to_rfc3339(),
+            serde_json::to_string(&record)?
+        ],
+    )?;
+    event(
+        connection,
+        "artifact_revoked",
+        Some(&revocation.id.to_string()),
+        serde_json::json!({"origin":revocation.origin,"local_support_preserved":has_local_support}),
+    )?;
+    let target_artifact: String = connection.query_row(
+        "SELECT data FROM sync_artifacts WHERE content_hash=?1 AND origin_node=?2",
+        params![
+            revocation.artifact.content_hash,
+            revocation.origin.to_string()
+        ],
+        |row| row.get(0),
+    )?;
+    let target_artifact: SyncArtifact = serde_json::from_str(&target_artifact)?;
+    if target_artifact.artifact_type == SyncArtifactType::Lesson
+        && let Some(payload) = target_artifact.payload
+        && let Ok(signed) = serde_json::from_value::<SignedExperienceBundle>(payload)
+    {
+        let bundle_id = signed.manifest.bundle_id.to_string();
+        let mut statement = connection.prepare(
+            "SELECT data FROM federated_objects WHERE origin_bundle=?1 AND origin_node=?2",
+        )?;
+        let objects = statement
+            .query_map(params![bundle_id, revocation.origin.to_string()], |row| {
+                row.get::<_, String>(0)
+            })?;
+        let objects = objects.collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(statement);
+        for data in objects {
+            let mut object: FederatedObject = serde_json::from_str(&data)?;
+            object.origin_revoked = true;
+            if !matches!(
+                object.state,
+                FederatedExperienceState::LocallySupported
+                    | FederatedExperienceState::LocallyValidated
+            ) {
+                object.state = FederatedExperienceState::Retired;
+            }
+            connection.execute(
+                "UPDATE federated_objects SET state=?2,data=?3 WHERE id=?1",
+                params![
+                    object.id.to_string(),
+                    serde_json::to_value(object.state)?.as_str(),
+                    serde_json::to_string(&object)?,
+                ],
+            )?;
+            event(
+                connection,
+                "federated_object_origin_revoked",
+                Some(&object.id.to_string()),
+                serde_json::json!({"revocation":revocation.id,"local_evidence_preserved":matches!(object.state,FederatedExperienceState::LocallySupported | FederatedExperienceState::LocallyValidated)}),
+            )?;
+        }
+    }
+    Ok(Some(record))
+}
+
 impl Store {
     pub fn initialize_hardknock_node(
         &self,
@@ -273,6 +404,9 @@ impl Store {
             status: SyncSessionStatus::Running,
             reasons: Vec::new(),
         };
+        // Relay signatures authenticate delivery. Only an independent signature
+        // from a configured, trusted origin authenticates the artifact itself.
+        let known_origins = self.sync_peers()?;
         let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
         tx.execute(
             "INSERT INTO sync_envelopes(id,sender,nonce,created_at,received_at,data) VALUES(?1,?2,?3,?4,?5,?6)",
@@ -326,6 +460,46 @@ impl Store {
                 continue;
             }
             artifact.verify_hash()?;
+            let origin_authenticated = if artifact.origin == envelope.sender {
+                if artifact.origin_signature.is_some() {
+                    artifact.verify_origin(&peer.public_key)?;
+                }
+                true
+            } else {
+                known_origins.iter().any(|origin| {
+                    origin.node == artifact.origin
+                        && origin.status == PeerStatus::Active
+                        && origin.trust == PeerTrust::TrustedForAdvisoryEvidence
+                        && artifact.verify_origin(&origin.public_key).is_ok()
+                })
+            };
+            let revocation =
+                if artifact.artifact_type == SyncArtifactType::Revocation && origin_authenticated {
+                    let payload = artifact.payload.clone().ok_or_else(|| {
+                        Error::InvalidInput("Signed revocation has no payload".into())
+                    })?;
+                    let revocation: ArtifactRevocation = serde_json::from_value(payload)?;
+                    if revocation.origin != artifact.origin
+                        || artifact.artifact_ref.artifact_id != revocation.id.to_string()
+                    {
+                        return Err(Error::InvalidInput(
+                            "Revocation payload does not match artifact origin or identity".into(),
+                        ));
+                    }
+                    let origin_key = if artifact.origin == envelope.sender {
+                        &peer.public_key
+                    } else {
+                        &known_origins
+                            .iter()
+                            .find(|origin| origin.node == artifact.origin)
+                            .ok_or_else(|| Error::InvalidInput("Unknown revocation origin".into()))?
+                            .public_key
+                    };
+                    revocation.verify(origin_key)?;
+                    Some(revocation)
+                } else {
+                    None
+                };
             let existing: Option<String> = tx
                 .query_row(
                     "SELECT id FROM sync_artifacts WHERE root_node=?1 AND root_artifact=?2 AND root_revision=?3 AND content_hash=?4",
@@ -340,6 +514,44 @@ impl Store {
                 .optional()?;
             let stored_id = if let Some(id) = existing {
                 session.deduplicated += 1;
+                if origin_authenticated {
+                    let record_data: Option<String> = tx
+                        .query_row(
+                            "SELECT data FROM remote_knowledge_records WHERE artifact_id=?1",
+                            [&id],
+                            |row| row.get(0),
+                        )
+                        .optional()?;
+                    if let Some(data) = record_data {
+                        let mut record: RemoteKnowledgeRecord = serde_json::from_str(&data)?;
+                        if record.local_state == RemoteArtifactState::Quarantined
+                            && !record.origin_revoked
+                        {
+                            let next = state_for(artifact, record.compatibility.status, &peer);
+                            if next != RemoteArtifactState::Quarantined {
+                                record.local_state = next;
+                                record.trust = peer.trust;
+                                record.review_required = peer.trust_policy.require_manual_review;
+                                tx.execute(
+                                    "UPDATE remote_knowledge_records SET local_state=?2,updated_at=?3,data=?4 WHERE artifact_id=?1",
+                                    params![
+                                        id,
+                                        serde_json::to_value(next)?.as_str(),
+                                        now.to_rfc3339(),
+                                        serde_json::to_string(&record)?
+                                    ],
+                                )?;
+                                session.accepted += 1;
+                                event(
+                                    &tx,
+                                    "remote_artifact_verified",
+                                    Some(&id),
+                                    serde_json::json!({"state":next,"deduplicated":true}),
+                                )?;
+                            }
+                        }
+                    }
+                }
                 id
             } else {
                 tx.execute(
@@ -360,9 +572,7 @@ impl Store {
                 )?;
                 let compatibility =
                     assess_environment_compatibility(&artifact.environment, local_environment);
-                // A relay's signature authenticates the relay, not the asserted origin.
-                // Until an origin-authenticated path is present, retain it only in quarantine.
-                let local_state = if artifact.origin != envelope.sender {
+                let local_state = if !origin_authenticated {
                     RemoteArtifactState::Quarantined
                 } else {
                     state_for(artifact, compatibility.status, &peer)
@@ -424,6 +634,21 @@ impl Store {
                     serde_json::to_string(&artifact.relay_nodes)?
                 ],
             )?;
+            if let Some(revocation) = &revocation {
+                persist_revocation(&tx, revocation)?;
+            } else if artifact.artifact_type != SyncArtifactType::Revocation {
+                let pending: Option<String> = tx
+                    .query_row(
+                        "SELECT data FROM artifact_revocations WHERE origin_node=?1 AND artifact_hash=?2",
+                        params![artifact.origin.to_string(), artifact.content_hash],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+                if let Some(pending) = pending {
+                    let pending: ArtifactRevocation = serde_json::from_str(&pending)?;
+                    persist_revocation(&tx, &pending)?;
+                }
+            }
         }
         session.status = SyncSessionStatus::Completed;
         session.completed_at = Some(Utc::now());
@@ -465,6 +690,146 @@ impl Store {
         Ok(())
     }
 
+    pub fn record_sync_publication(
+        &self,
+        peer: &NodeId,
+        envelope: &SyncEnvelope,
+        managed_lesson: bool,
+    ) -> Result<SyncSession> {
+        let now = Utc::now();
+        self.connection.execute(
+            "INSERT OR IGNORE INTO sync_envelopes(id,sender,nonce,created_at,received_at,data) VALUES(?1,?2,?3,?4,?5,?6)",
+            params![
+                envelope.id.to_string(),
+                envelope.sender.to_string(),
+                envelope.nonce,
+                envelope.created_at.to_rfc3339(),
+                now.to_rfc3339(),
+                serde_json::to_string(envelope)?
+            ],
+        )?;
+        let session = SyncSession {
+            id: SyncSessionId::new(),
+            peer: peer.clone(),
+            direction: SyncDirection::Push,
+            started_at: now,
+            completed_at: Some(now),
+            received: 0,
+            accepted: envelope.artifacts.len(),
+            quarantined: 0,
+            rejected: 0,
+            deduplicated: 0,
+            status: SyncSessionStatus::Completed,
+            reasons: Vec::new(),
+        };
+        self.save_sync_session(&session)?;
+        event(
+            &self.connection,
+            if managed_lesson {
+                "sync_lesson_published"
+            } else {
+                "sync_published"
+            },
+            Some(&session.id.to_string()),
+            serde_json::json!({"peer":peer,"envelope":envelope.id,"artifacts":envelope.artifacts.len()}),
+        )?;
+        Ok(session)
+    }
+
+    pub fn published_lesson_sync_artifact(
+        &self,
+        sender: &NodeId,
+        content_hash: &str,
+    ) -> Result<Option<SyncArtifact>> {
+        let data: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT data FROM sync_envelopes
+             WHERE sender=?1 AND json_array_length(data,'$.artifacts')=1
+               AND json_extract(data,'$.artifacts[0].content_hash')=?2
+               AND EXISTS (SELECT 1 FROM sync_events
+                           WHERE event='sync_lesson_published'
+                             AND json_extract(sync_events.data,'$.envelope')=sync_envelopes.id)
+             ORDER BY created_at,id LIMIT 1",
+                params![sender.to_string(), content_hash],
+                |row| row.get(0),
+            )
+            .optional()?;
+        data.map(|value| {
+            let envelope: SyncEnvelope = serde_json::from_str(&value)?;
+            Ok(envelope
+                .artifacts
+                .into_iter()
+                .next()
+                .expect("single artifact"))
+        })
+        .transpose()
+    }
+
+    pub fn published_revocation_envelope(
+        &self,
+        sender: &NodeId,
+        target_hash: &str,
+    ) -> Result<Option<SyncEnvelope>> {
+        let data: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT data FROM sync_envelopes
+             WHERE sender=?1 AND json_extract(data,'$.artifacts[0].artifact_type')='revocation'
+               AND EXISTS (SELECT 1 FROM sync_events
+                           WHERE event='sync_revocation_published'
+                             AND json_extract(sync_events.data,'$.envelope')=sync_envelopes.id
+                             AND json_extract(sync_events.data,'$.target_hash')=?2)
+             ORDER BY created_at,id LIMIT 1",
+                params![sender.to_string(), target_hash],
+                |row| row.get(0),
+            )
+            .optional()?;
+        data.map(|value| Ok(serde_json::from_str(&value)?))
+            .transpose()
+    }
+
+    pub fn record_sync_revocation_publication(
+        &self,
+        peer: &NodeId,
+        envelope: &SyncEnvelope,
+        target_hash: &str,
+    ) -> Result<SyncSession> {
+        let session = self.record_sync_publication(peer, envelope, false)?;
+        event(
+            &self.connection,
+            "sync_revocation_published",
+            Some(&session.id.to_string()),
+            serde_json::json!({"peer":peer,"envelope":envelope.id,"target_hash":target_hash}),
+        )?;
+        Ok(session)
+    }
+
+    pub fn published_sync_envelope(
+        &self,
+        sender: &NodeId,
+        artifact_id: &str,
+        revision: u64,
+    ) -> Result<Option<SyncEnvelope>> {
+        let data: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT data FROM sync_envelopes
+                 WHERE sender=?1 AND json_array_length(data,'$.artifacts')=1
+                   AND json_extract(data,'$.artifacts[0].artifact_ref.artifact_id')=?2
+                   AND json_extract(data,'$.artifacts[0].lineage.revision')=?3
+                   AND EXISTS (SELECT 1 FROM sync_events
+                               WHERE event='sync_lesson_published'
+                                 AND json_extract(sync_events.data,'$.envelope')=sync_envelopes.id)
+                 ORDER BY created_at,id LIMIT 1",
+                params![sender.to_string(), artifact_id, revision as i64],
+                |row| row.get(0),
+            )
+            .optional()?;
+        data.map(|value| Ok(serde_json::from_str(&value)?))
+            .transpose()
+    }
+
     pub fn sync_sessions(&self) -> Result<Vec<SyncSession>> {
         self.list("SELECT data FROM sync_sessions ORDER BY started_at DESC,id")
     }
@@ -489,12 +854,14 @@ impl Store {
             .remote_knowledge_records()?
             .into_iter()
             .filter(|record| {
-                matches!(
-                    record.local_state,
-                    RemoteArtifactState::Advisory
-                        | RemoteArtifactState::ReproductionRequired
-                        | RemoteArtifactState::LocallySupported
-                ) && !record.origin_revoked
+                record.artifact_type != SyncArtifactType::Revocation
+                    && matches!(
+                        record.local_state,
+                        RemoteArtifactState::Advisory
+                            | RemoteArtifactState::ReproductionRequired
+                            | RemoteArtifactState::LocallySupported
+                    )
+                    && !record.origin_revoked
             })
             .collect())
     }
@@ -658,41 +1025,9 @@ impl Store {
     ) -> Result<RemoteKnowledgeRecord> {
         let peer = self.sync_peer(&revocation.origin.to_string())?;
         revocation.verify(&peer.public_key)?;
-        let mut record = self.remote_knowledge_record(&revocation.artifact)?;
-        let has_local_support = !record.local_evidence.is_empty();
-        record.local_state = if has_local_support {
-            RemoteArtifactState::LocallySupported
-        } else {
-            RemoteArtifactState::Revoked
-        };
-        record.review_required = has_local_support;
-        record.origin_revoked = true;
         let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
-        tx.execute(
-            "INSERT INTO artifact_revocations(id,origin_node,artifact_hash,created_at,data) VALUES(?1,?2,?3,?4,?5)",
-            params![
-                revocation.id.to_string(),
-                revocation.origin.to_string(),
-                revocation.artifact.content_hash,
-                revocation.created_at.to_rfc3339(),
-                serde_json::to_string(revocation)?
-            ],
-        )?;
-        tx.execute(
-            "UPDATE remote_knowledge_records SET local_state=?2,updated_at=?3,data=?4 WHERE json_extract(data,'$.remote_artifact.content_hash')=?1",
-            params![
-                revocation.artifact.content_hash,
-                serde_json::to_value(record.local_state)?.as_str(),
-                Utc::now().to_rfc3339(),
-                serde_json::to_string(&record)?
-            ],
-        )?;
-        event(
-            &tx,
-            "artifact_revoked",
-            Some(&revocation.id.to_string()),
-            serde_json::json!({"origin":revocation.origin,"local_support_preserved":has_local_support}),
-        )?;
+        let record = persist_revocation(&tx, revocation)?
+            .ok_or_else(|| Error::NotFound(revocation.artifact.content_hash.clone()))?;
         tx.commit()?;
         Ok(record)
     }
@@ -762,11 +1097,15 @@ impl Store {
         let events = self.sync_events()?;
         let mut metrics = SyncMetrics::default();
         for session in sessions {
-            metrics.artifacts_received += session.received as u64;
-            metrics.artifacts_verified += session.accepted as u64;
-            metrics.artifacts_rejected += session.rejected as u64;
-            metrics.artifacts_quarantined += session.quarantined as u64;
-            metrics.artifacts_deduplicated += session.deduplicated as u64;
+            if session.direction == SyncDirection::Push {
+                metrics.artifacts_published += session.accepted as u64;
+            } else {
+                metrics.artifacts_received += session.received as u64;
+                metrics.artifacts_verified += session.accepted as u64;
+                metrics.artifacts_rejected += session.rejected as u64;
+                metrics.artifacts_quarantined += session.quarantined as u64;
+                metrics.artifacts_deduplicated += session.deduplicated as u64;
+            }
         }
         metrics.remote_artifacts_promoted = records
             .iter()

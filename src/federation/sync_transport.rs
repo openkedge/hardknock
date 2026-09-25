@@ -131,7 +131,13 @@ impl SyncTransport for FilesystemSyncTransport {
                         "Sync envelope is not a bounded regular file".into(),
                     ));
                 }
-                Ok(serde_json::from_slice(&fs::read(path)?)?)
+                let envelope: SyncEnvelope = serde_json::from_slice(&fs::read(path)?)?;
+                Ok((envelope.sender == peer.node).then_some(envelope))
+            })
+            .filter_map(|result| match result {
+                Ok(Some(envelope)) => Some(Ok(envelope)),
+                Ok(None) => None,
+                Err(error) => Some(Err(error)),
             })
             .collect()
     }
