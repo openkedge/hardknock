@@ -2,7 +2,7 @@
 
 ## From Safe Failure to Durable, Executable Operational Knowledge
 
-_Last updated: September 7, 2026 · Current local implementation: V0.17 · Next planned product increment: V0.18_
+_Last updated: September 25, 2026 · Current local implementation: V0.22 checkpoint · Active increment: production readiness Milestone 2_
 
 ## Status and reading guide
 
@@ -19,17 +19,19 @@ Hardknock. Status language is deliberately conservative:
 
 | Horizon | Status | Focus |
 | --- | --- | --- |
-| V0.1–V0.17 | Implemented locally; architecture refinement continues | Experience capture through safe abstraction and held-out transfer |
-| V0.18 | Planned next | Hierarchical operational knowledge and precedence semantics |
-| V0.19–V0.20 | Planned | Composition and long-horizon experience |
-| V0.21+ | Directional | Organizational, continuous, and production Hardknock |
+| V0.1–V0.21 | Implemented locally; architecture refinement continues | Experience capture through bounded multi-agent governance |
+| V0.22 | Checkpoint implementation; release criteria incomplete | Signed distributed evidence synchronization with local trust and authority |
+| Production readiness | Active | Reproducible releases, runtime/storage operations, installation, compatibility, and live acceptance |
+| V0.23+ | Frozen until 1.0 gates pass | Governed continuous learning and later production extensions |
 | Runtime/provider acceptance | Ongoing in parallel | Containers, PostgreSQL, installed agents, and provider measurements |
 
-The current shipped boundary is documented in the
-[V0.17 implementation report](implementation-v017.md), with operating semantics
-in the [experience abstraction guide](experience-abstraction.md). Local implementation is
-not evidence of universal production safety, and aspirational schemas below
-must not be read as already shipped APIs.
+The current checkpoint boundary is documented in
+[V0.22 progress](v0.22-progress.md). The
+[production-readiness plan](production-readiness-plan.md) and
+[implementation progress](production-progress.md) define the active path to a
+supported release. Local implementation is not evidence of universal
+production safety, and aspirational schemas below must not be read as already
+shipped APIs.
 
 
 

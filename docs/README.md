@@ -10,6 +10,8 @@ Start with the [root README](../README.md) for a runnable example and current st
 - [Generic agent contract](agent-integration.md) and [native integrations](integrations.md): connect an agent to the runner or Bridge.
 - [Roadmap](roadmap.md): milestone goals and longer-term direction.
 - [Production readiness plan](production-readiness-plan.md): current verdict, supported 1.0 boundary, installation design, and release gates.
+- [Production implementation progress](production-progress.md): milestone status, commits, validation, and remaining gates.
+- [Support and compatibility policy](support-policy.md): maturity, release, upgrade, and agent compatibility commitments.
 
 ## Learn, retrieve, and improve
 

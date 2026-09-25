@@ -2,6 +2,10 @@
 
 _Audit date: September 25, 2026_
 
+The verdict and evidence table below are the Milestone 0 baseline. Completed
+work and current validation are recorded in
+[production implementation progress](production-progress.md).
+
 ## Overall verdict
 
 Hardknock is a strong research-grade implementation and a credible controlled
@@ -446,4 +450,5 @@ adapters, or stronger-than-container isolation would be separate programs.
 - [Bridge protocol](bridge-protocol.md)
 - [Agent integrations](integrations.md)
 - [V0.22 progress](v0.22-progress.md)
+- [Production implementation progress](production-progress.md)
 - [Roadmap](roadmap.md)

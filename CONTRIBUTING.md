@@ -1,16 +1,23 @@
 # Contributing
 
-Hardknock is a pre-alpha Rust CLI for evidence-backed agent experience. Live cross-agent acceptance is still pending. Start with the [documentation index](docs/README.md), [architecture](docs/architecture.md), and [roadmap](docs/roadmap.md) before extending the interfaces.
+Hardknock is a pre-release Rust CLI for evidence-backed agent experience. The
+V0.22 checkpoint is being hardened for a scoped 1.0 release; live cross-agent
+acceptance is still pending. Start with the
+[documentation index](docs/README.md), [architecture](docs/architecture.md),
+and [production progress](docs/production-progress.md) before extending the
+interfaces.
 
 ## Development
 
-Use Linux or macOS, Git, a C compiler for bundled SQLite, and stable Rust with rustfmt and clippy. `rust-toolchain.toml` selects the toolchain components; `Cargo.lock` pins dependencies.
+Use Linux or macOS, Git, a C compiler for bundled SQLite, and Rust 1.88 or
+newer. `rust-toolchain.toml` pins the release toolchain and its rustfmt and
+Clippy components; `Cargo.lock` pins dependencies.
 
 ```bash
 cargo build --locked
 cargo fmt --all --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
-cargo test --locked --all-targets
+cargo test --locked --all-targets --all-features -- --test-threads=1
 ```
 
 Tests create temporary Git repositories and private data directories. They exercise real processes, SQLite, worktrees, process failure, deadlines, and signal cleanup. Native adapter tests also require Python 3.11+ and Node.js 20+. They do not require an LLM, paid API, external database, npm, pnpm, or an installed external agent. Dependency downloads are needed for the first Cargo build; the tests themselves are offline.

@@ -18,7 +18,9 @@ Task → disposable Reality → execution + checks → immutable Experience
 
 ## Try it locally
 
-Hardknock is a pre-alpha Rust CLI. Build it on Linux or macOS with Rust, Git, and a C compiler. This deterministic example needs no model, package manager, or network service after dependencies are available:
+Hardknock is a pre-release Rust CLI. Build it on Linux or macOS with Rust 1.88
+or newer, Git, and a C compiler. This deterministic example needs no model,
+package manager, or network service after dependencies are available:
 
 ```bash
 cargo build --locked
@@ -58,9 +60,13 @@ The [documentation index](docs/README.md) groups the full guides, design details
 
 ## Current status and limits
 
-Hardknock is pre-alpha and built from source. The local feature work through V0.21 is documented; V0.22 distributed sync is in development. The [V0.22 progress record](docs/v0.22-progress.md) lists the verified workflows and remaining release criteria.
+Hardknock is pre-release and currently built from source. The local V0.22
+checkpoint is implemented, while its general-production release criteria
+remain incomplete. The [V0.22 progress record](docs/v0.22-progress.md) lists
+the checkpoint boundary.
 
 The [production-readiness and installation plan](docs/production-readiness-plan.md) gives the current overall verdict and the gated path to a supported 1.0 release for general local and CI agent use.
+Implementation status and validation evidence are tracked in the [production progress record](docs/production-progress.md).
 
 Git worktrees are disposable working states, **not security sandboxes**. They share access to host files, credentials, network, and Git state. Use trusted commands and disposable tasks; choose a documented container or tool capability boundary where isolation matters. Supported external Effects require a separate explicit commit, and Hardknock does not intercept arbitrary external calls. Read the [execution boundary](docs/execution-boundary.md) and [effect security guide](docs/effect-security.md) before using those features.
 
