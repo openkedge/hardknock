@@ -1148,3 +1148,41 @@ fn secret_bearing_payload_is_refused_before_signing() {
     };
     assert!(unsigned.sign(&cluster.nodes[0].identity).is_err());
 }
+
+#[tokio::test]
+async fn distributed_sync_benchmark_reports_conservative_comparison() {
+    let home = tempfile::tempdir().unwrap();
+    let store = Store::open(home.path()).unwrap();
+    let result = hardknock::federation::benchmark::run_distributed_sync(
+        &store,
+        &hardknock::cancellation::Cancellation::default(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result.status, "completed");
+
+    // A conservative sync node takes zero unsafe remote actions; a naive broadcast
+    // that ignores revocation and origin authentication takes one for each.
+    assert_eq!(result.metrics["unsafe_remote_actions"]["isolated"], 0);
+    assert_eq!(
+        result.metrics["unsafe_remote_actions"]["naive_broadcast"],
+        2
+    );
+    assert_eq!(result.metrics["unsafe_remote_actions"]["hardknock_sync"], 0);
+
+    // The isolated arm never receives the Lesson; only the sync arm gains advisory
+    // transfer without acting unsafely.
+    assert_eq!(result.metrics["advisory_transfer"]["isolated"], false);
+    assert_eq!(result.metrics["advisory_transfer"]["hardknock_sync"], true);
+
+    // The V0.22 receive boundaries each fire.
+    assert_eq!(result.scenarios["direct_import"]["state"], "advisory");
+    assert_eq!(result.scenarios["replay"]["suppressed"], true);
+    assert_eq!(result.scenarios["untrusted_relay"]["quarantined"], true);
+    assert_eq!(
+        result.scenarios["revocation"]["actionable_after_revocation"],
+        false
+    );
+    assert_eq!(result.metrics["blind_critical_promotions"], 0);
+}

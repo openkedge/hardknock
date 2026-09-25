@@ -129,6 +129,10 @@ pub enum BenchmarkCommand {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    DistributedSync {
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     Longitudinal {
         #[arg(long)]
         output: Option<PathBuf>,
@@ -461,6 +465,16 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
                 export(path, &serde_json::to_value(&result)?)?;
             }
             json!({"kind":"federation_benchmark","benchmark":result})
+        }
+        Commands::Benchmark {
+            command: BenchmarkCommand::DistributedSync { output },
+        } => {
+            super::warning(cli.json)?;
+            let result = crate::federation::benchmark::run_distributed_sync(store, cancel).await?;
+            if let Some(path) = output {
+                export(path, &serde_json::to_value(&result)?)?;
+            }
+            json!({"kind":"distributed_sync_benchmark","benchmark":result})
         }
         Commands::Benchmark {
             command: BenchmarkCommand::TransactionalEffects { output },

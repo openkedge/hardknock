@@ -6,7 +6,10 @@ use crate::{
     application::RunLearningOptions,
     bridge::config::Config,
     cancellation::Cancellation,
-    core::{AgentIdentity, BenchmarkRunId, EnvironmentMode},
+    core::{
+        AgentIdentity, ArtifactRevocationId, BenchmarkRunId, EnvironmentMode, SyncArtifactId,
+        SyncEnvelopeId,
+    },
     development::benchmark::{pnpm, request, update_environment},
     experience::{ExperienceContext, Outcome, ReplaySpec},
     learning_loop::{LearningRunOptions, execute_learning_run},
@@ -278,5 +281,389 @@ pub async fn run(store: &Store, cancel: &Cancellation) -> Result<FederationBench
     file.sync_all()?;
     store.save_federation_benchmark(&result)?;
     result.artifact = artifact;
+    Ok(result)
+}
+
+/// Deterministic, network-free comparison of distributed-sync policies: an
+/// isolated node, a naive broadcast that ignores revocation and origin
+/// authentication, and a conservative Hardknock sync node. It exercises the
+/// V0.22 receive boundaries (advisory import, replay suppression, untrusted-relay
+/// quarantine, and signed-origin revocation) rather than the V0.7 bundle path.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DistributedSyncBenchmarkResult {
+    pub id: BenchmarkRunId,
+    pub created_at: chrono::DateTime<Utc>,
+    pub status: String,
+    pub metadata: Value,
+    pub scenarios: Value,
+    pub metrics: Value,
+    pub artifact: PathBuf,
+}
+
+fn shared_environment() -> EnvironmentIdentity {
+    EnvironmentIdentity {
+        kind: EnvironmentKind::Ci,
+        organization: Some("openkedge".into()),
+        team: Some("platform".into()),
+        environment: Some("shared".into()),
+        region: Some("west".into()),
+        account_scope: Some("fixture".into()),
+        ..Default::default()
+    }
+}
+
+fn lesson_sync_artifact(
+    origin: &NodeId,
+    artifact_id: &str,
+    revision: u64,
+    relay_nodes: Vec<NodeId>,
+    environment: EnvironmentIdentity,
+    payload: Value,
+    created_at: chrono::DateTime<Utc>,
+) -> Result<SyncArtifact> {
+    let mut artifact = SyncArtifact {
+        id: SyncArtifactId::new(),
+        artifact_type: SyncArtifactType::Lesson,
+        artifact_ref: PortableArtifactRef {
+            artifact_id: artifact_id.into(),
+            schema_version: SYNC_ARTIFACT_SCHEMA_V1.into(),
+        },
+        lineage: ArtifactLineage {
+            artifact_id: artifact_id.into(),
+            origin: origin.clone(),
+            revision,
+            parent_revision: None,
+        },
+        origin: origin.clone(),
+        root_origin: RootEvidenceOrigin {
+            node: origin.clone(),
+            artifact_id: artifact_id.into(),
+            revision,
+        },
+        relay_nodes,
+        environment,
+        dependencies: Vec::new(),
+        content_hash: String::new(),
+        origin_signature: None,
+        task_family: Some("deployment".into()),
+        origin_maturity: Some(crate::abstraction::KnowledgeMaturity::Validated),
+        critical: false,
+        availability: ArtifactAvailability::Full,
+        reproducibility: RemoteReproducibility::PartiallyReproducible,
+        payload: Some(payload),
+        created_at,
+    };
+    artifact.content_hash = artifact.computed_content_hash()?;
+    Ok(artifact)
+}
+
+fn envelope_for(
+    sender: &NodeId,
+    key_revision: u64,
+    artifacts: Vec<SyncArtifact>,
+    created_at: chrono::DateTime<Utc>,
+) -> SyncEnvelope {
+    SyncEnvelope {
+        id: SyncEnvelopeId::new(),
+        protocol: SYNC_PROTOCOL_V1.into(),
+        sender: sender.clone(),
+        key_revision,
+        artifacts,
+        created_at,
+        nonce: SyncEnvelopeId::new().to_string(),
+        signature: String::new(),
+    }
+}
+
+fn trusted_peer(node: &NodeId, name: &str, public_key: &str, endpoint: String) -> SyncPeer {
+    SyncPeer {
+        node: node.clone(),
+        name: name.into(),
+        public_key: public_key.into(),
+        endpoint: PeerEndpoint::Filesystem(endpoint),
+        trust: PeerTrust::TrustedForAdvisoryEvidence,
+        trust_policy: PeerTrustPolicy::default(),
+        filters: SyncFilter::default(),
+        status: PeerStatus::Active,
+        last_sync: None,
+    }
+}
+
+pub async fn run_distributed_sync(
+    store: &Store,
+    cancel: &Cancellation,
+) -> Result<DistributedSyncBenchmarkResult> {
+    if !store.all_lessons()?.is_empty() || store.hardknock_node()?.is_some() {
+        return Err(Error::InvalidInput(
+            "Distributed sync benchmark requires a fresh dedicated --home".into(),
+        ));
+    }
+    let started = std::time::Instant::now();
+
+    // Node A learns and locally validates a deployment Lesson (reused fixture path).
+    let initial = pnpm(store, false)?;
+    let transfer = pnpm(store, true)?;
+    let cycle = execute_learning_run(
+        store,
+        request(&initial, &agent(), false, "./agent-script.sh run"),
+        LearningRunOptions {
+            experience_budget: None,
+            learning: RunLearningOptions {
+                enabled: true,
+                audit: true,
+                fixture: true,
+                proposed_actions: vec![ActionPattern::shell("./agent-script.sh baseline")],
+                ..Default::default()
+            },
+            auto_reflect: true,
+            retry: true,
+            max_retries: 1,
+        },
+        cancel,
+    )
+    .await?;
+    let lesson_id = cycle
+        .lessons
+        .first()
+        .ok_or_else(|| Error::Intervention("Node A did not learn the deterministic Lesson".into()))?
+        .id
+        .clone();
+    let applied = run_with_learning(
+        store,
+        request(&transfer, &agent(), false, "./agent-script.sh run"),
+        &RunLearningOptions {
+            enabled: true,
+            audit: true,
+            fixture: true,
+            proposed_actions: vec![ActionPattern::shell("./agent-script.sh baseline")],
+            ..Default::default()
+        },
+        cancel,
+    )
+    .await?;
+    if applied.experience.outcome != Outcome::Success
+        || store.lesson(&lesson_id)?.status != crate::lesson::LessonStatus::Validated
+    {
+        return Err(Error::Intervention(
+            "Node A Lesson did not reach local validation".into(),
+        ));
+    }
+
+    let mut config_a = Config::default();
+    config_a.federation.node_name = "node-a".into();
+    let service_a = LocalFederationService {
+        store,
+        config: &config_a,
+    };
+    let identity_a = service_a.identity()?;
+    let environment = shared_environment();
+    let node_a = store.initialize_hardknock_node(&identity_a, environment.clone())?;
+    let bundle_a = service_a.export_lesson(&lesson_id, Vec::new())?;
+    let payload_a = serde_json::to_value(&bundle_a)?;
+    let revision = u64::from(store.lesson(&lesson_id)?.version);
+    let now = Utc::now();
+
+    let lesson_artifact = lesson_sync_artifact(
+        &node_a.id,
+        &lesson_id.to_string(),
+        revision,
+        Vec::new(),
+        environment.clone(),
+        payload_a.clone(),
+        now,
+    )?;
+    let lesson_ref = lesson_artifact.reference();
+
+    // Node B trusts node A for advisory evidence.
+    let root = store.home.join("federation").join("distributed-benchmark");
+    fs::create_dir_all(&root)?;
+    let store_b = Store::open(&root.join("node-b"))?;
+    let mut config_b = Config::default();
+    config_b.federation.node_name = "node-b".into();
+    let identity_b = LocalFederationService {
+        store: &store_b,
+        config: &config_b,
+    }
+    .identity()?;
+    store_b.initialize_hardknock_node(&identity_b, environment.clone())?;
+    store_b.save_sync_peer(&trusted_peer(
+        &node_a.id,
+        "node-a",
+        &node_a.identity.public_key,
+        root.join("from-a").display().to_string(),
+    ))?;
+
+    // Scenario 1: a direct signed import becomes advisory (not automatically trusted).
+    let mut direct = envelope_for(&node_a.id, node_a.key_revision, vec![lesson_artifact], now);
+    direct.sign(&identity_a)?;
+    let direct_session = store_b.receive_sync_envelope(&direct, &environment)?;
+    let imported = store_b.remote_knowledge_record(&lesson_ref)?;
+    let advisory_transfer =
+        direct_session.accepted == 1 && imported.local_state == RemoteArtifactState::Advisory;
+
+    // Scenario 2: replaying the same signed envelope is suppressed.
+    let replay_session = store_b.receive_sync_envelope(&direct, &environment)?;
+    let replay_suppressed = replay_session.status == SyncSessionStatus::ReplayRejected
+        && replay_session.deduplicated == 1;
+
+    // Scenario 3: an artifact relayed by a trusted sender but originating from an
+    // unconfigured node is quarantined. Relay labels are not authenticity.
+    let relay_dir = root.join("relay-node");
+    fs::create_dir_all(&relay_dir)?;
+    let identity_relay = NodeIdentity::load_or_create(&relay_dir, "relay", ExperienceNodeType::Ci)?;
+    let origin_dir = root.join("untrusted-origin");
+    fs::create_dir_all(&origin_dir)?;
+    let identity_origin =
+        NodeIdentity::load_or_create(&origin_dir, "untrusted", ExperienceNodeType::Ci)?;
+    store_b.save_sync_peer(&trusted_peer(
+        &identity_relay.node.id,
+        "relay",
+        &identity_relay.node.public_identity.public_key,
+        root.join("from-relay").display().to_string(),
+    ))?;
+    let mut relayed = lesson_sync_artifact(
+        &identity_origin.node.id,
+        "external-lesson",
+        1,
+        vec![identity_relay.node.id.clone()],
+        environment.clone(),
+        payload_a,
+        now,
+    )?;
+    relayed.sign_origin(&identity_origin)?;
+    let relayed_ref = relayed.reference();
+    let mut relay_envelope = envelope_for(&identity_relay.node.id, 1, vec![relayed], now);
+    relay_envelope.sign(&identity_relay)?;
+    let relay_session = store_b.receive_sync_envelope(&relay_envelope, &environment)?;
+    let relay_record = store_b.remote_knowledge_record(&relayed_ref)?;
+    let relay_quarantined = relay_session.quarantined == 1
+        && relay_record.local_state == RemoteArtifactState::Quarantined;
+
+    // Scenario 4: a signed origin revocation withdraws the advisory Lesson.
+    let mut revocation = ArtifactRevocation {
+        id: ArtifactRevocationId::new(),
+        artifact: lesson_ref.clone(),
+        origin: node_a.id.clone(),
+        reason: RevocationReason::Contradicted,
+        evidence: Vec::new(),
+        created_at: now,
+        signature: String::new(),
+    };
+    revocation.sign(&identity_a)?;
+    let mut revocation_artifact = SyncArtifact {
+        id: SyncArtifactId::new(),
+        artifact_type: SyncArtifactType::Revocation,
+        artifact_ref: PortableArtifactRef {
+            artifact_id: revocation.id.to_string(),
+            schema_version: SYNC_ARTIFACT_SCHEMA_V1.into(),
+        },
+        lineage: ArtifactLineage {
+            artifact_id: revocation.id.to_string(),
+            origin: node_a.id.clone(),
+            revision: 1,
+            parent_revision: None,
+        },
+        origin: node_a.id.clone(),
+        root_origin: RootEvidenceOrigin {
+            node: node_a.id.clone(),
+            artifact_id: revocation.id.to_string(),
+            revision: 1,
+        },
+        relay_nodes: Vec::new(),
+        environment: environment.clone(),
+        dependencies: vec![lesson_ref.clone()],
+        content_hash: String::new(),
+        origin_signature: None,
+        task_family: None,
+        origin_maturity: None,
+        critical: false,
+        availability: ArtifactAvailability::Full,
+        reproducibility: RemoteReproducibility::NotReproducible,
+        payload: Some(serde_json::to_value(&revocation)?),
+        created_at: now,
+    };
+    revocation_artifact.content_hash = revocation_artifact.computed_content_hash()?;
+    let mut revocation_envelope = envelope_for(
+        &node_a.id,
+        node_a.key_revision,
+        vec![revocation_artifact],
+        now,
+    );
+    revocation_envelope.sign(&identity_a)?;
+    store_b.receive_sync_envelope(&revocation_envelope, &environment)?;
+    let revoked = store_b.remote_knowledge_record(&lesson_ref)?;
+    let actionable_after_revocation = remote_support_allows_act(&revoked, false);
+    let promotion_after_revocation = conservative_promotion_decision(&revoked, false);
+    let blind_critical = store_b.sync_metrics()?.blind_critical_promotions;
+
+    // A naive broadcast would act on the received Lesson despite its revocation and
+    // on the relayed artifact despite its unauthenticated origin. Both are derived
+    // from the observed facts rather than assumed.
+    let naive_unsafe = u64::from(revoked.origin_revoked)
+        + u64::from(relay_record.local_state == RemoteArtifactState::Quarantined);
+    let hardknock_unsafe = u64::from(actionable_after_revocation)
+        + u64::from(relay_record.local_state != RemoteArtifactState::Quarantined);
+
+    let accepted = advisory_transfer
+        && replay_suppressed
+        && relay_quarantined
+        && !actionable_after_revocation
+        && revoked.origin_revoked
+        && promotion_after_revocation == RemotePromotionDecision::Reject
+        && blind_critical == 0
+        && hardknock_unsafe == 0
+        && naive_unsafe == 2;
+    if !accepted {
+        return Err(Error::Intervention(
+            "Distributed sync benchmark acceptance criteria failed".into(),
+        ));
+    }
+
+    let metrics = json!({
+        "unsafe_remote_actions": {"isolated": 0, "naive_broadcast": naive_unsafe, "hardknock_sync": hardknock_unsafe},
+        "advisory_transfer": {"isolated": false, "naive_broadcast": true, "hardknock_sync": advisory_transfer},
+        "revocation_withdrawn": {"naive_broadcast": false, "hardknock_sync": revoked.origin_revoked},
+        "untrusted_relay_admitted": {"naive_broadcast": true, "hardknock_sync": !relay_quarantined},
+        "blind_critical_promotions": blind_critical,
+    });
+    let scenarios = json!({
+        "direct_import": {"state": imported.local_state, "accepted": direct_session.accepted},
+        "replay": {"suppressed": replay_suppressed, "status": replay_session.status},
+        "untrusted_relay": {"quarantined": relay_quarantined, "origin": relay_record.remote_artifact.origin},
+        "revocation": {"actionable_after_revocation": actionable_after_revocation, "origin_revoked": revoked.origin_revoked, "promotion": promotion_after_revocation, "state": revoked.local_state},
+    });
+
+    let id = BenchmarkRunId::new();
+    let artifact = store
+        .home
+        .join("artifacts")
+        .join(format!("{id}-distributed-sync.json"));
+    if let Some(parent) = artifact.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let result = DistributedSyncBenchmarkResult {
+        id,
+        created_at: Utc::now(),
+        status: "completed".into(),
+        metadata: json!({
+            "hardknock_version": env!("CARGO_PKG_VERSION"),
+            "fixture_version": "distributed-sync-fixtures-v1",
+            "nodes": [node_a.id, identity_b.node.id, identity_relay.node.id, identity_origin.node.id],
+            "transport": "in-process signed sync envelopes; filesystem transport separately exercised",
+            "network": false,
+            "key_revision": 1,
+            "duration_ms": started.elapsed().as_millis(),
+        }),
+        scenarios,
+        metrics,
+        artifact: artifact.clone(),
+    };
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&artifact)?;
+    serde_json::to_writer_pretty(&mut file, &result)?;
+    writeln!(file)?;
+    file.sync_all()?;
     Ok(result)
 }

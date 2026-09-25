@@ -395,7 +395,12 @@ fn malicious_bundles_are_rejected_without_partial_import() {
     let signing = tempfile::tempdir().unwrap();
     let identity = sender(signing.path());
     let mut signed = make_bundle(&identity, "safe", false);
-    signed.signature.replace_range(0..2, "ff");
+    let flip = if &signed.signature[..2] == "ff" {
+        "00"
+    } else {
+        "ff"
+    };
+    signed.signature.replace_range(0..2, flip);
     let f = Fixture::from_fixture("pnpm-workspace-transfer");
     let store = Store::open(&f.home).unwrap();
     let config = Config::default();
