@@ -1,6 +1,6 @@
 # Contributing
 
-Hardknock implements local learning/resilience loops and a V0.3 native integration preview. Live cross-agent acceptance is still pending. Read the [architecture](docs/architecture.md) and [milestone plan](docs/roadmap.md) before extending the interfaces.
+Hardknock is a pre-alpha Rust CLI for evidence-backed agent experience. Live cross-agent acceptance is still pending. Start with the [documentation index](docs/README.md), [architecture](docs/architecture.md), and [roadmap](docs/roadmap.md) before extending the interfaces.
 
 ## Development
 
