@@ -9,6 +9,7 @@ Start with the [root README](../README.md) for a runnable example and current st
 - [Controlled experiments](experiments.md) and [agent experiments](agent-experiments.md): paired trials and explicit strategy comparisons.
 - [Generic agent contract](agent-integration.md) and [native integrations](integrations.md): connect an agent to the runner or Bridge.
 - [Roadmap](roadmap.md): milestone goals and longer-term direction.
+- [Production readiness plan](production-readiness-plan.md): current verdict, supported 1.0 boundary, installation design, and release gates.
 
 ## Learn, retrieve, and improve
 
