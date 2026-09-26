@@ -25,7 +25,7 @@ with its own reviewed commit and validation summary.
 | 0. Verdict and implementation plan | Complete | `17a79d2` | Plan reviewed; documentation links added |
 | 1. Build, package, version, schema, and lifecycle truth | Complete locally | `1998244` | Local release gates pass; hosted Linux/macOS workflows await their first remote run |
 | 2. Storage and Bridge operations | Complete locally | `1f6c077` | Local implementation and sandbox-compatible gates pass; 24-hour and host-facility runs remain release evidence |
-| 3. Binary installer and transactional setup | Complete locally | Pending milestone commit | Hermetic installer and lifecycle fixtures pass; published-release and native-manager runs remain release evidence |
+| 3. Binary installer and transactional setup | Complete locally | `f415a5b` | Hermetic installer and lifecycle fixtures pass; published-release and native-manager runs remain release evidence |
 | 4. Portable agent integration | Pending | — | MCP stdio, integration manifest, conformance harness, and live adapter matrix |
 | 5. Production validation | Pending | — | Cross-platform security, parser, load, soak, and recovery evidence |
 | 6. Beta and 1.0 release | Pending | — | Published compatibility policy and all 1.0 release gates complete |
@@ -194,7 +194,7 @@ claimed by this local milestone.
 
 ## Milestone 3 completion evidence
 
-Implementation commit: pending.
+Implementation commit: `f415a5b`.
 
 - The POSIX installer passed 33/33 hermetic cases under both `/bin/sh` and
   `/bin/dash`. The suite covers dry-run nonmutation, local and HTTPS mirrors,
