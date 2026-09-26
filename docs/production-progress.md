@@ -27,7 +27,7 @@ with its own reviewed commit and validation summary.
 | 2. Storage and Bridge operations | Complete locally | `1f6c077` | Local implementation and sandbox-compatible gates pass; 24-hour and host-facility runs remain release evidence |
 | 3. Binary installer and transactional setup | Complete locally | `f415a5b` | Hermetic installer and lifecycle fixtures pass; published-release and native-manager runs remain release evidence |
 | 4. Portable agent integration | Complete locally | `635a070` | Generic MCP, versioned manifest, bounded conformance fixtures, and compatibility matrix pass locally; external live-host acceptance remains release evidence |
-| 5. Production validation | Pending | — | Cross-platform security, parser, load, soak, and recovery evidence |
+| 5. Production validation | Complete locally | `086dc2e` | Atomic Bridge durability, transactional recovery, and sandbox-compatible security, parser, load, and recovery validation pass; hosted and long-running evidence remains external |
 | 6. Beta and 1.0 release | Pending | — | Published compatibility policy and all 1.0 release gates complete |
 
 ## Milestone 1 checklist
@@ -297,6 +297,66 @@ cross-process Bridge fixture reports a capability-based skip and three native
 adapter transport fixtures were not rerun here. Current external agent
 versions and model-backed tasks were not invoked. Those supported-host and
 live-agent runs remain Milestone 5 release evidence.
+
+## Milestone 5 checklist
+
+- [x] Make action decisions, trajectory updates, forecasts, runtime decisions,
+      role views, session revisions, and Bridge events commit atomically.
+- [x] Acknowledge lifecycle and action persistence before publishing live
+      state, with bounded deadlines and fail-closed in-doubt handling.
+- [x] Revalidate session revisions, trajectories, forecasts, runtime
+      knowledge, and team authority inside the final write transaction.
+- [x] Make session admission, resumption, termination, and run state
+      transitions transactional and exactly revision-bound.
+- [x] Prevent queue reservations from blocking the persistence writer, and
+      propagate sticky writer failures through public barriers.
+- [x] Expose a real Bridge shutdown-complete boundary for setup, repair, and
+      uninstall.
+- [x] Harden setup recovery with descriptor-bound creation, durable identity
+      receipts, private quarantine cleanup, and compare-before-rollback.
+- [x] Preserve concurrent files and leave an actionable recovery transaction
+      whenever safe rollback cannot be proven.
+- [x] Pass formatting, strict Clippy, all-target/all-feature compiler checks,
+      and focused atomicity, recovery, runtime, predictive, and team tests.
+- [ ] Record the hosted Linux/macOS transport and service-manager runs.
+- [ ] Record the required 24-hour supported-host soak evidence.
+
+## Milestone 5 completion evidence
+
+Implementation commit: `086dc2e`.
+
+- Bridge action persistence now commits the session compare-and-swap,
+  predictive trajectory and forecast changes, runtime decision, role knowledge
+  view, and emitted events in one SQLite transaction. Commit-time changes to a
+  session revision, trajectory, forecast input, or team authority abort every
+  side row.
+- Session start, resume, end, and queued-run transitions use exact durable
+  revision checks. Live session state changes only after the writer
+  acknowledges the durable transition; a timeout stops the Bridge and a late
+  acknowledgement reconciles live state from the database.
+- The bounded writer queue uses nonblocking permits, barriers report prior
+  writer failures, and shutdown reports completion only after earlier queued
+  writes have finished. Setup and uninstall hold the verified runtime lock
+  boundary before mutating integrations or the data home.
+- Setup recovery records descriptor-bound file and directory identities before
+  mutation. Successful rollback removes transaction-owned recovery state while
+  preserving independently created or replaced content; interrupted data
+  removal resumes from a private sibling quarantine.
+- Independent validation passed formatting and diff checks, a locked offline
+  all-target/all-feature compiler check, and strict Clippy with warnings
+  denied. Bridge engine tests passed 10/10, Bridge atomicity and capacity tests
+  17/17, setup lifecycle tests 9/9, setup transaction tests 32/32, service
+  tests 15/15, and integration installer tests 11/11.
+- Additional focused validation passed 19 predictive tests, 11 runtime tests,
+  20 runtime-knowledge tests with one explicitly ignored manual case, and 17
+  team tests. The durable action latency regression measured a debug-build
+  P95 of 39.2 ms.
+
+This milestone completes the repository-side, sandbox-compatible production
+validation work. Unix-socket and process-inspection fixtures denied by this
+managed sandbox, hosted operating-system and architecture jobs, native service
+managers, live agents, rootless container hosts, and the 24-hour soak remain
+release evidence. They are not claimed by this commit.
 
 ## Baseline evidence
 
