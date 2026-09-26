@@ -123,7 +123,7 @@ fn installers_are_idempotent_and_preserve_unrelated_settings() {
     }
 }
 #[test]
-fn codex_fixture_types_approvals_and_version_pinning() {
+fn codex_fixture_types_approvals_and_tested_version_reporting() {
     let events: Vec<Value> = include_str!("../integrations/codex/fixtures/lifecycle.jsonl")
         .lines()
         .map(|s| serde_json::from_str(s).unwrap())
@@ -154,6 +154,114 @@ fn codex_fixture_types_approvals_and_version_pinning() {
     );
     assert!(codex::normalize_item(&json!({"type":"commandExecution"})).is_err());
 }
+#[tokio::test]
+async fn codex_compatibility_is_gated_by_schema_capabilities() {
+    let fixtures = fixture_root().join("integrations/codex/fixtures");
+    let tested = codex::check(fixtures.join("fake_app_server.py").to_str().unwrap(), false)
+        .await
+        .unwrap();
+    assert_eq!(tested.external_version, "codex-cli 0.149.1");
+    assert_eq!(tested.tested_version, "codex-cli 0.149.1");
+    assert_eq!(tested.conformance_status, "tested");
+    assert!(tested.supported);
+    assert!(tested.schema_verified);
+    assert!(tested.approval_schema_verified);
+    assert!(tested.warning.is_none());
+
+    let compatible = codex::check(
+        fixtures
+            .join("fake_app_server_unknown_compatible.py")
+            .to_str()
+            .unwrap(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert_eq!(compatible.external_version, "codex-cli 0.999.0");
+    assert_eq!(compatible.tested_version, "codex-cli 0.149.1");
+    assert_eq!(
+        compatible.conformance_status,
+        "core-schema-compatible-untested"
+    );
+    assert!(compatible.supported);
+    assert!(compatible.schema_verified);
+    assert!(!compatible.approval_schema_verified);
+    assert!(
+        compatible
+            .warning
+            .as_deref()
+            .is_some_and(|warning| warning.contains("not the fixture-tested"))
+    );
+
+    let explicitly_allowed = codex::check(
+        fixtures
+            .join("fake_app_server_unknown_compatible.py")
+            .to_str()
+            .unwrap(),
+        true,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        explicitly_allowed.conformance_status,
+        "core-schema-compatible-untested"
+    );
+    assert!(
+        explicitly_allowed
+            .warning
+            .as_deref()
+            .is_some_and(|warning| warning.contains("--allow-untested"))
+    );
+
+    let incompatible = codex::check(
+        fixtures
+            .join("fake_app_server_incompatible.py")
+            .to_str()
+            .unwrap(),
+        true,
+    )
+    .await
+    .unwrap_err();
+    assert!(incompatible.to_string().contains("unsafe type for input"));
+
+    let missing_required = codex::check(
+        fixtures
+            .join("fake_app_server_missing_required.py")
+            .to_str()
+            .unwrap(),
+        true,
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        missing_required
+            .to_string()
+            .contains("no longer requires turn.status")
+    );
+}
+
+#[tokio::test]
+async fn codex_version_detection_rejects_unbounded_output() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temporary = tempfile::tempdir().unwrap();
+    let executable = temporary.path().join("noisy-codex");
+    fs::write(
+        &executable,
+        "#!/bin/sh\ni=0\nwhile [ \"$i\" -lt 5000 ]; do\n  printf x\n  i=$((i + 1))\ndone\n",
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+
+    let error = codex::check(executable.to_str().unwrap(), false)
+        .await
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("output exceeds its limit"),
+        "{error}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn codex_bidirectional_client_completes_a_model_free_fixture() {
     let f = Fixture::new();
@@ -203,6 +311,7 @@ async fn codex_bidirectional_client_completes_a_model_free_fixture() {
     let result = result.unwrap();
     assert_eq!(result["thread_id"], "thread-fixture");
     assert_eq!(result["compatibility"]["supported"], true);
+    assert_eq!(result["compatibility"]["conformance_status"], "tested");
 }
 #[test]
 fn plugin_mock_hosts_are_network_and_model_free() {
@@ -257,6 +366,8 @@ fn doctor_checks_app_server_compatibility_without_a_model() {
         .find(|a| a["agent"] == "codex")
         .unwrap();
     assert_eq!(codex["compatibility"]["schema_verified"], true);
+    assert_eq!(codex["compatibility"]["approval_schema_verified"], true);
+    assert_eq!(codex["compatibility"]["conformance_status"], "tested");
     assert_eq!(report["configuration"]["valid"], true);
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

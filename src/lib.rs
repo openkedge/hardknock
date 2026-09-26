@@ -33,6 +33,7 @@ pub mod integrations;
 pub mod knowledge_runtime;
 pub mod learning_loop;
 pub mod lesson;
+pub mod mcp;
 pub mod perturbation;
 pub mod predictive;
 pub mod process;

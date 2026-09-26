@@ -8,7 +8,14 @@ hardknock --repo /path/to/project integrate codex run --resume <thread-id> 'cont
 
 The adapter launches `codex app-server --listen stdio://`, sends `initialize`/`initialized`, starts or resumes a thread, supplies Hardknock evidence as a separate text item in the turn input, submits `turn/start`, and consumes structured events. It does not parse terminal prose and never uses `codex mcp-server`.
 
-Fixtures are pinned to **codex-cli 0.149.1**. `check` reads the executable version, generates and verifies required local schema fields, then performs a real initialization handshake without a model call. Unknown versions fail in noninteractive mode unless `--allow-untested` is explicitly supplied; missing required schema fields still fail. This is a tested-version check, not a guarantee that every behavior in a future schema is compatible.
+Fixtures exercise **codex-cli 0.149.1**. `check` always reports the detected version, generates the local App Server schemas, verifies the method contracts and field semantics Hardknock uses, then performs a real initialization handshake without a model call.
+
+The result includes a `conformance_status`:
+
+- `tested` means the detected version exactly matches the fixture-tested version.
+- `core-schema-compatible-untested` means the version is different, but its required initialization, thread start/resume, turn start, item notification, and turn completion contracts conform. This does not claim approval-request schema compatibility. Hardknock accepts the core lifecycle with a warning and fails closed on unsupported inbound requests.
+
+`--allow-untested` remains available as an explicit acknowledgement for automation that already passes it, but schema-compatible versions do not require the flag. It cannot override a missing method schema, missing required response field, unsafe field type, or failed initialization handshake. Those cases fail closed before a model turn begins.
 
 `commandExecution`, `fileChange` and `mcpToolCall` items are normalized. Unknown notifications and all reasoning events are ignored. Diff notifications are observed but their bodies are not persisted; the Bridge captures its bounded local Git diff. A multi-file change stays a batch observation rather than invented individual tool executions.
 

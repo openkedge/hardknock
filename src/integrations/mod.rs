@@ -3,6 +3,7 @@
 pub mod claude;
 pub mod codex;
 pub mod install;
+pub mod manifest;
 use crate::{
     Result,
     bridge::{protocol::AgentEvent, transport::BridgeClient},

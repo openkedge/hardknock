@@ -15,6 +15,10 @@ implemented for the scoped 1.0 release.
 Until 1.0, the repository and checkpoint tags are experimental unless a guide
 explicitly says otherwise.
 
+The generic MCP stdio integration currently identifies itself as **preview**.
+It advertises protocol `2026-07-28`, but it is not a stable 1.0 compatibility
+promise. External live agent-host acceptance has not yet been completed.
+
 ## Planned 1.0 operating boundary
 
 Stable support is limited to:
@@ -62,8 +66,14 @@ branch. Older checkpoints are not maintained.
 
 Native agent support requires both protocol/schema conformance and a tested
 version result. A compatible but untested version may run with an explicit
-warning when required fields and authority semantics remain valid. A missing or
-unsafe capability fails closed.
+warning when the required core lifecycle remains valid. Approval-schema
+compatibility is claimed only for a fixture-tested version; unsupported inbound
+requests fail closed.
+
+For Codex, `--allow-untested` acknowledges the warning attached to a
+core-schema-compatible untested App Server version. It does not bypass
+generated schema or initialization checks. A missing required field or
+incompatible type is rejected even when the flag is present.
 
 The compatibility matrix records:
 
@@ -73,6 +83,12 @@ The compatibility matrix records:
 - model-free conformance result;
 - live disposable acceptance result;
 - known restrictions and last verification date.
+
+The current repository-declared generic integration targets are Linux and
+macOS on `x86_64` and `aarch64`. These declarations are backed by the
+integration manifest and release build matrix. They do not establish live
+acceptance for every agent host, operating-system release, or architecture.
+See the [compatibility matrix](compatibility-matrix.md).
 
 ## Support requests
 

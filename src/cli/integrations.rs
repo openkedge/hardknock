@@ -39,6 +39,8 @@ pub enum BridgeCommand {
 }
 #[derive(Debug, Subcommand)]
 pub enum IntegrationCommand {
+    /// Print the versioned generic-agent installation contract.
+    Manifest,
     List,
     Doctor,
     Claude {
@@ -295,6 +297,9 @@ pub async fn execute(cli: &Cli, home: &Path, cancel: &Cancellation) -> Result<Va
         }
         Commands::Agent { .. } => Ok(integrations::capabilities()),
         Commands::Integrate { command } => match command {
+            IntegrationCommand::Manifest => Ok(serde_json::from_slice(
+                &integrations::manifest::to_bounded_json(&integrations::manifest::manifest())?,
+            )?),
             IntegrationCommand::List | IntegrationCommand::Doctor => {
                 integrations::status(home, matches!(command, IntegrationCommand::Doctor)).await
             }

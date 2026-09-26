@@ -45,7 +45,7 @@ semver = "1"
 shell-words = "1"
 tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "signal", "sync", "time", "net", "io-util", "fs"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "signal", "sync", "time", "net", "io-util", "io-std", "fs"] }
 toml = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }

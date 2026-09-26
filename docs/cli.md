@@ -35,6 +35,44 @@ restarts a previously running Bridge if a later removal step fails, and retains
 the evidence home unless `--remove-data` is supplied with a valid matching
 setup manifest.
 
+## Generic MCP integration
+
+```text
+hardknock integration manifest
+hardknock mcp serve --stdio --workspace PATH
+```
+
+`integration` is an alias for `integrate`. `integration manifest` prints the
+versioned, bounded generic-agent contract: runtime command, stdio transport,
+MCP protocol version, tools, capabilities, security exclusions, healthcheck,
+and declared platform support. It does not start the Bridge or create agent
+state.
+
+`mcp serve` reserves stdin and stdout for newline-delimited MCP JSON-RPC. The
+required `--stdio` flag makes the transport choice explicit.
+`--workspace PATH` binds context and configured evaluators to an existing
+workspace; use an absolute path in agent-host configuration. The process uses
+the selected `--home` or `HARDKNOCK_HOME` and routes tool calls through the
+authenticated local Bridge.
+
+The current generic contract advertises MCP protocol `2026-07-28` with preview
+stability. It exposes exactly three bounded tools:
+
+| Tool | Purpose | State boundary |
+| --- | --- | --- |
+| `hardknock_query_context` | Retrieve scoped local context. | May omit `hardknock_session_id` to create a session; returns the new handle. |
+| `hardknock_record_outcome` | Record a bounded run outcome as local evidence. | Requires `hardknock_session_id`. |
+| `hardknock_experiment_status` | Poll bounded progress for an experiment started through a separately authorized native or CLI path. | Requires `hardknock_session_id` and `experiment_id`. |
+
+MCP requests are stateless across subprocesses. Preserve the
+`hardknock_session_id` returned by `hardknock_query_context` and send it with
+every later stateful tool call. Reused handles are accepted only for an active
+`mcp` session in the same canonical workspace. The server accepts at most 32
+concurrent requests and honors `notifications/cancelled` by suppressing the
+cancelled response. The MCP surface excludes approval grants,
+external-effect commits, command execution, and filesystem execution. Generic
+experiment creation is deferred until an isolated provider can be enforced.
+
 ## V0.17 experience abstraction
 
 ```text
@@ -539,6 +577,8 @@ hardknock bridge status
 hardknock bridge sessions
 hardknock bridge inspect hk-s-<id>
 hardknock bridge stop
+hardknock integration manifest
+hardknock mcp serve --stdio --workspace /absolute/project
 hardknock integrate list
 hardknock integrate doctor
 hardknock agent capabilities
@@ -554,6 +594,12 @@ hardknock --repo /path/to/project integrate codex run [--resume THREAD] 'task'
 Brackets indicate optional arguments. Integration commands return JSON even without `--json`. `doctor` verifies managed files, Bridge reachability, local configuration, and Codex version/schema/initialization if installed; it does not claim native plugin enablement. Codex run returns a queued recording ID; task evaluation completes asynchronously. Poll `run_status` with `bridge call` or inspect event telemetry. Successful submission is not successful evaluation.
 
 `integration-event --agent claude` consumes one native hook payload on stdin. `bridge call` consumes one authenticated-transport payload without credentials in input. `hardknock-test-adapter` accepts JSONL events with `HARDKNOCK_HOME` set; all session/action/run IDs remain explicit. See the [integration guide](integrations.md) for configuration, privacy and exact capability limits.
+
+For Codex, a version other than the fixture-tested version may proceed with a
+warning only when its generated core App Server schemas contain the required
+fields and initialization succeeds. This status does not claim approval-schema
+compatibility; unsupported inbound requests fail closed. `--allow-untested`
+acknowledges that warning and does not bypass schema checks.
 
 ## V0.6 development commands
 

@@ -39,6 +39,32 @@ explicit action. Offline mirrors report checksum-only provenance, and
 `--no-verify-provenance` is the explicit escape hatch for a custom HTTPS
 source. See [production operations](docs/operations.md).
 
+## Connect an MCP client
+
+Milestone 4 includes a generic MCP stdio integration for agent hosts that can
+launch a local subprocess. Inspect its machine-readable installation contract,
+then configure the host to run:
+
+```bash
+hardknock integration manifest
+hardknock mcp serve --stdio --workspace /absolute/path/to/project
+```
+
+The server advertises MCP protocol `2026-07-28` as a preview interface and
+routes three bounded tools through the authenticated local Bridge:
+`hardknock_query_context`, `hardknock_record_outcome`, and
+`hardknock_experiment_status`. The first
+context query can create a scoped session and returns a
+`hardknock_session_id`; every later stateful call must supply that explicit
+handle. The tool surface cannot grant approvals, commit external effects, or
+provide command or filesystem execution. Generic experiment creation remains
+disabled until Hardknock can enforce an isolated provider for that surface.
+
+The generic MCP integration has local conformance coverage, but external live
+acceptance across agent hosts is still pending. See [agent
+integrations](docs/integrations.md) and the [compatibility
+matrix](docs/compatibility-matrix.md).
+
 ## Try it locally
 
 Hardknock is a pre-release Rust CLI. Build it on Linux or macOS with Rust 1.88
@@ -95,7 +121,11 @@ checks, backup and restore, retention, Bridge services, and soak validation.
 
 Git worktrees are disposable working states, **not security sandboxes**. They share access to host files, credentials, network, and Git state. Use trusted commands and disposable tasks; choose a documented container or tool capability boundary where isolation matters. Supported external Effects require a separate explicit commit, and Hardknock does not intercept arbitrary external calls. Read the [execution boundary](docs/execution-boundary.md) and [effect security guide](docs/effect-security.md) before using those features.
 
-Native Claude Code, Codex, Hermes, and OpenClaw adapters have deterministic fixture coverage, while live cross-agent acceptance is still incomplete. Benchmarks in the docs are designed local fixtures, not estimates of production reliability or general agent improvement.
+Native Claude Code, Codex, Hermes, and OpenClaw adapters have deterministic
+fixture coverage. The generic MCP stdio integration is also implemented as a
+preview. Live cross-agent acceptance is still incomplete. Benchmarks in the
+docs are designed local fixtures, not estimates of production reliability or
+general agent improvement.
 
 ## Repository map
 

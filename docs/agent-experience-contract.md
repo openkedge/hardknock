@@ -8,11 +8,51 @@ An agent receives its task and current context, compact relevant experience, evi
 
 ## Experience on demand (V0.4)
 
-The shared `hardknock try --session <id>` helper and `experiment_requested` event accept explicit candidates, evaluator, budget, criteria, and capability declarations. The Bridge supplies the registered requester and recorded repository starting commit, returns acceptance/rejection, and exposes cursor-based progress and a compact structured result. Claude hook-injected context and Codex turn context describe this same contract; no MCP server is required.
+The shared `hardknock try --session <id>` helper and `experiment_requested`
+event accept explicit candidates, evaluator, budget, criteria, and capability
+declarations. The Bridge supplies the registered requester and recorded
+repository starting commit, returns acceptance/rejection, and exposes
+cursor-based progress and a compact structured result. Claude hook-injected
+context and Codex turn context describe this same contract. Native adapters do
+not require MCP; generic agent hosts can use the MCP facade below.
 
 The agent remains the decision-maker. Hardknock does not start experiments automatically, grant native approvals, adopt a winning Reality, or commit changes. Results identify which candidate performed better under the specified checks, including ties and uncertainty. Confounded comparisons are not causal lessons. Controlled comparisons may propose Candidate Lessons, but never promote them automatically.
 
 The current provider cannot fork a running session or enforce host/network isolation. Acceptance discloses the recorded-commit fallback, excludes dirty/ignored inputs and process state, and warns that commands must be trusted. Session end cancels active agent requests by default. Operational candidate prompts/commands are explicit reproducibility data and are persisted; do not submit secrets or private conversation transcripts. See [agent experiments](agent-experiments.md), [quality](experiment-quality.md), and [budgets](experience-budget.md).
+
+## Generic MCP experience surface
+
+Agent hosts with MCP stdio support can run:
+
+```bash
+hardknock mcp serve --stdio --workspace /absolute/path/to/project
+```
+
+The preview server advertises protocol `2026-07-28` and offers three bounded
+operations:
+
+1. `hardknock_query_context` retrieves scoped experience and can create a
+   Bridge session.
+2. `hardknock_record_outcome` records a bounded observable outcome.
+3. `hardknock_experiment_status` polls bounded progress and results for
+   experiments started through a separately authorized native or CLI path.
+
+The first query returns a `hardknock_session_id`. The agent must retain and
+supply that ID to every later stateful tool call. The explicit handle carries
+the session across stateless requests and replacement MCP subprocesses; it is
+not an approval token or database credential. Hardknock verifies that a reused
+handle is active, belongs to the `mcp` adapter, and matches the canonical
+workspace before accepting it.
+
+The stdio server processes at most 32 requests concurrently. A
+`notifications/cancelled` message aborts the matching in-flight request and
+suppresses its response.
+
+The MCP surface can retrieve context, record evidence, and read experiment
+status. It cannot approve native actions, commit an external Effect, start
+agent execution, apply a winning candidate, or obtain command or filesystem
+execution. Generic experiment creation is deferred until an isolated provider
+can be enforced.
 
 ## Experience injection
 

@@ -1,16 +1,22 @@
-# Agent integrations (V0.3 preview)
+# Agent integrations
 
 V0.4 adds the shared [experiment request/progress/result helper](agent-experiments.md#during-an-integrated-session) to native context. Fake Claude/Codex sessions exercise that contract through authenticated Unix JSONL; this does not change the live-host acceptance status below or imply live model experimentation has been verified.
 
 **Models change. Experience survives.**
 
-The common local Bridge is implemented. Four native adapters have deterministic fixture coverage; successful live demonstrations with two different agents are **not yet complete**. The installed Codex 0.149.1 passed schema detection/initialization, and a live task exercised native approval cancellation and recorded a non-success outcome. Claude, Hermes and OpenClaw were unavailable for live host testing in this pass. See [the implementation report](implementation-v03.md).
+The common local Bridge is implemented. Four native adapters have deterministic
+fixture coverage, and Milestone 4 adds a generic MCP stdio facade. Successful
+external live acceptance across agent hosts is **not yet complete**. The
+compatibility claims below are limited to repository fixtures, schemas, and
+declared build targets. See the [compatibility matrix](compatibility-matrix.md)
+and [the historical implementation report](implementation-v03.md).
 
 ```text
 Claude Code ─┐
 Codex ───────┤
 Hermes ──────┼── Agent Adapters ──→ Hardknock Bridge
 OpenClaw ────┘                          │
+MCP host ───────── stdio facade ────────┘
                          ┌─────────────┼─────────────┐
                          ↓             ↓             ↓
                      Experience      Reflex         Dojo
@@ -24,6 +30,8 @@ OpenClaw ────┘                          │
 ```bash
 hardknock setup --agent auto --mode workstation --non-interactive --start
 hardknock --json doctor --strict
+hardknock integration manifest
+hardknock mcp serve --stdio --workspace /absolute/project
 hardknock bridge status
 hardknock integrate codex check
 hardknock agent capabilities
@@ -52,6 +60,40 @@ diagnostics even without `--json`. `doctor --strict` adds schema, filesystem,
 disk, stale-resource, backup, release-integrity, Bridge, adapter, and storage
 checks. Native plugin enablement is reported as unverified.
 
+## Generic MCP stdio
+
+An MCP-capable agent host can launch Hardknock directly:
+
+```bash
+hardknock mcp serve --stdio --workspace /absolute/path/to/project
+```
+
+`hardknock integration manifest` emits the bounded installation contract for
+automated setup. The manifest identifies stdio transport, MCP protocol
+`2026-07-28`, preview stability, the healthcheck, and declared Linux/macOS
+`x86_64`/`aarch64` support.
+
+The facade exposes three tools:
+
+| Tool | Boundary |
+| --- | --- |
+| `hardknock_query_context` | Reads bounded scoped context. It can create a Bridge session and returns its `hardknock_session_id`. |
+| `hardknock_record_outcome` | Records a bounded outcome for that explicit session. |
+| `hardknock_experiment_status` | Reads bounded progress for an experiment started through a separately authorized native or CLI path. |
+
+The modern MCP contract is stateless. An agent must retain the
+`hardknock_session_id` from the first context query and include it in later
+stateful calls, including calls made by a new MCP subprocess. MCP is a client
+transport over the same local Bridge lifecycle and evidence store used by
+native adapters; it does not expose the Bridge token or SQLite database.
+Reused handles must remain active and match both the `mcp` adapter and the
+canonical workspace. The server bounds in-flight work at 32 requests and
+honors `notifications/cancelled` without returning a cancelled response.
+
+This surface cannot grant native approvals, commit external Effects, execute
+commands, or access the filesystem. Generic experiment creation is deferred
+until Hardknock can enforce an isolated provider for that surface.
+
 ## Capability matrix
 
 | Adapter | Context | Pre-action | Post-action | Run end | Structured events | Native Reality provider |
@@ -62,6 +104,14 @@ checks. Native plugin enablement is reported as unverified.
 | [OpenClaw](integrations/openclaw.md) | before_prompt_build | before_tool_call | after_tool_call | agent_end | Yes | No |
 
 Codex's broad `pre_action_interception` capability is reported **false**; a notification that execution has started is not an interception surface. Hermes/OpenClaw can synchronously match a proposal, but ordinary learning advice is retained for the next supported context injection rather than converted to a denial. Every adapter can observe only what its host exposes. Internal subprocess actions, remote side effects, and tools without correlated IDs are not automatically visible.
+
+Codex compatibility is checked from `codex --version`, generated App Server
+schemas, and initialization. The repository fixture-tested version is
+`codex-cli 0.149.1`. Another version is accepted as
+`core-schema-compatible-untested` with an explicit warning only when required
+core schemas and initialization still conform. This does not claim
+approval-schema compatibility; unsupported inbound requests fail closed.
+`--allow-untested` records an acknowledgement and does not weaken validation.
 
 ## Configuration
 
@@ -117,4 +167,8 @@ cargo test --test integrations real_codex_model_lifecycle_smoke -- --ignored --n
 
 `hardknock-test-adapter` reads lifecycle JSONL from stdin, supplies local authentication and prints Bridge replies. It is a conformance tool, not a reasoning agent. `hardknock bridge call` sends one payload. Neither should receive raw tokens on the command line.
 
-Existing `run --agent test-agent`, `run --script`, and `run --agent-command` remain available without plugins. `run --experience-budget N` bounds additional controlled trials plus retries; the initial task execution is outside this additional budget. Native Codex uses `integrate codex run`, not `codex mcp-server`. The generic MCP facade is tracked separately in the portable-integration milestone.
+Existing `run --agent test-agent`, `run --script`, and `run --agent-command`
+remain available without plugins. `run --experience-budget N` bounds
+additional controlled trials plus retries; the initial task execution is
+outside this additional budget. Native Codex uses `integrate codex run`.
+Generic MCP hosts use `hardknock mcp serve --stdio --workspace PATH`.

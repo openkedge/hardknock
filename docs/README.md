@@ -13,6 +13,7 @@ Start with the [root README](../README.md) for a runnable example and current st
 - [Production implementation progress](production-progress.md): milestone status, commits, validation, and remaining gates.
 - [Production operations](operations.md): strict health checks, backup and restore, storage retention, Bridge services, and soak procedure.
 - [Support and compatibility policy](support-policy.md): maturity, release, upgrade, and agent compatibility commitments.
+- [Compatibility matrix](compatibility-matrix.md): generic MCP protocol, tools, declared release targets, adapter evidence, and pending live gates.
 
 ## Learn, retrieve, and improve
 
@@ -38,7 +39,7 @@ Start with the [root README](../README.md) for a runnable example and current st
 | Topic | Guides |
 | --- | --- |
 | Composition | [Overview](composition.md) · [Contracts](composition-contracts.md) · [Capabilities](composition-capabilities.md) · [Effects](composition-effects.md) · [Recovery](composition-recovery.md) · [Sequence invariants](sequence-invariants.md) · [Plan validity](plan-validity.md) |
-| Agents and Bridge | [Portable agent contract](agent-experience-contract.md) · [Bridge protocol](bridge-protocol.md) · [Claude](integrations/claude.md) · [Codex](integrations/codex.md) · [Hermes](integrations/hermes.md) · [OpenClaw](integrations/openclaw.md) |
+| Agents and Bridge | [Agent integrations and generic MCP](integrations.md) · [Portable agent contract](agent-experience-contract.md) · [Bridge protocol](bridge-protocol.md) · [Compatibility matrix](compatibility-matrix.md) · [Claude](integrations/claude.md) · [Codex](integrations/codex.md) · [Hermes](integrations/hermes.md) · [OpenClaw](integrations/openclaw.md) |
 | Sharing | [Federation](federation.md) · [Team governance](team-governance.md) · [Handoffs](team-handoffs.md) · [Review gates](team-review.md) |
 
 ## Progress and evidence

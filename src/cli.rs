@@ -25,6 +25,7 @@ mod guard_candidate;
 pub mod integrations;
 mod knowledge;
 pub(crate) mod maintenance;
+pub mod mcp;
 mod plan;
 mod predictive;
 mod resilience;
@@ -297,9 +298,15 @@ pub enum Commands {
         command: integrations::BridgeCommand,
     },
     /// Install and diagnose native adapters.
+    #[command(alias = "integration")]
     Integrate {
         #[command(subcommand)]
         command: integrations::IntegrationCommand,
+    },
+    /// Serve the portable, bounded Model Context Protocol integration.
+    Mcp {
+        #[command(subcommand)]
+        command: mcp::McpCommand,
     },
     /// Plan and apply a private, single-user production installation.
     Setup(setup::SetupArgs),
@@ -751,6 +758,7 @@ pub enum Response {
     Maintenance {
         result: serde_json::Value,
     },
+    Protocol,
     Resilience {
         result: Box<resilience::ResilienceResponse>,
     },
@@ -887,6 +895,9 @@ impl Response {
     }
 
     pub fn print(&self, cli: &Cli) -> Result<()> {
+        if matches!(self, Self::Protocol) {
+            return Ok(());
+        }
         if let Self::Integration { result } = self {
             serde_json::to_writer(&mut io::stdout().lock(), result)?;
             println!();
@@ -1310,6 +1321,7 @@ impl Response {
                 discarded.len(),
                 skipped_active.len()
             )?,
+            Self::Protocol => {}
         }
         Ok(())
     }
@@ -1462,6 +1474,18 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         return Ok(Response::Assurance {
             result: assurance::verify_artifact(file)?,
         });
+    }
+    if let Commands::Mcp { command } = &cli.command {
+        match command {
+            mcp::McpCommand::Serve(args) => {
+                let workspace = match &args.workspace {
+                    Some(path) => resolve_home(path)?,
+                    None => env::current_dir()?.canonicalize()?,
+                };
+                crate::mcp::serve_stdio(&home, &workspace, cancel).await?;
+            }
+        }
+        return Ok(Response::Protocol);
     }
     if matches!(
         cli.command,
@@ -1788,6 +1812,7 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         | Commands::Restore { .. }
         | Commands::Migration { .. }
         | Commands::Storage { .. }
+        | Commands::Mcp { .. }
         | Commands::Setup(_)
         | Commands::Upgrade(_)
         | Commands::Repair(_)

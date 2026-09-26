@@ -312,11 +312,12 @@ Work:
   APIs. The first stable surface should expose:
   - `hardknock_query_context`
   - `hardknock_record_outcome`
-  - `hardknock_request_experiment`
   - `hardknock_experiment_status`
+- Defer generic experiment creation until the MCP surface can require an
+  enforced isolated execution provider.
 - Keep commit, compensation, approval, arbitrary filesystem access, and
   unrestricted command execution out of the MCP surface.
-- Add `hardknock integration manifest --json` for systems that install tools
+- Add `hardknock integration manifest` for systems that install tools
   from machine-readable command, environment, healthcheck, transport, schema,
   and capability metadata.
 - Add a conformance harness that any adapter can run without a model call.
@@ -346,7 +347,8 @@ Primary files:
 Acceptance criteria:
 
 - [ ] A generic MCP-capable agent can retrieve scoped context, report an
-      observable outcome, and request a bounded experiment.
+      observable outcome, and read status for separately authorized
+      experiments.
 - [ ] The MCP adapter cannot commit an Effect or grant approval.
 - [ ] The integration manifest is versioned, JSON-schema validated, and stable
       across patch releases.

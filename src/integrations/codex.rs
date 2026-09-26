@@ -5,20 +5,40 @@ use crate::{
     bridge::{protocol::*, transport::BridgeClient},
     cancellation::Cancellation,
 };
+use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, VecDeque},
+    ffi::OsStr,
     path::Path,
-    process::Stdio,
+    process::{ExitStatus, Stdio},
     time::{Duration, Instant},
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, ChildStdin, ChildStdout, Command},
 };
 const TESTED_VERSION: &str = "codex-cli 0.149.1";
+const CORE_SCHEMA_COMPATIBLE_UNTESTED: &str = "core-schema-compatible-untested";
+const MAX_CODEX_SCHEMA_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_CODEX_VERSION_BYTES: usize = 4096;
+const MAX_CODEX_PENDING_BYTES: usize = 16 * 1024 * 1024;
+const MAX_CODEX_FRAME_BYTES: usize = 8 * 1024 * 1024;
 fn invalid(s: &str) -> Error {
     Error::InvalidInput(s.into())
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct CodexCompatibility {
+    pub adapter_version: String,
+    pub external_version: String,
+    pub tested_version: String,
+    pub supported: bool,
+    pub schema_verified: bool,
+    pub approval_schema_verified: bool,
+    pub conformance_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 pub struct CodexAppServerClient {
@@ -27,7 +47,8 @@ pub struct CodexAppServerClient {
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     next_id: u64,
-    pending: VecDeque<Value>,
+    pending: VecDeque<(Value, usize)>,
+    pending_bytes: usize,
 }
 impl CodexAppServerClient {
     pub async fn launch(executable: &str) -> Result<Self> {
@@ -56,6 +77,7 @@ impl CodexAppServerClient {
             stdout,
             next_id: 0,
             pending: VecDeque::new(),
+            pending_bytes: 0,
         })
     }
     pub async fn send(&mut self, message: Value) -> Result<()> {
@@ -76,7 +98,7 @@ impl CodexAppServerClient {
                 .position(|b| *b == b'\n')
                 .map(|i| i + 1)
                 .unwrap_or(buffer.len());
-            if data.len() + n > 8 * 1024 * 1024 {
+            if data.len() + n > MAX_CODEX_FRAME_BYTES {
                 return Err(invalid("App Server frame exceeds 8 MiB"));
             }
             let done = buffer[n - 1] == b'\n';
@@ -104,10 +126,16 @@ impl CodexAppServerClient {
                     }
                     return Ok(value["result"].clone());
                 }
-                if self.pending.len() >= 256 {
-                    return Err(invalid("App Server pending event limit exceeded"));
+                let event_bytes = serde_json::to_vec(&value)?.len();
+                if self.pending.len() >= 256
+                    || self.pending_bytes.saturating_add(event_bytes) > MAX_CODEX_PENDING_BYTES
+                {
+                    return Err(invalid(
+                        "App Server pending event count or byte limit exceeded",
+                    ));
                 }
-                self.pending.push_back(value);
+                self.pending_bytes += event_bytes;
+                self.pending.push_back((value, event_bytes));
             }
         })
         .await
@@ -120,102 +148,740 @@ impl CodexAppServerClient {
         Ok(response)
     }
     pub async fn next_event(&mut self) -> Result<Value> {
-        if let Some(v) = self.pending.pop_front() {
+        if let Some((v, bytes)) = self.pending.pop_front() {
+            self.pending_bytes = self.pending_bytes.saturating_sub(bytes);
             Ok(v)
         } else {
             self.read().await
         }
     }
     pub async fn close(&mut self) -> Result<()> {
-        self.kill_group()?;
-        self.child.wait().await?;
-        self.group = None;
-        Ok(())
-    }
-    fn kill_group(&self) -> Result<()> {
-        if let Some(pid) = self.group {
-            match nix::sys::signal::killpg(pid, nix::sys::signal::Signal::SIGKILL) {
-                Ok(()) | Err(nix::errno::Errno::ESRCH) => {}
-                Err(error) => return Err(std::io::Error::from_raw_os_error(error as i32).into()),
-            }
+        let leader_reaped = self.child.try_wait()?.is_some();
+        let group_result = kill_process_group(self.group, leader_reaped);
+        if !leader_reaped {
+            let _ = self.child.start_kill();
+            self.child.wait().await?;
         }
+        self.group = None;
+        group_result?;
         Ok(())
     }
 }
 impl Drop for CodexAppServerClient {
     fn drop(&mut self) {
-        let _ = self.kill_group();
+        let leader_reaped = self.child.try_wait().ok().flatten().is_some();
+        let _ = kill_process_group(self.group, leader_reaped);
+        if !leader_reaped {
+            let _ = self.child.start_kill();
+        }
     }
 }
+
+fn kill_process_group(group: Option<nix::unistd::Pid>, leader_reaped: bool) -> Result<()> {
+    let Some(group) = group else {
+        return Ok(());
+    };
+    match nix::sys::signal::killpg(group, nix::sys::signal::Signal::SIGKILL) {
+        Ok(()) | Err(nix::errno::Errno::ESRCH) => Ok(()),
+        Err(nix::errno::Errno::EPERM) if leader_reaped => Ok(()),
+        Err(error) => Err(std::io::Error::from_raw_os_error(error as i32).into()),
+    }
+}
+
+async fn stop_failed_command(
+    child: &mut Child,
+    group: Option<nix::unistd::Pid>,
+    leader_reaped: bool,
+) {
+    if let Err(error) = kill_process_group(group, leader_reaped) {
+        tracing::warn!(%error, "Could not stop Codex command process group");
+    }
+    if !leader_reaped {
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+    }
+}
+
+async fn read_bounded<R: AsyncRead + Unpin>(mut reader: R, limit: usize) -> Result<Vec<u8>> {
+    let mut output = Vec::with_capacity(limit.min(64 * 1024));
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = reader.read(&mut buffer).await?;
+        if read == 0 {
+            return Ok(output);
+        }
+        if output.len().saturating_add(read) > limit {
+            return Err(invalid("Codex command output exceeds its limit"));
+        }
+        output.extend_from_slice(&buffer[..read]);
+    }
+}
+
+async fn bounded_command_output(
+    executable: &str,
+    args: &[&OsStr],
+    timeout: Duration,
+    output_limit: usize,
+) -> Result<(ExitStatus, Vec<u8>, Vec<u8>)> {
+    let mut child = Command::new(executable)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .kill_on_drop(true)
+        .spawn()?;
+    let group = child.id().map(|pid| nix::unistd::Pid::from_raw(pid as i32));
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| invalid("Codex command stdout unavailable"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| invalid("Codex command stderr unavailable"))?;
+    let result = tokio::time::timeout(timeout, async {
+        tokio::try_join!(
+            async { child.wait().await.map_err(Error::Io) },
+            read_bounded(stdout, output_limit),
+            read_bounded(stderr, output_limit)
+        )
+    })
+    .await;
+    match result {
+        Ok(Ok((status, stdout, stderr))) => Ok((status, stdout, stderr)),
+        Ok(Err(error)) => {
+            let leader_reaped = child.try_wait()?.is_some();
+            stop_failed_command(&mut child, group, leader_reaped).await;
+            Err(error)
+        }
+        Err(_) => {
+            let leader_reaped = child.try_wait()?.is_some();
+            stop_failed_command(&mut child, group, leader_reaped).await;
+            Err(invalid("Codex command timeout"))
+        }
+    }
+}
+
+async fn command_status(mut command: Command, timeout: Duration) -> Result<ExitStatus> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .kill_on_drop(true);
+    let mut child = command.spawn()?;
+    let group = child.id().map(|pid| nix::unistd::Pid::from_raw(pid as i32));
+    match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(result) => Ok(result?),
+        Err(_) => {
+            let leader_reaped = child.try_wait()?.is_some();
+            stop_failed_command(&mut child, group, leader_reaped).await;
+            Err(invalid("Codex command timeout"))
+        }
+    }
+}
+
 pub fn version_supported(version: &str) -> bool {
     version.trim() == TESTED_VERSION
 }
-pub async fn check(executable: &str, allow_untested: bool) -> Result<AdapterCompatibility> {
-    let version = tokio::time::timeout(
-        Duration::from_secs(5),
-        Command::new(executable)
-            .arg("--version")
-            .kill_on_drop(true)
-            .output(),
-    )
-    .await
-    .map_err(|_| invalid("Codex version check timeout"))??;
-    if !version.status.success() {
-        return Err(invalid("Codex --version failed"));
-    }
-    let version = String::from_utf8_lossy(&version.stdout).trim().to_string();
-    let supported = version_supported(&version);
-    if !supported && !allow_untested {
-        return Err(invalid(&format!(
-            "Codex {version} is untested; adapter fixtures target {TESTED_VERSION}. Use --allow-untested explicitly for compatibility mode."
-        )));
-    }
-    let schema = tempfile::tempdir()?;
-    let status = tokio::time::timeout(
-        Duration::from_secs(20),
-        Command::new(executable)
-            .args(["app-server", "generate-json-schema", "--out"])
-            .arg(schema.path())
-            .kill_on_drop(true)
-            .output(),
-    )
-    .await
-    .map_err(|_| invalid("Codex schema detection timeout"))??;
-    if !status.status.success() {
-        return Err(invalid("Codex App Server cannot generate its schema"));
-    }
-    for (file, fields) in [
-        ("v1/InitializeParams.json", vec!["clientInfo"]),
-        (
-            "v2/ThreadStartParams.json",
-            vec!["cwd", "developerInstructions"],
-        ),
-        ("v2/TurnStartParams.json", vec!["threadId", "input"]),
-        (
-            "v2/ItemStartedNotification.json",
-            vec!["item", "threadId", "turnId"],
-        ),
-    ] {
-        let value: Value = serde_json::from_slice(&std::fs::read(schema.path().join(file))?)?;
-        if fields
-            .iter()
-            .any(|field| value["properties"].get(field).is_none())
-        {
-            return Err(invalid(
-                "Codex App Server schema lacks a required field; compatibility mode cannot override this",
-            ));
+
+#[derive(Clone, Copy)]
+enum SchemaKind {
+    Array,
+    Boolean,
+    Object,
+    String,
+}
+
+impl SchemaKind {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Array => "array",
+            Self::Boolean => "boolean",
+            Self::Object => "object",
+            Self::String => "string",
         }
     }
+}
+
+struct FieldRequirement {
+    path: &'static [&'static str],
+    kind: SchemaKind,
+    required: bool,
+}
+
+struct SchemaRequirement {
+    file: &'static str,
+    fields: &'static [FieldRequirement],
+}
+
+const SCHEMA_REQUIREMENTS: &[SchemaRequirement] = &[
+    SchemaRequirement {
+        file: "v1/InitializeParams.json",
+        fields: &[
+            FieldRequirement {
+                path: &["clientInfo"],
+                kind: SchemaKind::Object,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["clientInfo", "name"],
+                kind: SchemaKind::String,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["clientInfo", "title"],
+                kind: SchemaKind::String,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["clientInfo", "version"],
+                kind: SchemaKind::String,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["capabilities"],
+                kind: SchemaKind::Object,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["capabilities", "experimentalApi"],
+                kind: SchemaKind::Boolean,
+                required: false,
+            },
+        ],
+    },
+    SchemaRequirement {
+        file: "v2/ThreadStartParams.json",
+        fields: &[
+            FieldRequirement {
+                path: &["cwd"],
+                kind: SchemaKind::String,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["developerInstructions"],
+                kind: SchemaKind::String,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["model"],
+                kind: SchemaKind::String,
+                required: false,
+            },
+        ],
+    },
+    SchemaRequirement {
+        file: "v2/ThreadStartResponse.json",
+        fields: &[
+            FieldRequirement {
+                path: &["thread"],
+                kind: SchemaKind::Object,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["thread", "id"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+        ],
+    },
+    SchemaRequirement {
+        file: "v2/ThreadResumeParams.json",
+        fields: &[
+            FieldRequirement {
+                path: &["threadId"],
+                kind: SchemaKind::String,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["cwd"],
+                kind: SchemaKind::String,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["model"],
+                kind: SchemaKind::String,
+                required: false,
+            },
+        ],
+    },
+    SchemaRequirement {
+        file: "v2/ThreadResumeResponse.json",
+        fields: &[
+            FieldRequirement {
+                path: &["thread"],
+                kind: SchemaKind::Object,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["thread", "id"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+        ],
+    },
+    SchemaRequirement {
+        file: "v2/TurnStartParams.json",
+        fields: &[
+            FieldRequirement {
+                path: &["threadId"],
+                kind: SchemaKind::String,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["input"],
+                kind: SchemaKind::Array,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["input", "[]"],
+                kind: SchemaKind::Object,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["input", "[]", "type"],
+                kind: SchemaKind::String,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["input", "[]", "text"],
+                kind: SchemaKind::String,
+                required: false,
+            },
+            FieldRequirement {
+                path: &["input", "[]", "text_elements"],
+                kind: SchemaKind::Array,
+                required: false,
+            },
+        ],
+    },
+    SchemaRequirement {
+        file: "v2/TurnStartResponse.json",
+        fields: &[
+            FieldRequirement {
+                path: &["turn"],
+                kind: SchemaKind::Object,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["turn", "id"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+        ],
+    },
+    SchemaRequirement {
+        file: "v2/ItemStartedNotification.json",
+        fields: &[
+            FieldRequirement {
+                path: &["threadId"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["turnId"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["item"],
+                kind: SchemaKind::Object,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["item", "id"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["item", "type"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+        ],
+    },
+    SchemaRequirement {
+        file: "v2/ItemCompletedNotification.json",
+        fields: &[
+            FieldRequirement {
+                path: &["threadId"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["turnId"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["item"],
+                kind: SchemaKind::Object,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["item", "id"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["item", "type"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+        ],
+    },
+    SchemaRequirement {
+        file: "v2/TurnCompletedNotification.json",
+        fields: &[
+            FieldRequirement {
+                path: &["threadId"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["turn"],
+                kind: SchemaKind::Object,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["turn", "id"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+            FieldRequirement {
+                path: &["turn", "status"],
+                kind: SchemaKind::String,
+                required: true,
+            },
+        ],
+    },
+];
+
+fn resolve_ref<'a>(root: &'a Value, value: &'a Value) -> Option<&'a Value> {
+    let reference = value.get("$ref")?.as_str()?;
+    reference
+        .strip_prefix('#')
+        .and_then(|pointer| root.pointer(pointer))
+}
+
+fn find_property<'a>(
+    root: &'a Value,
+    value: &'a Value,
+    name: &str,
+    depth: usize,
+) -> Option<&'a Value> {
+    if depth > 32 {
+        return None;
+    }
+    if let Some(resolved) = resolve_ref(root, value) {
+        return find_property(root, resolved, name, depth + 1);
+    }
+    if let Some(property) = value.get("properties").and_then(|v| v.get(name)) {
+        return Some(property);
+    }
+    for keyword in ["allOf", "anyOf", "oneOf"] {
+        if let Some(property) = value
+            .get(keyword)
+            .and_then(Value::as_array)
+            .and_then(|variants| {
+                variants
+                    .iter()
+                    .find_map(|variant| find_property(root, variant, name, depth + 1))
+            })
+        {
+            return Some(property);
+        }
+    }
+    None
+}
+
+fn field_required(root: &Value, value: &Value, name: &str, depth: usize) -> bool {
+    if depth > 32 {
+        return false;
+    }
+    if let Some(resolved) = resolve_ref(root, value) {
+        return field_required(root, resolved, name, depth + 1);
+    }
+    if value
+        .get("required")
+        .and_then(Value::as_array)
+        .is_some_and(|required| required.iter().any(|field| field == name))
+    {
+        return true;
+    }
+    if value
+        .get("allOf")
+        .and_then(Value::as_array)
+        .is_some_and(|variants| {
+            variants
+                .iter()
+                .any(|variant| field_required(root, variant, name, depth + 1))
+        })
+    {
+        return true;
+    }
+    ["anyOf", "oneOf"].iter().any(|keyword| {
+        value
+            .get(keyword)
+            .and_then(Value::as_array)
+            .is_some_and(|variants| {
+                !variants.is_empty()
+                    && variants
+                        .iter()
+                        .all(|variant| field_required(root, variant, name, depth + 1))
+            })
+    })
+}
+
+fn field_at_path<'a>(root: &'a Value, path: &[&str]) -> Option<(&'a Value, &'a Value)> {
+    let mut owner = root;
+    let mut field = None;
+    for name in path {
+        let value = if *name == "[]" {
+            let mut resolved = owner;
+            for _ in 0..=32 {
+                let Some(next) = resolve_ref(root, resolved) else {
+                    break;
+                };
+                resolved = next;
+            }
+            resolved.get("items")?
+        } else {
+            find_property(root, owner, name, 0)?
+        };
+        field = Some((owner, value));
+        owner = value;
+    }
+    field
+}
+
+fn accepts_kind(root: &Value, value: &Value, kind: SchemaKind, depth: usize) -> bool {
+    if depth > 32 {
+        return false;
+    }
+    if let Some(resolved) = resolve_ref(root, value) {
+        return accepts_kind(root, resolved, kind, depth + 1);
+    }
+    if value
+        .get("type")
+        .is_some_and(|schema_type| match schema_type {
+            Value::String(value) => value == kind.name(),
+            Value::Array(values) => values.iter().any(|value| value == kind.name()),
+            _ => false,
+        })
+    {
+        return true;
+    }
+    if value
+        .get("const")
+        .is_some_and(|constant| value_has_kind(constant, kind))
+        || value
+            .get("enum")
+            .and_then(Value::as_array)
+            .is_some_and(|values| values.iter().any(|value| value_has_kind(value, kind)))
+    {
+        return true;
+    }
+    if matches!(kind, SchemaKind::Object) && value.get("properties").is_some() {
+        return true;
+    }
+    ["allOf", "anyOf", "oneOf"].iter().any(|keyword| {
+        value
+            .get(keyword)
+            .and_then(Value::as_array)
+            .is_some_and(|variants| {
+                variants
+                    .iter()
+                    .any(|variant| accepts_kind(root, variant, kind, depth + 1))
+            })
+    })
+}
+
+fn guarantees_kind(root: &Value, value: &Value, kind: SchemaKind, depth: usize) -> bool {
+    if depth > 32 {
+        return false;
+    }
+    if let Some(resolved) = resolve_ref(root, value) {
+        return guarantees_kind(root, resolved, kind, depth + 1);
+    }
+    if let Some(schema_type) = value.get("type") {
+        return match schema_type {
+            Value::String(value) => value == kind.name(),
+            Value::Array(values) => {
+                !values.is_empty() && values.iter().all(|value| value == kind.name())
+            }
+            _ => false,
+        };
+    }
+    if let Some(constant) = value.get("const") {
+        return value_has_kind(constant, kind);
+    }
+    if let Some(values) = value.get("enum").and_then(Value::as_array) {
+        return !values.is_empty() && values.iter().all(|value| value_has_kind(value, kind));
+    }
+    if value
+        .get("allOf")
+        .and_then(Value::as_array)
+        .is_some_and(|variants| {
+            variants
+                .iter()
+                .any(|variant| guarantees_kind(root, variant, kind, depth + 1))
+        })
+    {
+        return true;
+    }
+    ["anyOf", "oneOf"].iter().any(|keyword| {
+        value
+            .get(keyword)
+            .and_then(Value::as_array)
+            .is_some_and(|variants| {
+                !variants.is_empty()
+                    && variants
+                        .iter()
+                        .all(|variant| guarantees_kind(root, variant, kind, depth + 1))
+            })
+    })
+}
+
+fn value_has_kind(value: &Value, kind: SchemaKind) -> bool {
+    matches!(
+        (value, kind),
+        (Value::Array(_), SchemaKind::Array)
+            | (Value::Bool(_), SchemaKind::Boolean)
+            | (Value::Object(_), SchemaKind::Object)
+            | (Value::String(_), SchemaKind::String)
+    )
+}
+
+fn verify_schema_bundle(root: &Path) -> Result<()> {
+    for requirement in SCHEMA_REQUIREMENTS {
+        let path = root.join(requirement.file);
+        let metadata = std::fs::symlink_metadata(&path).map_err(|_| {
+            invalid(&format!(
+                "Codex App Server schema lacks required method contract {}",
+                requirement.file
+            ))
+        })?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || metadata.len() > MAX_CODEX_SCHEMA_BYTES
+        {
+            return Err(invalid(&format!(
+                "Codex App Server schema {} is unsafe or exceeds the size limit",
+                requirement.file
+            )));
+        }
+        let data = std::fs::read(&path)?;
+        let schema: Value = serde_json::from_slice(&data)?;
+        for requirement in requirement.fields {
+            let Some((owner, field)) = field_at_path(&schema, requirement.path) else {
+                return Err(invalid(&format!(
+                    "Codex App Server schema {} lacks required field {}",
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("schema"),
+                    requirement.path.join(".")
+                )));
+            };
+            let compatible_kind = if requirement.required {
+                guarantees_kind(&schema, field, requirement.kind, 0)
+            } else {
+                accepts_kind(&schema, field, requirement.kind, 0)
+            };
+            if !compatible_kind {
+                return Err(invalid(&format!(
+                    "Codex App Server schema {} has unsafe type for {}; expected {}",
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("schema"),
+                    requirement.path.join("."),
+                    requirement.kind.name()
+                )));
+            }
+            let name = requirement
+                .path
+                .last()
+                .copied()
+                .ok_or_else(|| invalid("empty Codex schema field requirement"))?;
+            if requirement.required && !field_required(&schema, owner, name, 0) {
+                return Err(invalid(&format!(
+                    "Codex App Server schema {} no longer requires {}; compatibility cannot be established",
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("schema"),
+                    requirement.path.join(".")
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub async fn check(executable: &str, allow_untested: bool) -> Result<CodexCompatibility> {
+    let (version_status, version_stdout, _) = bounded_command_output(
+        executable,
+        &[OsStr::new("--version")],
+        Duration::from_secs(5),
+        MAX_CODEX_VERSION_BYTES,
+    )
+    .await
+    .map_err(|error| invalid(&format!("Codex version check failed: {error}")))?;
+    if !version_status.success() {
+        return Err(invalid("Codex --version failed"));
+    }
+    let version = String::from_utf8(version_stdout)
+        .map_err(|_| invalid("Codex --version returned invalid UTF-8"))?
+        .trim()
+        .to_string();
+    if version.is_empty() || version.chars().any(char::is_control) {
+        return Err(invalid("Codex --version returned an invalid version"));
+    }
+    let tested = version_supported(&version);
+    let schema = tempfile::tempdir()?;
+    let mut schema_command = Command::new(executable);
+    schema_command
+        .args(["app-server", "generate-json-schema", "--out"])
+        .arg(schema.path());
+    let status = command_status(schema_command, Duration::from_secs(20))
+        .await
+        .map_err(|error| invalid(&format!("Codex schema detection failed: {error}")))?;
+    if !status.success() {
+        return Err(invalid("Codex App Server cannot generate its schema"));
+    }
+    verify_schema_bundle(schema.path())?;
     let mut client = CodexAppServerClient::launch(executable).await?;
     let initialized = client.initialize().await;
     let closed = client.close().await;
     initialized?;
     closed?;
-    Ok(AdapterCompatibility {
+    let warning = (!tested).then(|| {
+        let acknowledgement = if allow_untested {
+            " The explicit --allow-untested acknowledgement was supplied."
+        } else {
+            ""
+        };
+        format!(
+            "Codex {version} is not the fixture-tested {TESTED_VERSION}; required core App Server schemas and initialization conform. Approval schema compatibility is not claimed, and unsupported inbound requests fail closed.{acknowledgement}"
+        )
+    });
+    if let Some(warning) = &warning {
+        eprintln!("Hardknock Codex compatibility warning: {warning}");
+    }
+    Ok(CodexCompatibility {
         adapter_version: env!("CARGO_PKG_VERSION").into(),
         external_version: version,
-        supported,
+        tested_version: TESTED_VERSION.into(),
+        supported: true,
         schema_verified: true,
+        approval_schema_verified: tested,
+        conformance_status: if tested {
+            "tested".into()
+        } else {
+            CORE_SCHEMA_COMPATIBLE_UNTESTED.into()
+        },
+        warning,
     })
 }
 pub fn normalize_item(item: &Value) -> Result<Option<NormalizedAction>> {

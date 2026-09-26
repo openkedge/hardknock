@@ -16,7 +16,40 @@ Assessment updates append a fused interpretation; they do not mutate or delete
 raw paths. A diverse dispute may mark a shared Lesson advisory and require
 revalidation, while quarantine remains a distinct explicit lifecycle action.
 
-The public protocol is portable JSON, independent of internal Rust types and SQLite tables. Adapters use the Bridge exclusively. MCP is not a dependency.
+The public protocol is portable JSON, independent of internal Rust types and
+SQLite tables. Native adapters use the Bridge directly. The optional generic
+MCP stdio server is a bounded facade that translates its three tools into this
+same Bridge lifecycle; the Bridge remains independently usable and is not
+replaced by MCP.
+
+## Generic MCP facade
+
+```bash
+hardknock mcp serve --stdio --workspace /absolute/path/to/project
+```
+
+The facade advertises MCP protocol `2026-07-28` with preview stability. It
+keeps MCP framing on stdin/stdout and uses the authenticated local Bridge as
+the execution and persistence boundary. MCP clients do not receive the Bridge
+runtime token and do not access SQLite directly.
+
+The three available tools are `hardknock_query_context`,
+`hardknock_record_outcome`, and `hardknock_experiment_status`.
+`hardknock_query_context` may establish a
+Bridge session and returns `hardknock_session_id`. Because current MCP requests
+are stateless, all later stateful tools require that explicit handle, including
+calls from a replacement MCP subprocess. Reused handles must identify an
+active `mcp` session in the same canonical workspace.
+
+The facade bounds concurrency at 32 in-flight requests and handles
+`notifications/cancelled` by aborting the matching work without returning a
+response for that request.
+
+The facade does not expose approval grants, Effect commit authority,
+command execution, or filesystem execution. Status polling maps to Bridge
+experiment progress for work started through separately authorized native or
+CLI paths. Generic experiment creation is deferred until an isolated provider
+can be enforced.
 
 ## Transport and authentication
 
@@ -100,7 +133,7 @@ Native agents maintain their own logs, account state and conversation retention 
 
 ## V0.4 experiment contract
 
-The protocol identifier remains `hardknock.bridge.v1`; the **previously reserved and nonexecuting** lesson-ID request is replaced with this structured contract. Old reserved payloads are rejected as malformed, not interpreted as permission to run arbitrary trials. Other lifecycle events remain compatible. No MCP transport has been added.
+The protocol identifier remains `hardknock.bridge.v1`; the **previously reserved and nonexecuting** lesson-ID request is replaced with this structured contract. Old reserved payloads are rejected as malformed, not interpreted as permission to run arbitrary trials. Other lifecycle events remain compatible. The later generic MCP facade maps its experiment tools onto this contract without changing the Bridge protocol identifier.
 
 Example payload, inside the normal authenticated envelope:
 
@@ -152,7 +185,7 @@ The same bounded context document delivered to Claude and Codex now describes `h
 
 ## V0.5 curriculum lifecycle
 
-Agent requests require `[curriculum] agent_requests=true`; the default is false. Curricula use the same authenticated transport and shared bounded experiment queue. No MCP endpoint is implemented.
+Agent requests require `[curriculum] agent_requests=true`; the default is false. Curricula use the same authenticated transport and shared bounded experiment queue. The generic MCP facade does not expose curriculum tools.
 
 ```json
 {"event":"curriculum_requested","data":{"hardknock_session_id":"<session>","request_id":"curriculum-00000000-0000-4000-8000-000000000005","target":{"skill":"process-task-successfully"},"profile":"resilience-basic","budget":{"max_trials":2}}}
