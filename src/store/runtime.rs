@@ -17,6 +17,20 @@ use crate::{
 type RuntimeGapKey = (String, Option<String>, KnowledgeState, RuntimeDecisionKind);
 type RuntimeGapAggregate = (u64, Vec<String>);
 
+#[derive(Clone, Debug)]
+pub(crate) struct PreparedRuntimeDecision {
+    pub(crate) record: RuntimeDecisionRecord,
+    config: RuntimePolicyConfig,
+    role_violation: Option<PreparedRoleViolation>,
+}
+
+#[derive(Clone, Debug)]
+struct PreparedRoleViolation {
+    id: String,
+    team: String,
+    data: String,
+}
+
 pub trait RuntimeStore {
     fn record_runtime_decision(
         &self,
@@ -45,12 +59,12 @@ pub trait RuntimeStore {
     ) -> Result<RuntimeDecisionRecord>;
 }
 
-impl RuntimeStore for Store {
-    fn record_runtime_decision(
+impl Store {
+    pub(crate) fn prepare_runtime_decision_from_context(
         &self,
         context: &RuntimeDecisionContext,
         mut config: RuntimePolicyConfig,
-    ) -> Result<RuntimeDecisionRecord> {
+    ) -> Result<PreparedRuntimeDecision> {
         let mut context = context.clone();
         context.active_forecasts = context
             .active_forecasts
@@ -128,32 +142,30 @@ impl RuntimeStore for Store {
                 .reasons
                 .push("A supporting causal mechanism requires revalidation".into());
         }
-        self.attach_runtime_knowledge(&mut context)?;
+        self.attach_runtime_knowledge_read_only(&mut context)?;
         self.attach_plan_validity(&mut context, true)?;
         self.attach_team_authority(&mut context)?;
-        let context = &context;
         config.refresh_version();
         config.validate()?;
         let evaluation =
-            DeterministicRuntimeController::with_config(config.clone())?.evaluate(context)?;
+            DeterministicRuntimeController::with_config(config.clone())?.evaluate(&context)?;
         let record = RuntimeDecisionRecord {
             id: RuntimeDecisionId::new(),
             session_id: context.session_id.clone(),
             context_hash: context.context_hash()?,
-            context: context.clone(),
+            context,
             decision: evaluation.decision.clone(),
             evaluation,
             created_at: Utc::now(),
         };
-        self.persist_runtime_decision(&record, config)?;
-        Ok(record)
+        self.prepare_runtime_decision(&record, config)
     }
 
-    fn persist_runtime_decision(
+    pub(crate) fn prepare_runtime_decision(
         &self,
         record: &RuntimeDecisionRecord,
         mut config: RuntimePolicyConfig,
-    ) -> Result<()> {
+    ) -> Result<PreparedRuntimeDecision> {
         config.refresh_version();
         config.validate()?;
         let expected = DeterministicRuntimeController::with_config(config.clone())?
@@ -168,8 +180,6 @@ impl RuntimeStore for Store {
                 "Runtime decision record is inconsistent with its context or policy".into(),
             ));
         }
-        let transaction =
-            Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
         let mut checked = record.context.clone();
         self.attach_composition_knowledge(&mut checked)?;
         self.attach_plan_identity(&mut checked)?;
@@ -198,7 +208,6 @@ impl RuntimeStore for Store {
                 "Plan changed before decision publication; resolve again".into(),
             ));
         }
-
         if serde_json::to_value(&checked.composition_assessment)?
             != serde_json::to_value(&record.context.composition_assessment)?
             || checked.context_observations != record.context.context_observations
@@ -215,11 +224,14 @@ impl RuntimeStore for Store {
             ));
         }
         if let Some(k) = &record.context.operational_knowledge {
-            let saved = self.knowledge_resolution_record(&k.provenance.resolution_id)?;
             use crate::knowledge_runtime::RuntimeKnowledgeResolver;
+            let policy = self
+                .knowledge_snapshot(&k.snapshot.id)
+                .map(|snapshot| snapshot.policy)
+                .unwrap_or_default();
             let derived = crate::knowledge_runtime::DefaultRuntimeKnowledgeResolver {
                 store: self,
-                policy: self.knowledge_snapshot(&k.snapshot.id)?.policy,
+                policy,
                 budget: Default::default(),
                 persist: false,
             }
@@ -245,10 +257,25 @@ impl RuntimeStore for Store {
                     "Operational knowledge projection differs from immutable revisions".into(),
                 ));
             }
-
-            if saved.snapshot != k.snapshot.id
-                || serde_json::to_value(&saved.effective)? != serde_json::to_value(&k.effective)?
-                || saved.context_hash != k.validity.context_hash
+            let saved = self
+                .connection
+                .query_row(
+                    "SELECT data FROM knowledge_resolution_records WHERE id=?1",
+                    [k.provenance.resolution_id.to_string()],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .map(|data| {
+                    serde_json::from_str::<crate::knowledge_runtime::KnowledgeResolutionRecord>(
+                        &data,
+                    )
+                })
+                .transpose()?;
+            if let Some(saved) = saved
+                && (saved.snapshot != k.snapshot.id
+                    || serde_json::to_value(&saved.effective)?
+                        != serde_json::to_value(&k.effective)?
+                    || saved.context_hash != k.validity.context_hash)
             {
                 return Err(Error::InvalidInput(
                     "Runtime knowledge differs from its recorded resolution".into(),
@@ -260,7 +287,7 @@ impl RuntimeStore for Store {
                 ));
             }
         }
-        if let Some(binding) = &checked.team
+        let role_violation = if let Some(binding) = &checked.team
             && let Some(assessment) = &binding.assessment
             && !assessment.allowed
         {
@@ -272,27 +299,50 @@ impl RuntimeStore for Store {
                 reasons: assessment.reasons.clone(),
                 created_at: Utc::now(),
             };
-            let id = uuid::Uuid::new_v4().to_string();
-            let data = serde_json::to_string(&violation)?;
+            Some(PreparedRoleViolation {
+                id: uuid::Uuid::new_v4().to_string(),
+                team: binding.team.to_string(),
+                data: serde_json::to_string(&violation)?,
+            })
+        } else {
+            None
+        };
+        Ok(PreparedRuntimeDecision {
+            record: record.clone(),
+            config,
+            role_violation,
+        })
+    }
+
+    pub(crate) fn persist_prepared_runtime_decision(
+        &self,
+        transaction: &Transaction<'_>,
+        prepared: &PreparedRuntimeDecision,
+    ) -> Result<()> {
+        let record = &prepared.record;
+        let config = &prepared.config;
+        self.prepare_runtime_decision(record, config.clone())?;
+        self.persist_runtime_knowledge(transaction, record)?;
+        if let Some(violation) = &prepared.role_violation {
             transaction.execute(
                 "INSERT INTO team_records(kind,id,team,data) VALUES('role_violation_attempted',?1,?2,?3)",
-                params![id, binding.team.to_string(), data],
+                params![violation.id, violation.team, violation.data],
             )?;
             transaction.execute(
                 "INSERT INTO team_events(team,kind,data) VALUES(?1,'role_violation_attempted',?2)",
-                params![binding.team.to_string(), data],
+                params![violation.team, violation.data],
             )?;
         }
         transaction.execute(
             "INSERT INTO runtime_policy_versions(version,created_at,data) VALUES(?1,?2,?3) ON CONFLICT(version) DO NOTHING",
-            params![config.version, record.created_at.to_rfc3339(), serde_json::to_string(&config)?],
+            params![config.version, record.created_at.to_rfc3339(), serde_json::to_string(config)?],
         )?;
         let stored_config: String = transaction.query_row(
             "SELECT data FROM runtime_policy_versions WHERE version=?1",
             [record.evaluation.policy_version.clone()],
             |row| row.get(0),
         )?;
-        if serde_json::from_str::<RuntimePolicyConfig>(&stored_config)? != config {
+        if serde_json::from_str::<RuntimePolicyConfig>(&stored_config)? != *config {
             return Err(Error::Intervention(
                 "Runtime policy version already names different policy contents".into(),
             ));
@@ -311,10 +361,10 @@ impl RuntimeStore for Store {
                 enum_name(&record.evaluation.knowledge)?,
                 record.evaluation.policy_version,
                 record.created_at.to_rfc3339(),
-                serde_json::to_string(&record)?
+                serde_json::to_string(record)?
             ],
         )?;
-        self.persist_knowledge_applications(record)?;
+        self.persist_knowledge_applications_in_transaction(transaction, record)?;
         for selected in record
             .context
             .knowledge_resolution
@@ -354,15 +404,15 @@ impl RuntimeStore for Store {
                 ],
             )?;
         }
-        let event = decision_event(&record.decision);
+        let control_event = decision_event(&record.decision);
         transaction.execute(
             "INSERT INTO runtime_control_events(decision_id,session_id,kind,created_at,data) VALUES(?1,?2,'runtime_decision_made',?3,?4)",
             params![record.id.to_string(), record.session_id.to_string(), record.created_at.to_rfc3339(), serde_json::to_string(&serde_json::json!({"decision":record.decision.kind(),"policy_version":record.evaluation.policy_version}))?],
         )?;
-        if let Some(event) = event {
+        if let Some(control_event) = control_event {
             transaction.execute(
                 "INSERT INTO runtime_control_events(decision_id,session_id,kind,created_at,data) VALUES(?1,?2,?3,?4,?5)",
-                params![record.id.to_string(), record.session_id.to_string(), enum_name(&event)?, record.created_at.to_rfc3339(), serde_json::to_string(&record.decision)?],
+                params![record.id.to_string(), record.session_id.to_string(), enum_name(&control_event)?, record.created_at.to_rfc3339(), serde_json::to_string(&record.decision)?],
             )?;
         }
         for reason in &record.evaluation.reasons {
@@ -371,13 +421,13 @@ impl RuntimeStore for Store {
                 intervention,
             } = reason
             {
-                let dep = crate::causal::CausalArtifactDependency {
+                let dependency = crate::causal::CausalArtifactDependency {
                     hypothesis: hypothesis.clone(),
                     artifact: crate::causal::CausalArtifact::RuntimeDecision(record.id.clone()),
                     intervention: Some(intervention.clone()),
                     severity: record.context.risk.severity,
                 };
-                transaction.execute("INSERT OR IGNORE INTO causal_artifact_dependencies(hypothesis_id,artifact_id,data) VALUES(?1,?2,?3)",params![hypothesis.to_string(),record.id.to_string(),serde_json::to_string(&dep)?])?;
+                transaction.execute("INSERT OR IGNORE INTO causal_artifact_dependencies(hypothesis_id,artifact_id,data) VALUES(?1,?2,?3)",params![hypothesis.to_string(),record.id.to_string(),serde_json::to_string(&dependency)?])?;
             }
         }
         if matches!(
@@ -410,6 +460,278 @@ impl RuntimeStore for Store {
                 )?;
             }
         }
+        Ok(())
+    }
+
+    pub(crate) fn attach_runtime_knowledge_read_only(
+        &self,
+        context: &mut RuntimeDecisionContext,
+    ) -> Result<()> {
+        self.attach_composition_knowledge(context)?;
+        self.attach_plan_identity(context)?;
+        if self.knowledge_hierarchies()?.is_empty() {
+            context.operational_knowledge = None;
+            return Ok(());
+        }
+        for (key, values) in self.runtime_context_observations(&context.session_id)? {
+            context
+                .context_observations
+                .entry(key)
+                .or_default()
+                .extend(values);
+        }
+        use crate::knowledge_runtime::RuntimeKnowledgeResolver;
+        let mut resolution = crate::knowledge_runtime::DefaultRuntimeKnowledgeResolver {
+            store: self,
+            policy: Default::default(),
+            budget: Default::default(),
+            persist: false,
+        }
+        .resolve_for_runtime(context)?;
+        let existing = self
+            .connection
+            .query_row(
+                "SELECT data FROM knowledge_snapshots WHERE fingerprint=?1",
+                [&resolution.snapshot.fingerprint],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(|data| serde_json::from_str::<crate::knowledge_runtime::KnowledgeSnapshot>(&data))
+            .transpose()?;
+        if let Some(snapshot) = existing {
+            resolution.snapshot.id = snapshot.id.clone();
+            resolution.validity.snapshot = snapshot.id.clone();
+            resolution.provenance.snapshot_id = snapshot.id;
+        }
+        context.operational_knowledge = Some(resolution);
+        Ok(())
+    }
+
+    fn persist_runtime_knowledge(
+        &self,
+        transaction: &Transaction<'_>,
+        record: &RuntimeDecisionRecord,
+    ) -> Result<()> {
+        let Some(knowledge) = &record.context.operational_knowledge else {
+            return Ok(());
+        };
+        let stored_snapshot = transaction
+            .query_row(
+                "SELECT data FROM knowledge_snapshots WHERE id=?1",
+                [knowledge.snapshot.id.to_string()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(|data| serde_json::from_str::<crate::knowledge_runtime::KnowledgeSnapshot>(&data))
+            .transpose()?;
+        if let Some(snapshot) = &stored_snapshot {
+            if snapshot.id != knowledge.snapshot.id
+                || snapshot.fingerprint != knowledge.snapshot.fingerprint
+                || snapshot.hierarchies != knowledge.validity.hierarchy_revisions
+            {
+                return Err(Error::InvalidInput(
+                    "Runtime knowledge differs from its immutable snapshot".into(),
+                ));
+            }
+        } else {
+            let hierarchies = self.knowledge_hierarchies()?;
+            let mut artifact_revisions = std::collections::BTreeSet::new();
+            for reference in &knowledge.validity.hierarchy_revisions {
+                let hierarchy = hierarchies
+                    .iter()
+                    .find(|hierarchy| {
+                        hierarchy.id == reference.id && hierarchy.revision == reference.revision
+                    })
+                    .ok_or_else(|| {
+                        Error::Intervention(
+                            "Hierarchy changed before runtime knowledge persistence".into(),
+                        )
+                    })?;
+                let content_hash = crate::store::knowledge_runtime::hash(hierarchy)?;
+                if content_hash != reference.content_hash {
+                    return Err(Error::Intervention(
+                        "Hierarchy changed before runtime knowledge persistence".into(),
+                    ));
+                }
+                transaction.execute(
+                    "INSERT INTO knowledge_hierarchy_revisions(id,revision,hash,data) VALUES(?1,?2,?3,?4) ON CONFLICT DO NOTHING",
+                    params![hierarchy.id.to_string(), i64::try_from(hierarchy.revision).map_err(|_| Error::InvalidInput("Revision overflow".into()))?, content_hash, serde_json::to_string(hierarchy)?],
+                )?;
+                let stored_hash: String = transaction.query_row(
+                    "SELECT hash FROM knowledge_hierarchy_revisions
+                     WHERE id=?1 AND revision=?2",
+                    params![
+                        hierarchy.id.to_string(),
+                        i64::try_from(hierarchy.revision)
+                            .map_err(|_| Error::InvalidInput("Revision overflow".into()))?
+                    ],
+                    |row| row.get(0),
+                )?;
+                if stored_hash != content_hash {
+                    return Err(Error::Intervention(
+                        "Hierarchy revision names different immutable contents".into(),
+                    ));
+                }
+                artifact_revisions.extend(hierarchy.nodes.values().map(|node| {
+                    crate::knowledge_runtime::KnowledgeRevisionRef::from(&node.artifact)
+                }));
+            }
+            let policy = crate::hierarchy::KnowledgeResolutionPolicy::default();
+            let artifact_revisions = artifact_revisions.into_iter().collect::<Vec<_>>();
+            let fingerprint = crate::store::knowledge_runtime::hash(&(
+                crate::knowledge_runtime::RESOLUTION_POLICY_VERSION,
+                &knowledge.validity.hierarchy_revisions,
+                &artifact_revisions,
+                &policy,
+            ))?;
+            if fingerprint != knowledge.snapshot.fingerprint {
+                return Err(Error::InvalidInput(
+                    "Runtime knowledge snapshot fingerprint changed before persistence".into(),
+                ));
+            }
+            let snapshot = crate::knowledge_runtime::KnowledgeSnapshot {
+                id: knowledge.snapshot.id.clone(),
+                created_at: record.created_at,
+                hierarchies: knowledge.validity.hierarchy_revisions.clone(),
+                artifact_revisions,
+                resolution_policy_version: crate::knowledge_runtime::RESOLUTION_POLICY_VERSION
+                    .into(),
+                policy,
+                fingerprint,
+            };
+            transaction.execute(
+                "INSERT INTO knowledge_snapshots(id,fingerprint,data) VALUES(?1,?2,?3)",
+                params![
+                    snapshot.id.to_string(),
+                    snapshot.fingerprint,
+                    serde_json::to_string(&snapshot)?
+                ],
+            )?;
+            transaction.execute(
+                "INSERT INTO knowledge_events(kind,data) VALUES('knowledge_snapshot_created',?1)",
+                [serde_json::to_string(&snapshot.id)?],
+            )?;
+        }
+        for (id, conflict) in knowledge
+            .provenance
+            .conflicts
+            .iter()
+            .zip(&knowledge.effective.conflicts)
+        {
+            let stored = crate::knowledge_runtime::StoredKnowledgeConflict {
+                id: id.clone(),
+                conflict: conflict.clone(),
+                snapshot: knowledge.snapshot.id.clone(),
+                context: knowledge.context.clone(),
+                resolved: false,
+            };
+            transaction.execute(
+                "INSERT INTO operational_knowledge_conflicts(id,data) VALUES(?1,?2) ON CONFLICT DO NOTHING",
+                params![id.to_string(), serde_json::to_string(&stored)?],
+            )?;
+        }
+        let resolution = crate::knowledge_runtime::KnowledgeResolutionRecord {
+            id: knowledge.provenance.resolution_id.clone(),
+            snapshot: knowledge.snapshot.id.clone(),
+            context_hash: knowledge.validity.context_hash.clone(),
+            context: knowledge.context.clone(),
+            context_conflicts: knowledge.context_conflicts.clone(),
+            effective: knowledge.effective.clone(),
+            created_at: record.created_at,
+        };
+        let inserted = transaction.execute(
+            "INSERT INTO knowledge_resolution_records(id,snapshot,data) VALUES(?1,?2,?3) ON CONFLICT DO NOTHING",
+            params![
+                resolution.id.to_string(),
+                resolution.snapshot.to_string(),
+                serde_json::to_string(&resolution)?
+            ],
+        )?;
+        if inserted == 0 {
+            let saved: String = transaction.query_row(
+                "SELECT data FROM knowledge_resolution_records WHERE id=?1",
+                [resolution.id.to_string()],
+                |row| row.get(0),
+            )?;
+            if serde_json::to_value(serde_json::from_str::<
+                crate::knowledge_runtime::KnowledgeResolutionRecord,
+            >(&saved)?)?
+                != serde_json::to_value(&resolution)?
+            {
+                return Err(Error::InvalidInput(
+                    "Knowledge resolution id names different immutable contents".into(),
+                ));
+            }
+        } else {
+            transaction.execute(
+                "INSERT INTO knowledge_events(kind,data)
+                 VALUES('knowledge_resolution_recorded',?1)",
+                [serde_json::to_string(&resolution.id)?],
+            )?;
+        }
+        Ok(())
+    }
+
+    fn persist_knowledge_applications_in_transaction(
+        &self,
+        transaction: &Transaction<'_>,
+        record: &RuntimeDecisionRecord,
+    ) -> Result<()> {
+        let Some(knowledge) = &record.context.operational_knowledge else {
+            return Ok(());
+        };
+        for applied in &knowledge.effective.applied {
+            let application = crate::knowledge_runtime::KnowledgeApplication {
+                id: crate::core::KnowledgeApplicationId::new(),
+                knowledge: crate::knowledge_runtime::KnowledgeRevisionRef::from(&applied.artifact),
+                resolution: knowledge.provenance.resolution_id.clone(),
+                role: applied.role,
+                runtime_decision: record.id.clone(),
+                outcome: None,
+            };
+            transaction.execute(
+                "INSERT INTO knowledge_applications(id,resolution,decision,data)
+                 VALUES(?1,?2,?3,?4)",
+                params![
+                    application.id.to_string(),
+                    application.resolution.to_string(),
+                    application.runtime_decision.to_string(),
+                    serde_json::to_string(&application)?
+                ],
+            )?;
+            transaction.execute(
+                "INSERT INTO knowledge_events(kind,data) VALUES('knowledge_applied',?1)",
+                [serde_json::to_string(&application)?],
+            )?;
+        }
+        Ok(())
+    }
+}
+
+impl RuntimeStore for Store {
+    fn record_runtime_decision(
+        &self,
+        context: &RuntimeDecisionContext,
+        config: RuntimePolicyConfig,
+    ) -> Result<RuntimeDecisionRecord> {
+        let prepared = self.prepare_runtime_decision_from_context(context, config)?;
+        let record = prepared.record.clone();
+        let transaction =
+            Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
+        self.persist_prepared_runtime_decision(&transaction, &prepared)?;
+        transaction.commit()?;
+        Ok(record)
+    }
+
+    fn persist_runtime_decision(
+        &self,
+        record: &RuntimeDecisionRecord,
+        config: RuntimePolicyConfig,
+    ) -> Result<()> {
+        let prepared = self.prepare_runtime_decision(record, config)?;
+        let transaction =
+            Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
+        self.persist_prepared_runtime_decision(&transaction, &prepared)?;
         transaction.commit()?;
         Ok(())
     }

@@ -1,12 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
-use crate::{Error, Result, cli::integrations::AdapterCommand};
+use crate::{
+    Error, Result,
+    cli::integrations::AdapterCommand,
+    setup::transaction::{
+        MutationObserver, PrivateMutationDirectory, UnobservedMutation, WriteReceipt,
+        ensure_directory_tree,
+    },
+};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
-    env, fs,
-    io::Write,
-    os::unix::fs::{MetadataExt, PermissionsExt},
+    env,
+    ffi::OsStr,
+    fs,
+    fs::{File, OpenOptions},
+    io::Read,
+    os::{
+        fd::OwnedFd,
+        unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+    },
     path::{Path, PathBuf},
+};
+
+use rustix::fs::{
+    AtFlags, CWD, FileType, Mode, OFlags, RenameFlags, Stat, fstat, open, openat, renameat_with,
+    statat,
 };
 
 const MAX_INTEGRATION_JSON_BYTES: u64 = 1024 * 1024;
@@ -53,6 +71,136 @@ impl IntegrationPlan {
 fn invalid(s: &str) -> Error {
     Error::InvalidInput(s.into())
 }
+
+struct OpenedUserFile {
+    file: File,
+    metadata: fs::Metadata,
+}
+
+fn same_identity(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    left.dev() == right.dev() && left.ino() == right.ino()
+}
+
+fn validate_user_file_metadata(metadata: &fs::Metadata, label: &str) -> Result<()> {
+    if !metadata.is_file() {
+        return Err(invalid(&format!("{label} must be a regular file")));
+    }
+    if metadata.uid() != nix::unistd::geteuid().as_raw() || metadata.nlink() != 1 {
+        return Err(invalid(&format!(
+            "{label} must be singly linked and owned by the effective user"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_read_metadata(
+    metadata: &fs::Metadata,
+    label: &str,
+    required_mode: Option<u32>,
+) -> Result<()> {
+    validate_user_file_metadata(metadata, label)?;
+    if let Some(required_mode) = required_mode
+        && metadata.permissions().mode() & 0o7777 != required_mode
+    {
+        return Err(invalid(&format!(
+            "{label} permissions must be {required_mode:04o}"
+        )));
+    }
+    Ok(())
+}
+
+fn open_bounded_user_file(
+    path: &Path,
+    label: &str,
+    maximum_bytes: u64,
+    required_mode: Option<u32>,
+) -> Result<Option<OpenedUserFile>> {
+    let path_metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if path_metadata.file_type().is_symlink() {
+        return Err(invalid(&format!("{label} must not be a symlink")));
+    }
+    validate_read_metadata(&path_metadata, label, required_mode)?;
+    if path_metadata.len() > maximum_bytes {
+        return Err(invalid(&format!(
+            "{label} exceeds the {maximum_bytes}-byte limit"
+        )));
+    }
+
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_NOFOLLOW)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    validate_read_metadata(&metadata, label, required_mode)?;
+    if !same_identity(&path_metadata, &metadata) {
+        return Err(invalid(&format!(
+            "{label} changed while it was being opened"
+        )));
+    }
+    if metadata.len() > maximum_bytes {
+        return Err(invalid(&format!(
+            "{label} exceeds the {maximum_bytes}-byte limit"
+        )));
+    }
+    Ok(Some(OpenedUserFile { file, metadata }))
+}
+
+fn read_opened_user_file(
+    path: &Path,
+    opened: &mut OpenedUserFile,
+    label: &str,
+    maximum_bytes: u64,
+    required_mode: Option<u32>,
+) -> Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(
+        usize::try_from(opened.metadata.len())
+            .unwrap_or(0)
+            .min(8192),
+    );
+    (&mut opened.file)
+        .take(maximum_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+
+    let descriptor_metadata = opened.file.metadata()?;
+    if bytes.len() as u64 > maximum_bytes || descriptor_metadata.len() > maximum_bytes {
+        return Err(invalid(&format!(
+            "{label} exceeds the {maximum_bytes}-byte limit"
+        )));
+    }
+    validate_read_metadata(&descriptor_metadata, label, required_mode)?;
+    let path_metadata = fs::symlink_metadata(path)?;
+    if path_metadata.file_type().is_symlink() {
+        return Err(invalid(&format!("{label} changed while it was being read")));
+    }
+    validate_read_metadata(&path_metadata, label, required_mode)?;
+    if !same_identity(&opened.metadata, &descriptor_metadata)
+        || !same_identity(&opened.metadata, &path_metadata)
+        || opened.metadata.len() != descriptor_metadata.len()
+        || opened.metadata.mtime() != descriptor_metadata.mtime()
+        || opened.metadata.mtime_nsec() != descriptor_metadata.mtime_nsec()
+    {
+        return Err(invalid(&format!("{label} changed while it was being read")));
+    }
+    Ok(bytes)
+}
+
+fn read_bounded_user_file(
+    path: &Path,
+    label: &str,
+    maximum_bytes: u64,
+    required_mode: Option<u32>,
+) -> Result<Option<Vec<u8>>> {
+    let Some(mut opened) = open_bounded_user_file(path, label, maximum_bytes, required_mode)?
+    else {
+        return Ok(None);
+    };
+    read_opened_user_file(path, &mut opened, label, maximum_bytes, required_mode).map(Some)
+}
+
 pub fn find_executable(name: &str) -> Option<PathBuf> {
     env::var_os("PATH").and_then(|paths| {
         env::split_paths(&paths).map(|p| p.join(name)).find(|p| {
@@ -110,44 +258,51 @@ fn validate_existing_user_file(path: &Path, label: &str) -> Result<()> {
     if metadata.file_type().is_symlink() || !metadata.is_file() {
         return Err(invalid(&format!("{label} must be a regular file")));
     }
-    if metadata.uid() != nix::unistd::geteuid().as_raw() || metadata.nlink() != 1 {
-        return Err(invalid(&format!(
-            "{label} must be singly linked and owned by the effective user"
-        )));
-    }
-    Ok(())
+    validate_user_file_metadata(&metadata, label)
 }
 
 fn read_json(path: &Path) -> Result<Value> {
-    if !path.exists() {
-        return Ok(json!({}));
-    }
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink()
-        || !metadata.is_file()
-        || metadata.len() > MAX_INTEGRATION_JSON_BYTES
-    {
-        return Err(invalid("Refusing symlink or oversized integration config"));
-    }
-    let value: Value = serde_json::from_slice(&fs::read(path)?)?;
+    read_json_with_bytes(path).map(|(value, _)| value)
+}
+
+fn read_json_with_bytes(path: &Path) -> Result<(Value, Option<Vec<u8>>)> {
+    let Some(bytes) = read_bounded_user_file(
+        path,
+        "Integration configuration",
+        MAX_INTEGRATION_JSON_BYTES,
+        None,
+    )?
+    else {
+        return Ok((json!({}), None));
+    };
+    let value: Value = serde_json::from_slice(&bytes)?;
     if !value.is_object() {
         return Err(invalid("Integration configuration must be a JSON object"));
     }
-    Ok(value)
+    Ok((value, Some(bytes)))
 }
 
 fn read_manifest(path: &Path) -> Result<Value> {
-    if !path.exists() {
-        return Ok(json!({}));
-    }
-    validate_existing_user_file(path, "Managed integration manifest")?;
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.permissions().mode() & 0o7777 != PRIVATE_FILE_MODE {
+    read_manifest_with_bytes(path).map(|(value, _)| value)
+}
+
+fn read_manifest_with_bytes(path: &Path) -> Result<(Value, Option<Vec<u8>>)> {
+    let Some(bytes) = read_bounded_user_file(
+        path,
+        "Managed integration manifest",
+        MAX_INTEGRATION_JSON_BYTES,
+        Some(PRIVATE_FILE_MODE),
+    )?
+    else {
+        return Ok((json!({}), None));
+    };
+    let value: Value = serde_json::from_slice(&bytes)?;
+    if !value.is_object() {
         return Err(invalid(
-            "Managed integration manifest permissions must be 0600",
+            "Managed integration manifest must be a JSON object",
         ));
     }
-    read_json(path)
+    Ok((value, Some(bytes)))
 }
 
 fn validate_existing_private_file(path: &Path, label: &str) -> Result<()> {
@@ -160,27 +315,407 @@ fn validate_existing_private_file(path: &Path, label: &str) -> Result<()> {
     Ok(())
 }
 
-fn atomic_write(path: &Path, bytes: &[u8], private: bool) -> Result<()> {
-    if fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
-        return Err(invalid("Refusing symlink integration file"));
+struct BoundParent {
+    descriptor: OwnedFd,
+    path: PathBuf,
+    stat: Stat,
+}
+
+impl BoundParent {
+    fn open(path: &Path) -> Result<Self> {
+        let descriptor = open(
+            path,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(errno_error)?;
+        let stat = fstat(&descriptor).map_err(errno_error)?;
+        let named = statat(CWD, path, AtFlags::SYMLINK_NOFOLLOW).map_err(errno_error)?;
+        if FileType::from_raw_mode(stat.st_mode) != FileType::Directory
+            || !same_stat_identity(&stat, &named)
+            || stat.st_uid != nix::unistd::geteuid().as_raw()
+        {
+            return Err(invalid(&format!(
+                "Integration parent changed or is not owned by the effective user: {}",
+                path.display()
+            )));
+        }
+        Ok(Self {
+            descriptor,
+            path: path.to_path_buf(),
+            stat,
+        })
     }
+
+    fn verify(&self) -> Result<()> {
+        let opened = fstat(&self.descriptor).map_err(errno_error)?;
+        let named = statat(CWD, &self.path, AtFlags::SYMLINK_NOFOLLOW).map_err(errno_error)?;
+        if FileType::from_raw_mode(opened.st_mode) != FileType::Directory
+            || !same_stat_identity(&self.stat, &opened)
+            || !same_stat_identity(&self.stat, &named)
+        {
+            return Err(invalid(&format!(
+                "Integration parent changed during mutation: {}",
+                self.path.display()
+            )));
+        }
+        Ok(())
+    }
+
+    fn sync(&self) -> Result<()> {
+        rustix::fs::fsync(&self.descriptor).map_err(errno_error)?;
+        Ok(())
+    }
+}
+
+fn errno_error(error: rustix::io::Errno) -> Error {
+    Error::Io(std::io::Error::from(error))
+}
+
+fn same_stat_identity(left: &Stat, right: &Stat) -> bool {
+    left.st_dev == right.st_dev && left.st_ino == right.st_ino
+}
+
+fn path_parts(path: &Path) -> Result<(&Path, &OsStr)> {
     let parent = path
         .parent()
         .ok_or_else(|| invalid("Integration path has no parent"))?;
-    fs::create_dir_all(parent)?;
-    let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    let permissions = if private {
-        fs::Permissions::from_mode(PRIVATE_FILE_MODE)
-    } else {
-        path.metadata()
-            .map(|m| m.permissions())
-            .unwrap_or_else(|_| fs::Permissions::from_mode(PRIVATE_FILE_MODE))
+    let name = path
+        .file_name()
+        .ok_or_else(|| invalid("Integration path has no file name"))?;
+    if name == OsStr::new(".") || name == OsStr::new("..") {
+        return Err(invalid("Integration path has an unsafe file name"));
+    }
+    Ok((parent, name))
+}
+
+fn open_expected_file(
+    parent: &BoundParent,
+    name: &OsStr,
+    path: &Path,
+    expected: Option<&[u8]>,
+    required_mode: Option<u32>,
+) -> Result<Option<File>> {
+    let descriptor = match openat(
+        &parent.descriptor,
+        name,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+        Mode::empty(),
+    ) {
+        Ok(descriptor) => descriptor,
+        Err(rustix::io::Errno::NOENT) if expected.is_none() => return Ok(None),
+        Err(rustix::io::Errno::NOENT) => {
+            return Err(invalid(&format!(
+                "Integration file disappeared before mutation: {}",
+                path.display()
+            )));
+        }
+        Err(error) => return Err(errno_error(error)),
     };
-    file.as_file().set_permissions(permissions)?;
-    file.write_all(bytes)?;
-    file.as_file().sync_all()?;
-    file.persist(path).map_err(|e| Error::Io(e.error))?;
-    Ok(())
+    let file = File::from(descriptor);
+    let metadata = file.metadata()?;
+    validate_read_metadata(&metadata, "Integration mutation target", required_mode)?;
+    let Some(expected) = expected else {
+        return Err(invalid(&format!(
+            "Integration file appeared before mutation: {}",
+            path.display()
+        )));
+    };
+    let bytes = read_bounded_file(&file, MAX_INTEGRATION_JSON_BYTES as usize + 1)?;
+    if bytes != expected {
+        return Err(invalid(&format!(
+            "Integration file changed before mutation: {}",
+            path.display()
+        )));
+    }
+    validate_named_file(parent, name, &file, path)?;
+    Ok(Some(file))
+}
+
+fn read_bounded_file(file: &File, limit: usize) -> Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(limit.min(8192));
+    file.try_clone()?
+        .take(limit as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() == limit {
+        return Err(invalid(
+            "Integration mutation target exceeds its bounded size",
+        ));
+    }
+    Ok(bytes)
+}
+
+fn validate_named_file(
+    parent: &BoundParent,
+    name: &OsStr,
+    file: &File,
+    path: &Path,
+) -> Result<Stat> {
+    parent.verify()?;
+    let opened = fstat(file).map_err(errno_error)?;
+    let named = statat(&parent.descriptor, name, AtFlags::SYMLINK_NOFOLLOW).map_err(errno_error)?;
+    if FileType::from_raw_mode(opened.st_mode) != FileType::RegularFile
+        || !same_stat_identity(&opened, &named)
+    {
+        return Err(invalid(&format!(
+            "Integration file changed during mutation: {}",
+            path.display()
+        )));
+    }
+    Ok(opened)
+}
+
+pub(crate) fn write_managed_bytes_observed(
+    path: &Path,
+    bytes: &[u8],
+    private: bool,
+    expected: Option<&[u8]>,
+    observer: &mut impl MutationObserver,
+) -> Result<()> {
+    let receipt = atomic_write_observed_with_hook(path, bytes, private, expected, observer, || {})?;
+    observer.record_write(receipt)
+}
+
+#[cfg(test)]
+fn atomic_write_with_hook(
+    path: &Path,
+    bytes: &[u8],
+    private: bool,
+    expected: Option<&[u8]>,
+    before_commit: impl FnOnce(),
+) -> Result<WriteReceipt> {
+    let mut observer = UnobservedMutation;
+    let receipt = atomic_write_observed_with_hook(
+        path,
+        bytes,
+        private,
+        expected,
+        &mut observer,
+        before_commit,
+    )?;
+    observer.record_write(receipt.clone())?;
+    Ok(receipt.without_cleanup())
+}
+
+fn atomic_write_observed_with_hook(
+    path: &Path,
+    bytes: &[u8],
+    private: bool,
+    expected: Option<&[u8]>,
+    observer: &mut impl MutationObserver,
+    before_commit: impl FnOnce(),
+) -> Result<WriteReceipt> {
+    let (parent_path, target_name) = path_parts(path)?;
+    ensure_directory_tree(parent_path, false, observer)?;
+    let parent = BoundParent::open(parent_path)?;
+    let required_mode = private.then_some(PRIVATE_FILE_MODE);
+    let current = open_expected_file(&parent, target_name, path, expected, required_mode)?;
+    let namespace =
+        PrivateMutationDirectory::create(&parent.descriptor, parent_path, "integration-write")?;
+    let mode = if private {
+        PRIVATE_FILE_MODE
+    } else {
+        current
+            .as_ref()
+            .and_then(|file| file.metadata().ok())
+            .map(|metadata| metadata.permissions().mode() & 0o7777)
+            .unwrap_or(PRIVATE_FILE_MODE)
+    };
+    let file = namespace.create_file(bytes, mode)?;
+    namespace.verify_parent(&parent.descriptor)?;
+    let intent = namespace.staged_write(
+        path,
+        current
+            .as_ref()
+            .map(|file| (file, expected.unwrap_or_default())),
+        &file,
+        bytes,
+    )?;
+    observer.prepare_write(intent)?;
+    parent.verify()?;
+
+    let pending_cleanup = if let Some(current) = current {
+        validate_named_file(&parent, target_name, &current, path)?;
+        before_commit();
+        if let Err(error) = renameat_with(
+            namespace.descriptor(),
+            "entry",
+            &parent.descriptor,
+            target_name,
+            RenameFlags::EXCHANGE,
+        ) {
+            let cleanup = namespace.cleanup_for_entry(&file)?;
+            if let Err(cleanup_error) = observer.abort_mutation(path, cleanup) {
+                return Err(Error::Cleanup {
+                    primary: Box::new(errno_error(error)),
+                    cleanup: Box::new(cleanup_error),
+                });
+            }
+            return Err(errno_error(error));
+        }
+
+        let displaced_matches = (|| -> Result<bool> {
+            let displaced = openat(
+                namespace.descriptor(),
+                "entry",
+                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+                Mode::empty(),
+            )
+            .map(File::from)
+            .map_err(errno_error)?;
+            let displaced_stat = fstat(&displaced).map_err(errno_error)?;
+            let expected_stat = fstat(&current).map_err(errno_error)?;
+            let displaced_bytes =
+                read_bounded_file(&displaced, MAX_INTEGRATION_JSON_BYTES as usize + 1)?;
+            Ok(same_stat_identity(&displaced_stat, &expected_stat)
+                && displaced_bytes == expected.unwrap_or_default())
+        })();
+        if !matches!(displaced_matches, Ok(true)) {
+            renameat_with(
+                namespace.descriptor(),
+                "entry",
+                &parent.descriptor,
+                target_name,
+                RenameFlags::EXCHANGE,
+            )
+            .map_err(errno_error)?;
+            parent.sync()?;
+            let cleanup = namespace.cleanup_for_entry(&file)?;
+            observer.abort_mutation(path, cleanup)?;
+            displaced_matches?;
+            return Err(invalid(&format!(
+                "Integration file changed during compare-and-swap: {}",
+                path.display()
+            )));
+        }
+        parent.sync()?;
+        namespace.cleanup_for_entry(&current)?
+    } else {
+        before_commit();
+        match renameat_with(
+            namespace.descriptor(),
+            "entry",
+            &parent.descriptor,
+            target_name,
+            RenameFlags::NOREPLACE,
+        ) {
+            Ok(()) => parent.sync()?,
+            Err(error) => {
+                let cleanup = namespace.cleanup_for_entry(&file)?;
+                let aborted = observer.abort_mutation(path, cleanup);
+                if let Err(cleanup_error) = aborted {
+                    return Err(Error::Cleanup {
+                        primary: Box::new(if error == rustix::io::Errno::EXIST {
+                            invalid(&format!(
+                                "Integration file appeared during compare-and-swap: {}",
+                                path.display()
+                            ))
+                        } else {
+                            errno_error(error)
+                        }),
+                        cleanup: Box::new(cleanup_error),
+                    });
+                }
+                if error == rustix::io::Errno::EXIST {
+                    return Err(invalid(&format!(
+                        "Integration file appeared during compare-and-swap: {}",
+                        path.display()
+                    )));
+                }
+                return Err(errno_error(error));
+            }
+        }
+        namespace.cleanup_empty()
+    };
+    parent.verify()?;
+    WriteReceipt::persisted_with_cleanup(path, &file, bytes, Some(pending_cleanup))
+}
+
+pub(crate) fn remove_managed_bytes_observed(
+    path: &Path,
+    expected: &[u8],
+    observer: &mut impl MutationObserver,
+) -> Result<()> {
+    let receipt = remove_managed_path_observed_with_hook(path, expected, observer, || {})?;
+    observer.record_removal(receipt)
+}
+
+#[cfg(test)]
+fn remove_managed_path_with_hook(
+    path: &Path,
+    expected: &[u8],
+    before_commit: impl FnOnce(),
+) -> Result<WriteReceipt> {
+    let mut observer = UnobservedMutation;
+    let receipt =
+        remove_managed_path_observed_with_hook(path, expected, &mut observer, before_commit)?;
+    observer.record_removal(receipt.clone())?;
+    Ok(receipt.without_cleanup())
+}
+
+fn remove_managed_path_observed_with_hook(
+    path: &Path,
+    expected: &[u8],
+    observer: &mut impl MutationObserver,
+    before_commit: impl FnOnce(),
+) -> Result<WriteReceipt> {
+    let (parent_path, target_name) = path_parts(path)?;
+    let parent = BoundParent::open(parent_path)?;
+    let current = open_expected_file(&parent, target_name, path, Some(expected), None)?
+        .ok_or_else(|| {
+            invalid(&format!(
+                "Managed integration path disappeared: {}",
+                path.display()
+            ))
+        })?;
+    let namespace =
+        PrivateMutationDirectory::create(&parent.descriptor, parent_path, "integration-remove")?;
+    validate_named_file(&parent, target_name, &current, path)?;
+    observer.prepare_removal(namespace.planned_removal(path, &current, expected)?)?;
+    before_commit();
+    renameat_with(
+        &parent.descriptor,
+        target_name,
+        namespace.descriptor(),
+        "entry",
+        RenameFlags::NOREPLACE,
+    )
+    .map_err(errno_error)?;
+    let quarantined_matches = (|| -> Result<bool> {
+        let quarantined = openat(
+            namespace.descriptor(),
+            "entry",
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+            Mode::empty(),
+        )
+        .map(File::from)
+        .map_err(errno_error)?;
+        let current_stat = fstat(&current).map_err(errno_error)?;
+        let quarantined_stat = fstat(&quarantined).map_err(errno_error)?;
+        let quarantined_bytes =
+            read_bounded_file(&quarantined, MAX_INTEGRATION_JSON_BYTES as usize + 1)?;
+        Ok(same_stat_identity(&current_stat, &quarantined_stat) && quarantined_bytes == expected)
+    })();
+    if !matches!(quarantined_matches, Ok(true)) {
+        renameat_with(
+            namespace.descriptor(),
+            "entry",
+            &parent.descriptor,
+            target_name,
+            RenameFlags::NOREPLACE,
+        )
+        .map_err(errno_error)?;
+        parent.sync()?;
+        observer.abort_mutation(path, namespace.cleanup_empty())?;
+        quarantined_matches?;
+        return Err(invalid(&format!(
+            "Managed integration path changed during compare-and-swap: {}",
+            path.display()
+        )));
+    }
+    parent.sync()?;
+    let cleanup = namespace.cleanup_for_entry(&current)?;
+    WriteReceipt::removed_with_cleanup(path, Some(cleanup))
 }
 
 fn manifest_path(home: &Path, agent: &str) -> PathBuf {
@@ -317,7 +852,6 @@ pub fn plan(
         None
     };
     let (config_path, managed_paths) = if agent == "claude" {
-        validate_existing_user_file(&target_path, "Claude configuration")?;
         read_json(&target_path)?;
         (
             target_path.clone(),
@@ -416,8 +950,13 @@ pub fn installed(agent: &str, home: &Path) -> bool {
     };
     files.iter().all(|(name, expected)| {
         let target = Path::new(path).join(name);
-        validate_existing_private_file(&target, "Managed plugin file").is_ok()
-            && fs::read(target).is_ok_and(|bytes| bytes == expected.as_bytes())
+        read_bounded_user_file(
+            &target,
+            "Managed plugin file",
+            MAX_INTEGRATION_JSON_BYTES,
+            Some(PRIVATE_FILE_MODE),
+        )
+        .is_ok_and(|bytes| bytes.as_deref() == Some(expected.as_bytes()))
     })
 }
 
@@ -445,6 +984,13 @@ pub fn manage_with_executable(
 }
 
 pub fn apply(integration_plan: &IntegrationPlan) -> Result<Value> {
+    apply_observed(integration_plan, &mut UnobservedMutation)
+}
+
+pub(crate) fn apply_observed(
+    integration_plan: &IntegrationPlan,
+    observer: &mut impl MutationObserver,
+) -> Result<Value> {
     let command = match integration_plan.action {
         IntegrationAction::Install => AdapterCommand::Install {
             config: Some(integration_plan.target_path.clone()),
@@ -472,7 +1018,7 @@ pub fn apply(integration_plan: &IntegrationPlan) -> Result<Value> {
     let install = integration_plan.action == IntegrationAction::Install;
     let path = &integration_plan.target_path;
     let manifest_path = &integration_plan.manifest_path;
-    let previous = read_manifest(manifest_path)?;
+    let (previous, previous_manifest_bytes) = read_manifest_with_bytes(manifest_path)?;
     let mut preserved_modified = Vec::new();
 
     // Do not open a domain Store from an adapter installer.
@@ -481,20 +1027,15 @@ pub fn apply(integration_plan: &IntegrationPlan) -> Result<Value> {
             .parent()
             .and_then(Path::parent)
             .ok_or_else(|| invalid("Managed integration manifest has no home directory"))?;
-        fs::create_dir_all(home)?;
-        fs::set_permissions(home, fs::Permissions::from_mode(PRIVATE_DIRECTORY_MODE))?;
+        ensure_directory_tree(home, true, observer)?;
         let integration_directory = manifest_path
             .parent()
             .ok_or_else(|| invalid("Managed integration manifest has no parent"))?;
-        fs::create_dir_all(integration_directory)?;
-        fs::set_permissions(
-            integration_directory,
-            fs::Permissions::from_mode(PRIVATE_DIRECTORY_MODE),
-        )?;
+        ensure_directory_tree(integration_directory, true, observer)?;
     }
 
     if integration_plan.agent == "claude" {
-        let mut value = read_json(path)?;
+        let (mut value, previous_settings_bytes) = read_json_with_bytes(path)?;
         if let Some(hooks) = value.get("hooks")
             && !hooks.is_object()
         {
@@ -545,52 +1086,91 @@ pub fn apply(integration_plan: &IntegrationPlan) -> Result<Value> {
             }
         }
         // Validate and fully serialize before replacing user settings.
-        atomic_write(path, &serde_json::to_vec_pretty(&value)?, false)?;
+        let settings = serde_json::to_vec_pretty(&value)?;
+        write_managed_bytes_observed(
+            path,
+            &settings,
+            false,
+            previous_settings_bytes.as_deref(),
+            observer,
+        )?;
         if install {
-            atomic_write(
+            let manifest = serde_json::to_vec(&json!({"path":path,"command":command}))?;
+            write_managed_bytes_observed(
                 manifest_path,
-                &serde_json::to_vec(&json!({"path":path,"command":command}))?,
+                &manifest,
                 true,
+                previous_manifest_bytes.as_deref(),
+                observer,
             )?;
         }
     } else {
         let files = adapter_files(&integration_plan.agent)?;
         if install {
-            fs::create_dir_all(path)?;
-            fs::set_permissions(path, fs::Permissions::from_mode(PRIVATE_DIRECTORY_MODE))?;
+            ensure_directory_tree(path, true, observer)?;
             for (name, contents) in &files {
-                atomic_write(&path.join(name), contents.as_bytes(), true)?;
+                let target = path.join(name);
+                let previous_file = read_bounded_user_file(
+                    &target,
+                    "Managed plugin file",
+                    MAX_INTEGRATION_JSON_BYTES,
+                    Some(PRIVATE_FILE_MODE),
+                )?;
+                write_managed_bytes_observed(
+                    &target,
+                    contents.as_bytes(),
+                    true,
+                    previous_file.as_deref(),
+                    observer,
+                )?;
             }
-            atomic_write(
+            let manifest = serde_json::to_vec(&json!({
+                "path":path,
+                "files":files.iter().map(|(name, contents)| json!({
+                    "name":name,
+                    "blake3":blake3::hash(contents.as_bytes()).to_hex().to_string()
+                })).collect::<Vec<_>>()
+            }))?;
+            write_managed_bytes_observed(
                 manifest_path,
-                &serde_json::to_vec(&json!({
-                    "path":path,
-                    "files":files.iter().map(|(name, contents)| json!({
-                        "name":name,
-                        "blake3":blake3::hash(contents.as_bytes()).to_hex().to_string()
-                    })).collect::<Vec<_>>()
-                }))?,
+                &manifest,
                 true,
+                previous_manifest_bytes.as_deref(),
+                observer,
             )?;
         } else if !previous["path"].is_null() {
             // Never recursively delete a plugin directory that might contain user files.
             for (name, expected) in &files {
                 let target = path.join(name);
-                if target.is_file() {
-                    if fs::read(&target)? == expected.as_bytes() {
-                        fs::remove_file(target)?;
+                if let Some(bytes) = read_bounded_user_file(
+                    &target,
+                    "Managed plugin file",
+                    MAX_INTEGRATION_JSON_BYTES,
+                    Some(PRIVATE_FILE_MODE),
+                )? {
+                    if bytes == expected.as_bytes() {
+                        remove_managed_bytes_observed(&target, &bytes, observer)?;
                     } else {
                         preserved_modified.push(target);
                     }
                 }
             }
-            if path.is_dir() && fs::read_dir(path)?.next().is_none() {
-                fs::remove_dir(path)?;
-            }
         }
     }
-    if !install && manifest_path.exists() {
-        fs::remove_file(manifest_path)?;
+    if !install {
+        match fs::symlink_metadata(manifest_path) {
+            Ok(_) => {
+                remove_managed_bytes_observed(
+                    manifest_path,
+                    previous_manifest_bytes.as_deref().ok_or_else(|| {
+                        invalid("Managed integration manifest appeared during uninstall")
+                    })?,
+                    observer,
+                )?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
     }
     Ok(
         json!({"agent":integration_plan.agent,"installed":install,"path":path,"preserved_modified":preserved_modified,"note":if integration_plan.agent=="openclaw"{"Files installed. Enable hardknock with OpenClaw plugin allow/enable configuration; this command does not broaden trust."}else{"Restart the agent to load changed hooks/plugins."}}),
@@ -723,44 +1303,120 @@ mod tests {
     }
 
     #[test]
-    fn planning_refuses_symlinks_oversized_json_and_insecure_manifests() {
+    fn bounded_json_read_rejects_symlinks_non_regular_files_and_sparse_oversize() {
         let temporary = tempfile::tempdir().unwrap();
-        let executable = executable(temporary.path(), "stable-hardknock");
-        let home = temporary.path().join("hardknock");
-        let target = temporary.path().join("settings.json");
+        let target = temporary.path().join("target.json");
         let linked = temporary.path().join("linked.json");
         fs::write(&target, "{}").unwrap();
         symlink(&target, &linked).unwrap();
         assert!(
-            plan(
-                "claude",
-                &home,
-                &AdapterCommand::Install {
-                    config: Some(linked),
-                },
-                &executable,
-            )
-            .is_err()
+            read_json(&linked)
+                .unwrap_err()
+                .to_string()
+                .contains("symlink")
+        );
+
+        let hardlinked = temporary.path().join("hardlinked.json");
+        fs::hard_link(&target, &hardlinked).unwrap();
+        assert!(
+            read_json(&target)
+                .unwrap_err()
+                .to_string()
+                .contains("singly linked")
+        );
+
+        let directory = temporary.path().join("directory.json");
+        fs::create_dir(&directory).unwrap();
+        assert!(
+            read_json(&directory)
+                .unwrap_err()
+                .to_string()
+                .contains("regular file")
         );
 
         let oversized = temporary.path().join("oversized.json");
-        fs::write(
-            &oversized,
-            vec![b' '; MAX_INTEGRATION_JSON_BYTES as usize + 1],
-        )
-        .unwrap();
+        File::create(&oversized)
+            .unwrap()
+            .set_len(MAX_INTEGRATION_JSON_BYTES + 1)
+            .unwrap();
         assert!(
-            plan(
-                "claude",
-                &home,
-                &AdapterCommand::Install {
-                    config: Some(oversized),
-                },
-                &executable,
-            )
-            .is_err()
+            read_json(&oversized)
+                .unwrap_err()
+                .to_string()
+                .contains("byte limit")
         );
+    }
 
+    #[test]
+    fn bounded_json_read_enforces_the_limit_when_the_open_file_grows() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("settings.json");
+        fs::write(&path, "{}").unwrap();
+        let mut opened = open_bounded_user_file(
+            &path,
+            "Integration configuration",
+            MAX_INTEGRATION_JSON_BYTES,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(MAX_INTEGRATION_JSON_BYTES + 1)
+            .unwrap();
+
+        assert!(
+            read_opened_user_file(
+                &path,
+                &mut opened,
+                "Integration configuration",
+                MAX_INTEGRATION_JSON_BYTES,
+                None,
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("byte limit")
+        );
+    }
+
+    #[test]
+    fn bounded_json_read_rejects_path_replacement_after_open() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("settings.json");
+        let original = temporary.path().join("original.json");
+        fs::write(&path, "{}").unwrap();
+        let mut opened = open_bounded_user_file(
+            &path,
+            "Integration configuration",
+            MAX_INTEGRATION_JSON_BYTES,
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        fs::rename(&path, &original).unwrap();
+        fs::write(&path, "{}").unwrap();
+
+        assert!(
+            read_opened_user_file(
+                &path,
+                &mut opened,
+                "Integration configuration",
+                MAX_INTEGRATION_JSON_BYTES,
+                None,
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("changed while it was being read")
+        );
+    }
+
+    #[test]
+    fn planning_refuses_insecure_manifests() {
+        let temporary = tempfile::tempdir().unwrap();
+        let executable = executable(temporary.path(), "stable-hardknock");
+        let home = temporary.path().join("hardknock");
         fs::create_dir(&home).unwrap();
         fs::set_permissions(&home, fs::Permissions::from_mode(0o700)).unwrap();
         fs::create_dir(home.join("integrations")).unwrap();
@@ -815,5 +1471,72 @@ mod tests {
         assert!(!target.join("__init__.py").exists());
         assert_eq!(report["preserved_modified"].as_array().unwrap().len(), 1);
         assert!(!home.join("integrations/hermes.json").exists());
+    }
+
+    #[test]
+    fn atomic_write_preserves_a_concurrent_replacement() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("settings.json");
+        let original = temporary.path().join("settings.original");
+        fs::write(&path, b"old").unwrap();
+
+        let error = atomic_write_with_hook(&path, b"managed", false, Some(b"old"), || {
+            fs::rename(&path, &original).unwrap();
+            fs::write(&path, b"concurrent").unwrap();
+        })
+        .unwrap_err();
+
+        assert!(
+            error.to_string().contains("compare-and-swap"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(fs::read(&path).unwrap(), b"concurrent");
+        assert_eq!(fs::read(&original).unwrap(), b"old");
+        assert!(fs::read_dir(temporary.path()).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".hardknock-integration-write-")
+        }));
+    }
+
+    #[test]
+    fn atomic_create_refuses_a_concurrent_file() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("settings.json");
+
+        let error = atomic_write_with_hook(&path, b"managed", false, None, || {
+            fs::write(&path, b"concurrent").unwrap();
+        })
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("appeared during compare-and-swap")
+        );
+        assert_eq!(fs::read(&path).unwrap(), b"concurrent");
+    }
+
+    #[test]
+    fn managed_remove_preserves_a_concurrent_replacement() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("plugin.yaml");
+        let original = temporary.path().join("plugin.original");
+        fs::write(&path, b"managed").unwrap();
+
+        let error = remove_managed_path_with_hook(&path, b"managed", || {
+            fs::rename(&path, &original).unwrap();
+            fs::write(&path, b"concurrent").unwrap();
+        })
+        .unwrap_err();
+
+        assert!(
+            error.to_string().contains("compare-and-swap"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(fs::read(&path).unwrap(), b"concurrent");
+        assert_eq!(fs::read(&original).unwrap(), b"managed");
     }
 }

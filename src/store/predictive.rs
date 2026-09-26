@@ -44,6 +44,48 @@ pub struct NewTrajectory {
     pub context: TrajectoryContext,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct PreparedTrajectoryMutation {
+    expected_trajectory: ExecutionTrajectory,
+    trajectory: ExecutionTrajectory,
+    event: TrajectoryEvent,
+    point: TrajectoryPoint,
+    forecast: Option<PreparedForecastMutation>,
+}
+
+impl PreparedTrajectoryMutation {
+    pub(crate) fn forecasts(&self) -> &[FailureForecast] {
+        self.forecast
+            .as_ref()
+            .map_or(&[], |prepared| prepared.forecasts.as_slice())
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PreparedForecastMutation {
+    policy: ForecastPolicyConfig,
+    forecasts: Vec<FailureForecast>,
+    writes: Vec<ForecastWrite>,
+    freshness: Vec<WarningFreshnessUpdate>,
+}
+
+#[derive(Clone, Debug)]
+enum ForecastWrite {
+    Insert(Box<FailureForecast>),
+    Escalate {
+        previous: Box<FailureForecast>,
+        forecast: Box<FailureForecast>,
+    },
+}
+
+#[derive(Clone, Debug)]
+struct WarningFreshnessUpdate {
+    expected_signature: EarlyWarningSignature,
+    stale_signature: EarlyWarningSignature,
+    failure_trajectory: Option<(FailureTrajectory, FailureTrajectory)>,
+    observed_runtime_version: Option<String>,
+}
+
 fn derive_signals(
     event: &TrajectoryEventKind,
     observation: &TrajectoryObservation,
@@ -199,6 +241,20 @@ impl Store {
         id: &TrajectoryId,
         input: NewTrajectoryEvent,
     ) -> Result<TrajectoryEvent> {
+        let prepared = self.prepare_trajectory_mutation(id, input, None)?;
+        let item = prepared.event.clone();
+        let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
+        self.persist_prepared_trajectory_mutation(&tx, &prepared)?;
+        tx.commit()?;
+        Ok(item)
+    }
+
+    pub(crate) fn prepare_trajectory_mutation(
+        &self,
+        id: &TrajectoryId,
+        input: NewTrajectoryEvent,
+        forecast_profile: Option<ForecastPolicyProfile>,
+    ) -> Result<PreparedTrajectoryMutation> {
         validate_observation(&input.observation)?;
         let mut trajectory = self.trajectory(id)?;
         if trajectory.ended_at.is_some() {
@@ -206,6 +262,7 @@ impl Store {
                 "Ended trajectories are immutable".into(),
             ));
         }
+        let expected_trajectory = trajectory.clone();
         let sequence = u64::try_from(trajectory.events.len())
             .map_err(|_| Error::InvalidInput("Trajectory sequence overflow".into()))?;
         let item = TrajectoryEvent {
@@ -236,7 +293,57 @@ impl Store {
         trajectory.events.push(item.id.clone());
         trajectory.points.push(point.clone());
         trajectory.fingerprint = fingerprint(&all_events)?;
-        let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
+        let forecast = forecast_profile
+            .map(|profile| self.prepare_hypothetical_forecast(&trajectory, all_events, profile))
+            .transpose()?;
+        Ok(PreparedTrajectoryMutation {
+            expected_trajectory,
+            trajectory,
+            event: item,
+            point,
+            forecast,
+        })
+    }
+
+    pub(crate) fn immediate_transaction(&self) -> Result<Transaction<'_>> {
+        Ok(Transaction::new_unchecked(
+            &self.connection,
+            TransactionBehavior::Immediate,
+        )?)
+    }
+
+    pub(crate) fn persist_prepared_trajectory_mutation(
+        &self,
+        tx: &Transaction<'_>,
+        prepared: &PreparedTrajectoryMutation,
+    ) -> Result<()> {
+        let item = &prepared.event;
+        let point = &prepared.point;
+        let id = &item.trajectory_id;
+        let sequence = item.sequence;
+        let (current, ended_at): (String, Option<String>) = tx.query_row(
+            "SELECT data,ended_at FROM execution_trajectories WHERE id=?1",
+            [id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        if ended_at.is_some()
+            || serde_json::from_str::<serde_json::Value>(&current)?
+                != serde_json::to_value(&prepared.expected_trajectory)?
+        {
+            return Err(Error::Intervention(
+                "Trajectory changed after action preparation".into(),
+            ));
+        }
+        let changed = tx.execute(
+            "UPDATE execution_trajectories SET data=?2
+             WHERE id=?1 AND ended_at IS NULL AND data=?3",
+            params![id.to_string(), data(&prepared.trajectory)?, current],
+        )?;
+        if changed != 1 {
+            return Err(Error::Intervention(
+                "Trajectory changed before action commit".into(),
+            ));
+        }
         tx.execute(
             "INSERT INTO trajectory_events(id,trajectory_id,sequence,event_kind,created_at,data) VALUES(?1,?2,?3,?4,?5,?6)",
             params![item.id.to_string(), id.to_string(), i64::try_from(sequence).map_err(|_| Error::InvalidInput("Sequence overflow".into()))?, name(&item.kind)?, item.timestamp.to_rfc3339(), data(&item)?],
@@ -251,24 +358,22 @@ impl Store {
                 params![signal.id.to_string(), id.to_string(), i64::try_from(sequence).map_err(|_| Error::InvalidInput("Sequence overflow".into()))?, name(&signal.kind)?, signal.observed_at.to_rfc3339(), data(signal)?],
             )?;
             event(
-                &tx,
+                tx,
                 &signal.id.to_string(),
                 "trajectory_signal_observed",
                 serde_json::json!({"trajectory":id,"point":sequence,"kind":signal.kind}),
             )?;
         }
-        tx.execute(
-            "UPDATE execution_trajectories SET data=?2 WHERE id=?1 AND ended_at IS NULL",
-            params![id.to_string(), data(&trajectory)?],
-        )?;
         event(
-            &tx,
+            tx,
             &id.to_string(),
             "trajectory_updated",
             serde_json::json!({"event":item.id,"sequence":sequence}),
         )?;
-        tx.commit()?;
-        Ok(item)
+        if let Some(forecast) = &prepared.forecast {
+            self.persist_prepared_forecast(tx, forecast)?;
+        }
+        Ok(())
     }
 
     pub fn trajectory(&self, id: &TrajectoryId) -> Result<ExecutionTrajectory> {
@@ -917,6 +1022,260 @@ impl Store {
         profile: ForecastPolicyProfile,
     ) -> Result<Vec<FailureForecast>> {
         self.forecast_trajectory_internal(id, false, ForecastPolicyConfig::for_profile(profile))
+    }
+
+    fn prepare_hypothetical_forecast(
+        &self,
+        trajectory: &ExecutionTrajectory,
+        events: Vec<TrajectoryEvent>,
+        profile: ForecastPolicyProfile,
+    ) -> Result<PreparedForecastMutation> {
+        let mut signatures = self.warning_signatures()?;
+        let mut freshness = Vec::new();
+        for signature in &mut signatures {
+            let version_changed =
+                signature
+                    .required_runtime_version
+                    .as_ref()
+                    .is_some_and(|version| {
+                        trajectory.context.runtime_version.as_ref() != Some(version)
+                    });
+            if signature.origin != PredictiveOrigin::Local
+                || !version_changed
+                || !matches!(
+                    signature.status,
+                    RiskIndicatorStatus::Supported | RiskIndicatorStatus::Validated
+                )
+            {
+                continue;
+            }
+            let expected_signature = signature.clone();
+            signature.status = RiskIndicatorStatus::Stale;
+            signature.updated_at = Utc::now();
+            let failure_trajectory = signature
+                .failure_trajectory
+                .as_ref()
+                .map(|id| {
+                    let expected = self.failure_trajectory(id)?;
+                    let mut stale = expected.clone();
+                    stale.status = FailureTrajectoryStatus::Stale;
+                    Ok::<_, Error>((expected, stale))
+                })
+                .transpose()?;
+            freshness.push(WarningFreshnessUpdate {
+                expected_signature,
+                stale_signature: signature.clone(),
+                failure_trajectory,
+                observed_runtime_version: trajectory.context.runtime_version.clone(),
+            });
+        }
+        let mut causal = Vec::new();
+        for hypothesis in self.causal_hypotheses()? {
+            if matches!(
+                hypothesis.status,
+                CausalHypothesisStatus::Supported | CausalHypothesisStatus::StronglySupported
+            ) && hypothesis.remote_origin.is_none()
+            {
+                causal.push(hypothesis.id);
+            }
+        }
+        let policy = ForecastPolicyConfig::for_profile(profile);
+        let context = ForecastContext {
+            events,
+            signatures,
+            indicators: self.risk_indicators()?,
+            history: Vec::new(),
+            supported_causal_hypotheses: causal,
+            causal_precursors: Vec::new(),
+            envelope_proximity: trajectory
+                .points
+                .iter()
+                .rev()
+                .find_map(|point| point.state.variables.get("envelope_proximity"))
+                .and_then(|value| match value {
+                    TrajectoryValue::Text(value) => match value.as_str() {
+                        "interior" => Some(EnvelopeProximity::Interior),
+                        "near_boundary" => Some(EnvelopeProximity::NearBoundary),
+                        "at_boundary" => Some(EnvelopeProximity::AtBoundary),
+                        "outside_known_safe_region" => {
+                            Some(EnvelopeProximity::OutsideKnownSafeRegion)
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .unwrap_or_default(),
+            risk: crate::curriculum::Severity::Medium,
+            failure_trajectories: self.failure_trajectories()?,
+            interventions: self.preventive_interventions()?,
+            policy: policy.clone(),
+            window: Default::default(),
+        };
+        let generated = DeterministicForecastEngine.forecast(trajectory, &context)?;
+        let mut forecasts = Vec::new();
+        let mut writes = Vec::new();
+        for mut forecast in generated {
+            let existing = self
+                .connection
+                .query_row(
+                    "SELECT data FROM failure_forecasts WHERE trajectory_id=?1 AND signature_id=?2 AND status IN ('watch','elevated','actionable','imminent','active') ORDER BY created_at LIMIT 1",
+                    params![trajectory.id.to_string(), forecast.signature.to_string()],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            if let Some(existing) = existing {
+                let prior: FailureForecast = serde_json::from_str(&existing)?;
+                forecast.id = prior.id.clone();
+                forecast.created_at = prior.created_at;
+                if forecast.status > prior.status {
+                    writes.push(ForecastWrite::Escalate {
+                        previous: Box::new(prior),
+                        forecast: Box::new(forecast.clone()),
+                    });
+                    forecasts.push(forecast);
+                } else {
+                    forecasts.push(prior);
+                }
+            } else {
+                writes.push(ForecastWrite::Insert(Box::new(forecast.clone())));
+                forecasts.push(forecast);
+            }
+        }
+        Ok(PreparedForecastMutation {
+            policy,
+            forecasts,
+            writes,
+            freshness,
+        })
+    }
+
+    fn persist_prepared_forecast(
+        &self,
+        tx: &Transaction<'_>,
+        prepared: &PreparedForecastMutation,
+    ) -> Result<()> {
+        for update in &prepared.freshness {
+            let changed = tx.execute(
+                "UPDATE early_warning_signatures SET status='stale',data=?2
+                 WHERE id=?1 AND revision=?3 AND status=?4 AND data=?5",
+                params![
+                    update.stale_signature.id.to_string(),
+                    data(&update.stale_signature)?,
+                    i64::try_from(update.expected_signature.revision)
+                        .map_err(|_| Error::InvalidInput("Revision overflow".into()))?,
+                    name(&update.expected_signature.status)?,
+                    data(&update.expected_signature)?
+                ],
+            )?;
+            if changed != 1 {
+                return Err(Error::Intervention(
+                    "Warning signature changed after forecast preparation".into(),
+                ));
+            }
+            if let Some((expected, stale)) = &update.failure_trajectory {
+                let changed = tx.execute(
+                    "UPDATE failure_trajectories SET status='stale',data=?2
+                     WHERE id=?1 AND revision=?3 AND status=?4 AND data=?5",
+                    params![
+                        stale.id.to_string(),
+                        data(stale)?,
+                        i64::try_from(expected.revision).map_err(|_| {
+                            Error::InvalidInput("Failure trajectory revision overflow".into())
+                        })?,
+                        name(&expected.status)?,
+                        data(expected)?
+                    ],
+                )?;
+                if changed != 1 {
+                    return Err(Error::Intervention(
+                        "Failure trajectory changed after forecast preparation".into(),
+                    ));
+                }
+            }
+            event(
+                tx,
+                &update.stale_signature.id.to_string(),
+                "early_warning_stale",
+                serde_json::json!({
+                    "required_runtime_version":update.stale_signature.required_runtime_version,
+                    "observed_runtime_version":update.observed_runtime_version
+                }),
+            )?;
+        }
+        tx.execute(
+            "INSERT INTO forecast_policy_versions(version,data) VALUES(?1,?2) ON CONFLICT(version) DO NOTHING",
+            params![prepared.policy.version, data(&prepared.policy)?],
+        )?;
+        let stored_policy: String = tx.query_row(
+            "SELECT data FROM forecast_policy_versions WHERE version=?1",
+            [&prepared.policy.version],
+            |row| row.get(0),
+        )?;
+        if serde_json::from_str::<ForecastPolicyConfig>(&stored_policy)? != prepared.policy {
+            return Err(Error::Intervention(
+                "Forecast policy version names different contents".into(),
+            ));
+        }
+        for write in &prepared.writes {
+            match write {
+                ForecastWrite::Insert(forecast) => {
+                    let changed = tx.execute(
+                        "INSERT INTO failure_forecasts(id,trajectory_id,signature_id,failure_class,status,created_at,data) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                        params![forecast.id.to_string(), forecast.trajectory_id.to_string(), forecast.signature.to_string(), forecast.failure.signature,name(&forecast.status)?, forecast.created_at.to_rfc3339(), data(forecast)?],
+                    )?;
+                    if changed != 1 {
+                        return Err(Error::Intervention(
+                            "Failure forecast insert was not applied".into(),
+                        ));
+                    }
+                    for signal in &forecast.matched_signals {
+                        tx.execute(
+                            "INSERT OR IGNORE INTO forecast_signal_refs(forecast_id,signal_id) VALUES(?1,?2)",
+                            params![forecast.id.to_string(),signal.to_string()],
+                        )?;
+                    }
+                    event(
+                        tx,
+                        &forecast.id.to_string(),
+                        "failure_forecast_created",
+                        serde_json::json!({"trajectory":forecast.trajectory_id,"strength":forecast.strength,"horizon":forecast.horizon}),
+                    )?;
+                    for indicator in &forecast.indicators {
+                        event(
+                            tx,
+                            &indicator.to_string(),
+                            "risk_indicator_matched",
+                            serde_json::json!({"forecast":forecast.id,"trajectory":forecast.trajectory_id}),
+                        )?;
+                    }
+                }
+                ForecastWrite::Escalate { previous, forecast } => {
+                    let changed = tx.execute(
+                        "UPDATE failure_forecasts SET status=?2,data=?3
+                         WHERE id=?1 AND status=?4 AND data=?5",
+                        params![
+                            forecast.id.to_string(),
+                            name(&forecast.status)?,
+                            data(forecast)?,
+                            name(&previous.status)?,
+                            data(previous)?
+                        ],
+                    )?;
+                    if changed != 1 {
+                        return Err(Error::Intervention(
+                            "Failure forecast changed after preparation".into(),
+                        ));
+                    }
+                    event(
+                        tx,
+                        &forecast.id.to_string(),
+                        "failure_forecast_escalated",
+                        serde_json::json!({"from":previous.status,"to":forecast.status}),
+                    )?;
+                }
+            }
+        }
+        Ok(())
     }
 
     fn forecast_trajectory_internal(

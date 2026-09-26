@@ -14,17 +14,346 @@ use crate::{
 };
 use async_trait::async_trait;
 use chrono::Utc;
+use nix::{
+    errno::Errno,
+    sys::signal::{Signal, killpg},
+    unistd::Pid,
+};
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
-    process::Stdio,
+    process::{ExitStatus, Stdio},
     sync::{Arc, Mutex},
 };
 use tokio::{
-    process::Command,
-    time::{Duration, timeout},
+    io::{AsyncRead, AsyncReadExt},
+    process::{Child, Command},
+    task::JoinSet,
+    time::{Duration, Instant, timeout},
 };
+
+const DEFAULT_TOOL_OUTPUT_BYTES: u64 = 8 * 1024 * 1024;
+const CAPTURE_BUFFER_BYTES: usize = 64 * 1024;
+const CAPTURE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+const PROCESS_GROUP_SWEEP_WINDOW: Duration = Duration::from_millis(100);
+const PROCESS_GROUP_SWEEP_INTERVAL: Duration = Duration::from_millis(5);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CapturedStream {
+    Stdout,
+    Stderr,
+}
+
+impl CapturedStream {
+    const fn name(self) -> &'static str {
+        match self {
+            Self::Stdout => "stdout",
+            Self::Stderr => "stderr",
+        }
+    }
+}
+
+#[derive(Debug)]
+enum CaptureCompletion {
+    Complete,
+    Limit(CapturedStream),
+    Failed(CapturedStream, std::io::Error),
+}
+
+#[derive(Default)]
+struct CaptureState {
+    bytes: Vec<u8>,
+    limit_exceeded: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BoundedCommandStop {
+    OutputLimit(CapturedStream),
+    TimedOut,
+}
+
+struct BoundedCommandOutput {
+    status: ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    stop: Option<BoundedCommandStop>,
+}
+
+struct ProcessGroup(Option<Pid>);
+
+impl ProcessGroup {
+    fn signal(&self, leader_reaped: bool) -> Result<bool> {
+        let Some(pid) = self.0 else {
+            return Ok(false);
+        };
+        match killpg(pid, Signal::SIGKILL) {
+            Ok(()) => Ok(true),
+            Err(Errno::ESRCH) => Ok(false),
+            Err(Errno::EPERM) if leader_reaped => Ok(false),
+            Err(error) => Err(Error::Io(std::io::Error::from_raw_os_error(error as i32))),
+        }
+    }
+
+    async fn terminate_remaining(&self) -> Result<()> {
+        let deadline = Instant::now() + PROCESS_GROUP_SWEEP_WINDOW;
+        loop {
+            if !self.signal(true)? || Instant::now() >= deadline {
+                return Ok(());
+            }
+            tokio::time::sleep(PROCESS_GROUP_SWEEP_INTERVAL).await;
+        }
+    }
+}
+
+impl Drop for ProcessGroup {
+    fn drop(&mut self) {
+        if let Err(error) = self.signal(false) {
+            tracing::error!(%error, "Could not stop tool process group");
+        }
+    }
+}
+
+async fn capture_stream<R>(
+    mut input: R,
+    stream: CapturedStream,
+    maximum: usize,
+    state: Arc<Mutex<CaptureState>>,
+) -> CaptureCompletion
+where
+    R: AsyncRead + Unpin,
+{
+    let mut buffer = [0_u8; CAPTURE_BUFFER_BYTES];
+    loop {
+        let read = match input.read(&mut buffer).await {
+            Ok(read) => read,
+            Err(error) => return CaptureCompletion::Failed(stream, error),
+        };
+        if read == 0 {
+            return CaptureCompletion::Complete;
+        }
+        let mut state = match state.lock() {
+            Ok(state) => state,
+            Err(_) => {
+                return CaptureCompletion::Failed(
+                    stream,
+                    std::io::Error::other("tool output capture lock poisoned"),
+                );
+            }
+        };
+        let available = maximum.saturating_sub(state.bytes.len());
+        let retained = read.min(available);
+        state.bytes.extend_from_slice(&buffer[..retained]);
+        if retained < read {
+            state.limit_exceeded = true;
+            return CaptureCompletion::Limit(stream);
+        }
+    }
+}
+
+fn take_capture(state: &Arc<Mutex<CaptureState>>) -> Result<(Vec<u8>, bool)> {
+    let mut state = state
+        .lock()
+        .map_err(|_| Error::Intervention("Tool output capture lock poisoned".into()))?;
+    Ok((std::mem::take(&mut state.bytes), state.limit_exceeded))
+}
+
+async fn terminate_process_group(
+    child: &mut Child,
+    exit: &mut Option<ExitStatus>,
+    group: &mut ProcessGroup,
+) -> Result<()> {
+    let leader_reaped = exit.is_some();
+    let signal_result = group.signal(leader_reaped);
+    if exit.is_none() {
+        let _ = child.start_kill();
+        *exit = Some(child.wait().await?);
+    }
+    let sweep_result = group.terminate_remaining().await;
+    if signal_result.is_ok() && sweep_result.is_ok() {
+        group.0 = None;
+    }
+    signal_result?;
+    sweep_result
+}
+
+async fn settle_capture_tasks(captures: &mut JoinSet<CaptureCompletion>) {
+    if timeout(CAPTURE_SHUTDOWN_TIMEOUT, async {
+        while captures.join_next().await.is_some() {}
+    })
+    .await
+    .is_err()
+    {
+        captures.shutdown().await;
+    }
+}
+
+async fn bounded_command_output(
+    mut child: Child,
+    execution_timeout: Duration,
+    maximum: usize,
+) -> Result<BoundedCommandOutput> {
+    let pid = child
+        .id()
+        .and_then(|pid| i32::try_from(pid).ok())
+        .ok_or_else(|| Error::InvalidInput("Spawned tool process has no valid PID".into()))?;
+    let mut group = ProcessGroup(Some(Pid::from_raw(pid)));
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| Error::InvalidInput("Tool process has no stdout pipe".into()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| Error::InvalidInput("Tool process has no stderr pipe".into()))?;
+    let stdout_state = Arc::new(Mutex::new(CaptureState {
+        bytes: Vec::with_capacity(maximum.min(CAPTURE_BUFFER_BYTES)),
+        limit_exceeded: false,
+    }));
+    let stderr_state = Arc::new(Mutex::new(CaptureState {
+        bytes: Vec::with_capacity(maximum.min(CAPTURE_BUFFER_BYTES)),
+        limit_exceeded: false,
+    }));
+    let mut captures = JoinSet::new();
+    captures.spawn(capture_stream(
+        stdout,
+        CapturedStream::Stdout,
+        maximum,
+        Arc::clone(&stdout_state),
+    ));
+    captures.spawn(capture_stream(
+        stderr,
+        CapturedStream::Stderr,
+        maximum,
+        Arc::clone(&stderr_state),
+    ));
+
+    let deadline = Instant::now() + execution_timeout;
+    let mut exit = None;
+    let mut stop = None;
+    let mut primary_error = None;
+    loop {
+        if exit.is_some() && captures.is_empty() {
+            break;
+        }
+        tokio::select! {
+            biased;
+            completion = captures.join_next(), if !captures.is_empty() => {
+                match completion {
+                    Some(Ok(CaptureCompletion::Complete)) => {}
+                    Some(Ok(CaptureCompletion::Limit(stream))) => {
+                        stop = Some(BoundedCommandStop::OutputLimit(stream));
+                        break;
+                    }
+                    Some(Ok(CaptureCompletion::Failed(stream, error))) => {
+                        primary_error = Some(Error::Io(std::io::Error::new(
+                            error.kind(),
+                            format!("tool {} capture failed: {error}", stream.name()),
+                        )));
+                        break;
+                    }
+                    Some(Err(error)) => {
+                        primary_error = Some(Error::Intervention(format!(
+                            "Tool output capture task failed: {error}"
+                        )));
+                        break;
+                    }
+                    None => {}
+                }
+            }
+            result = child.wait(), if exit.is_none() => {
+                match result {
+                    Ok(status) => {
+                        exit = Some(status);
+                        break;
+                    }
+                    Err(error) => {
+                        primary_error = Some(Error::Io(error));
+                        break;
+                    }
+                }
+            }
+            _ = tokio::time::sleep_until(deadline) => {
+                stop = Some(BoundedCommandStop::TimedOut);
+                break;
+            }
+        }
+    }
+
+    let mut cleanup_error = None;
+    if let Err(error) = terminate_process_group(&mut child, &mut exit, &mut group).await {
+        cleanup_error = Some(error);
+    }
+    settle_capture_tasks(&mut captures).await;
+
+    let (stdout, stdout_exceeded) = take_capture(&stdout_state)?;
+    let (stderr, stderr_exceeded) = take_capture(&stderr_state)?;
+    if stdout_exceeded {
+        stop = Some(BoundedCommandStop::OutputLimit(CapturedStream::Stdout));
+    } else if stderr_exceeded {
+        stop = Some(BoundedCommandStop::OutputLimit(CapturedStream::Stderr));
+    }
+
+    if let Some(primary) = primary_error {
+        return Err(if let Some(cleanup) = cleanup_error {
+            Error::Cleanup {
+                primary: Box::new(primary),
+                cleanup: Box::new(cleanup),
+            }
+        } else {
+            primary
+        });
+    }
+    if let Some(error) = cleanup_error {
+        return Err(error);
+    }
+    Ok(BoundedCommandOutput {
+        status: exit.ok_or_else(|| Error::Intervention("Tool process was not reaped".into()))?,
+        stdout,
+        stderr,
+        stop,
+    })
+}
+
+fn tool_output_limit(sandbox: &MicroSandbox) -> Result<usize> {
+    usize::try_from(
+        sandbox
+            .capabilities
+            .resources
+            .output_bytes
+            .unwrap_or(DEFAULT_TOOL_OUTPUT_BYTES),
+    )
+    .map_err(|_| Error::InvalidInput("Tool output limit exceeds this platform".into()))
+}
+
+fn tool_execution_result(
+    output: BoundedCommandOutput,
+    started_at: chrono::DateTime<Utc>,
+    limit_ms: u64,
+) -> ToolExecutionResult {
+    if output.stop == Some(BoundedCommandStop::TimedOut) {
+        return ToolExecutionResult {
+            status: ToolExecutionStatus::TimedOut,
+            started_at: Some(started_at),
+            completed_at: Some(Utc::now()),
+            error: Some(format!("execution exceeded {limit_ms}ms")),
+            ..Default::default()
+        };
+    }
+    ToolExecutionResult {
+        status: if output.status.success() {
+            ToolExecutionStatus::Success
+        } else {
+            ToolExecutionStatus::Failed
+        },
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        truncated: matches!(output.stop, Some(BoundedCommandStop::OutputLimit(_))),
+        started_at: Some(started_at),
+        completed_at: Some(Utc::now()),
+        ..Default::default()
+    }
+}
 
 #[async_trait]
 pub trait MicroSandboxProvider: Send + Sync {
@@ -156,6 +485,7 @@ impl MicroSandboxProvider for HostMicroSandboxProvider {
             })
             .collect::<Vec<_>>();
         let started_at = Utc::now();
+        let maximum = tool_output_limit(sandbox)?;
         let mut command = Command::new(executable);
         command
             .args(args)
@@ -163,6 +493,7 @@ impl MicroSandboxProvider for HostMicroSandboxProvider {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .process_group(0)
             .env_clear()
             .kill_on_drop(true);
         command.env("PATH", "/usr/local/bin:/usr/bin:/bin");
@@ -179,38 +510,8 @@ impl MicroSandboxProvider for HostMicroSandboxProvider {
             .max_ms
             .or(sandbox.capabilities.resources.timeout_ms)
             .unwrap_or(300_000);
-        let output = match timeout(Duration::from_millis(limit), child.wait_with_output()).await {
-            Ok(result) => result?,
-            Err(_) => {
-                return Ok(ToolExecutionResult {
-                    status: ToolExecutionStatus::TimedOut,
-                    started_at: Some(started_at),
-                    completed_at: Some(Utc::now()),
-                    error: Some(format!("execution exceeded {limit}ms")),
-                    ..Default::default()
-                });
-            }
-        };
-        let maximum = sandbox
-            .capabilities
-            .resources
-            .output_bytes
-            .unwrap_or(8 * 1024 * 1024) as usize;
-        let (stdout, stdout_truncated) = bounded_text(&output.stdout, maximum);
-        let (stderr, stderr_truncated) = bounded_text(&output.stderr, maximum);
-        Ok(ToolExecutionResult {
-            status: if output.status.success() {
-                ToolExecutionStatus::Success
-            } else {
-                ToolExecutionStatus::Failed
-            },
-            stdout,
-            stderr,
-            truncated: stdout_truncated || stderr_truncated,
-            started_at: Some(started_at),
-            completed_at: Some(Utc::now()),
-            ..Default::default()
-        })
+        let output = bounded_command_output(child, Duration::from_millis(limit), maximum).await?;
+        Ok(tool_execution_result(output, started_at, limit))
     }
 
     async fn destroy(&self, sandbox: &MicroSandbox) -> Result<()> {
@@ -340,10 +641,33 @@ impl ContainerMicroSandboxProvider {
         Ok(args)
     }
 
-    fn command(&self, args: &[String]) -> Result<std::process::Output> {
-        Ok(std::process::Command::new(&self.runtime)
+    async fn command(&self, args: &[String]) -> Result<BoundedCommandOutput> {
+        let mut command = Command::new(&self.runtime);
+        command
             .args(args)
-            .output()?)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .process_group(0)
+            .kill_on_drop(true);
+        let child = command.spawn()?;
+        let output = bounded_command_output(
+            child,
+            Duration::from_millis(300_000),
+            DEFAULT_TOOL_OUTPUT_BYTES as usize,
+        )
+        .await?;
+        match output.stop {
+            Some(BoundedCommandStop::TimedOut) => Err(Error::Intervention(
+                "Micro-sandbox container runtime command exceeded 300000ms".into(),
+            )),
+            Some(BoundedCommandStop::OutputLimit(stream)) => Err(Error::Intervention(format!(
+                "Micro-sandbox container runtime {} exceeded the {} byte capture limit",
+                stream.name(),
+                DEFAULT_TOOL_OUTPUT_BYTES
+            ))),
+            None => Ok(output),
+        }
     }
 }
 
@@ -364,7 +688,7 @@ impl MicroSandboxProvider for ContainerMicroSandboxProvider {
             ));
         }
         let args = self.create_arguments(reality, tool, capabilities)?;
-        let output = self.command(&args)?;
+        let output = self.command(&args).await?;
         if !output.status.success() {
             return Err(Error::Intervention(format!(
                 "Micro-sandbox container create failed: {}",
@@ -404,7 +728,7 @@ impl MicroSandboxProvider for ContainerMicroSandboxProvider {
             .ok_or_else(|| {
                 Error::Intervention("Micro-sandbox container was not registered".into())
             })?;
-        let start = self.command(&["start".into(), container_id])?;
+        let start = self.command(&["start".into(), container_id]).await?;
         if !start.status.success() {
             let _ = self.destroy(&sandbox).await;
             return Err(Error::Intervention(format!(
@@ -462,40 +786,18 @@ impl MicroSandboxProvider for ContainerMicroSandboxProvider {
             .max_ms
             .or(sandbox.capabilities.resources.timeout_ms)
             .unwrap_or(300_000);
+        let maximum = tool_output_limit(sandbox)?;
         let mut command = tokio::process::Command::new(&self.runtime);
-        command.args(args).kill_on_drop(true);
-        let output = match timeout(Duration::from_millis(limit), command.output()).await {
-            Ok(result) => result?,
-            Err(_) => {
-                return Ok(ToolExecutionResult {
-                    status: ToolExecutionStatus::TimedOut,
-                    started_at: Some(started_at),
-                    completed_at: Some(Utc::now()),
-                    error: Some(format!("execution exceeded {limit}ms")),
-                    ..Default::default()
-                });
-            }
-        };
-        let maximum = sandbox
-            .capabilities
-            .resources
-            .output_bytes
-            .unwrap_or(8 * 1024 * 1024) as usize;
-        let (stdout, stdout_truncated) = bounded_text(&output.stdout, maximum);
-        let (stderr, stderr_truncated) = bounded_text(&output.stderr, maximum);
-        Ok(ToolExecutionResult {
-            status: if output.status.success() {
-                ToolExecutionStatus::Success
-            } else {
-                ToolExecutionStatus::Failed
-            },
-            stdout,
-            stderr,
-            truncated: stdout_truncated || stderr_truncated,
-            started_at: Some(started_at),
-            completed_at: Some(Utc::now()),
-            ..Default::default()
-        })
+        command
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .process_group(0)
+            .kill_on_drop(true);
+        let child = command.spawn()?;
+        let output = bounded_command_output(child, Duration::from_millis(limit), maximum).await?;
+        Ok(tool_execution_result(output, started_at, limit))
     }
 
     async fn destroy(&self, sandbox: &MicroSandbox) -> Result<()> {
@@ -505,7 +807,7 @@ impl MicroSandboxProvider for ContainerMicroSandboxProvider {
             .map_err(|_| Error::Intervention("Micro-sandbox registry lock poisoned".into()))?
             .remove(&sandbox.id);
         if let Some(id) = id {
-            let output = self.command(&["rm".into(), "--force".into(), id])?;
+            let output = self.command(&["rm".into(), "--force".into(), id]).await?;
             if !output.status.success() {
                 return Err(Error::Intervention(format!(
                     "Micro-sandbox cleanup failed: {}",
@@ -901,11 +1203,6 @@ impl Default for ToolExecutionResult {
     }
 }
 
-fn bounded_text(bytes: &[u8], maximum: usize) -> (String, bool) {
-    let truncated = bytes.len() > maximum;
-    let bytes = &bytes[..bytes.len().min(maximum)];
-    (String::from_utf8_lossy(bytes).into_owned(), truncated)
-}
 fn effect_boundary_capabilities(
     capabilities: &EffectiveToolCapabilities,
 ) -> EffectiveToolCapabilities {
@@ -935,4 +1232,371 @@ fn short_id(value: &str) -> String {
         .filter(|c| c.is_ascii_alphanumeric())
         .take(12)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        capability::builtin_profile,
+        core::RealityId,
+        tool::{builtin_tools, resolve_effective_capabilities},
+    };
+    use std::{
+        env, fs,
+        io::Write,
+        os::unix::fs::PermissionsExt,
+        path::{Path, PathBuf},
+    };
+
+    const OUTPUT_LIMIT: usize = 4096;
+
+    fn sandbox(runtime: MicroSandboxRuntime, timeout_ms: u64) -> (ToolDefinition, MicroSandbox) {
+        let tool = builtin_tools()
+            .into_iter()
+            .find(|tool| tool.name == "shell-generic")
+            .expect("shell tool");
+        let manifest = builtin_profile("coding-networked").expect("profile");
+        let mut capabilities = resolve_effective_capabilities(&manifest, &tool.capabilities, &[])
+            .expect("capabilities");
+        capabilities.resources.output_bytes = Some(OUTPUT_LIMIT as u64);
+        capabilities.resources.timeout_ms = Some(timeout_ms);
+        capabilities.duration.max_ms = Some(timeout_ms);
+        let mut sandbox = new_micro_sandbox(RealityId::new(), &tool, capabilities, runtime);
+        sandbox.expires_at = Utc::now() + chrono::Duration::minutes(1);
+        (tool, sandbox)
+    }
+
+    fn invocation(tool: &ToolDefinition, script: String) -> ResolvedToolInvocation {
+        ResolvedToolInvocation {
+            tool: tool.identity(),
+            executable: Some("/bin/sh".into()),
+            args: vec!["-c".into(), script],
+            input: Value::Null,
+            effect_adapter: None,
+        }
+    }
+
+    fn shell_path(path: &Path) -> String {
+        format!("'{}'", path.display().to_string().replace('\'', "'\"'\"'"))
+    }
+
+    fn pid(path: &Path) -> Pid {
+        let raw = fs::read_to_string(path).expect("pid file");
+        Pid::from_raw(raw.parse().expect("numeric pid"))
+    }
+
+    async fn wait_for_pid(path: &Path) -> Pid {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let Ok(raw) = fs::read_to_string(path)
+                && let Ok(value) = raw.parse()
+            {
+                return Pid::from_raw(value);
+            }
+            assert!(
+                Instant::now() < deadline,
+                "{} did not contain a complete process id",
+                path.display()
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    async fn assert_reaped(pid: Pid) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            match nix::sys::signal::kill(pid, None) {
+                Err(Errno::ESRCH) => return,
+                Ok(()) if Instant::now() < deadline => {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                result => panic!("process {pid} was not reaped: {result:?}"),
+            }
+        }
+    }
+
+    async fn assert_descendant_stopped(release: &Path, sentinel: &Path) {
+        fs::write(release, "release").expect("release descendant");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(
+            !sentinel.exists(),
+            "a process-group descendant survived cleanup"
+        );
+    }
+
+    fn fake_container_runtime(directory: &Path) -> PathBuf {
+        let runtime = directory.join("fake-container-runtime");
+        fs::write(
+            &runtime,
+            "#!/bin/sh\nset -eu\ntest \"$1\" = exec\nshift\nshift\nexec \"$@\"\n",
+        )
+        .expect("fake runtime");
+        let mut permissions = fs::metadata(&runtime)
+            .expect("runtime metadata")
+            .permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&runtime, permissions).expect("runtime permissions");
+        runtime
+    }
+
+    fn fake_container_runtime_checking_stdin(directory: &Path, observation: &Path) -> PathBuf {
+        let runtime = directory.join("fake-container-runtime-stdin");
+        fs::write(
+            &runtime,
+            format!(
+                "#!/bin/sh\n\
+                 set -eu\n\
+                 if IFS= read -r input; then\n\
+                   printf '%s' inherited > {observation}\n\
+                   exit 97\n\
+                 fi\n\
+                 printf '%s' eof > {observation}\n\
+                 test \"$1\" = exec\n\
+                 shift\n\
+                 shift\n\
+                 exec \"$@\"\n",
+                observation = shell_path(observation),
+            ),
+        )
+        .expect("fake runtime");
+        let mut permissions = fs::metadata(&runtime)
+            .expect("runtime metadata")
+            .permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&runtime, permissions).expect("runtime permissions");
+        runtime
+    }
+
+    #[tokio::test]
+    async fn trusted_host_stdout_capture_is_bounded_and_stops_the_process_group() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let leader = temp.path().join("leader.pid");
+        let release = temp.path().join("release");
+        let sentinel = temp.path().join("survived");
+        let (tool, sandbox) = sandbox(MicroSandboxRuntime::Host, 5_000);
+        let provider = HostMicroSandboxProvider::trusted_development();
+        provider.workspaces.lock().expect("workspaces").insert(
+            sandbox.id.clone(),
+            temp.path().canonicalize().expect("workspace"),
+        );
+        let script = format!(
+            "printf '%s' \"$$\" > {leader}; \
+             (while [ ! -e {release} ]; do sleep 0.01; done; touch {sentinel}) & \
+             while :; do printf '0123456789abcdef'; done",
+            leader = shell_path(&leader),
+            release = shell_path(&release),
+            sentinel = shell_path(&sentinel),
+        );
+
+        let result = provider
+            .execute(&sandbox, &invocation(&tool, script))
+            .await
+            .expect("host execution");
+
+        assert_eq!(result.status, ToolExecutionStatus::Failed);
+        assert!(result.truncated);
+        assert_eq!(result.stdout.len(), OUTPUT_LIMIT);
+        assert!(result.stderr.is_empty());
+        assert_reaped(pid(&leader)).await;
+        assert_descendant_stopped(&release, &sentinel).await;
+    }
+
+    #[tokio::test]
+    async fn container_stderr_capture_uses_the_same_bound_and_group_cleanup() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let leader = temp.path().join("leader.pid");
+        let release = temp.path().join("release");
+        let sentinel = temp.path().join("survived");
+        let runtime = fake_container_runtime(temp.path());
+        let (tool, sandbox) = sandbox(MicroSandboxRuntime::Container, 5_000);
+        let provider = ContainerMicroSandboxProvider::new(
+            runtime.to_string_lossy().into_owned(),
+            "fixture:image",
+        )
+        .expect("provider");
+        provider
+            .containers
+            .lock()
+            .expect("containers")
+            .insert(sandbox.id.clone(), "fixture-container".into());
+        let script = format!(
+            "printf '%s' \"$$\" > {leader}; \
+             (while [ ! -e {release} ]; do sleep 0.01; done; touch {sentinel}) & \
+             while :; do printf 'fedcba9876543210' >&2; done",
+            leader = shell_path(&leader),
+            release = shell_path(&release),
+            sentinel = shell_path(&sentinel),
+        );
+
+        let result = provider
+            .execute(&sandbox, &invocation(&tool, script))
+            .await
+            .expect("container execution");
+
+        assert_eq!(result.status, ToolExecutionStatus::Failed);
+        assert!(result.truncated);
+        assert!(result.stdout.is_empty());
+        assert_eq!(result.stderr.len(), OUTPUT_LIMIT);
+        assert_reaped(pid(&leader)).await;
+        assert_descendant_stopped(&release, &sentinel).await;
+    }
+
+    #[tokio::test]
+    async fn capture_deadline_preserves_timeout_result_and_stops_process_group() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let leader = temp.path().join("leader.pid");
+        let release = temp.path().join("release");
+        let sentinel = temp.path().join("survived");
+        let (tool, sandbox) = sandbox(MicroSandboxRuntime::Host, 50);
+        let provider = HostMicroSandboxProvider::trusted_development();
+        provider.workspaces.lock().expect("workspaces").insert(
+            sandbox.id.clone(),
+            temp.path().canonicalize().expect("workspace"),
+        );
+        let script = format!(
+            "printf '%s' \"$$\" > {leader}; \
+             (while [ ! -e {release} ]; do sleep 0.01; done; touch {sentinel}) & \
+             while :; do sleep 1; done",
+            leader = shell_path(&leader),
+            release = shell_path(&release),
+            sentinel = shell_path(&sentinel),
+        );
+
+        let result = provider
+            .execute(&sandbox, &invocation(&tool, script))
+            .await
+            .expect("timed execution");
+
+        assert_eq!(result.status, ToolExecutionStatus::TimedOut);
+        assert_eq!(result.error.as_deref(), Some("execution exceeded 50ms"));
+        assert!(result.stdout.is_empty());
+        assert!(result.stderr.is_empty());
+        assert!(!result.truncated);
+        assert_reaped(pid(&leader)).await;
+        assert_descendant_stopped(&release, &sentinel).await;
+    }
+
+    #[tokio::test]
+    async fn successful_leader_exit_stops_redirected_background_descendant() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let descendant = temp.path().join("descendant.pid");
+        let (tool, sandbox) = sandbox(MicroSandboxRuntime::Host, 5_000);
+        let provider = HostMicroSandboxProvider::trusted_development();
+        provider.workspaces.lock().expect("workspaces").insert(
+            sandbox.id.clone(),
+            temp.path().canonicalize().expect("workspace"),
+        );
+        let script = format!(
+            "sleep 300 </dev/null >/dev/null 2>&1 & \
+             printf '%s' \"$!\" > {descendant}; \
+             exit 0",
+            descendant = shell_path(&descendant),
+        );
+
+        let result = provider
+            .execute(&sandbox, &invocation(&tool, script))
+            .await
+            .expect("host execution");
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert!(result.stdout.is_empty());
+        assert!(result.stderr.is_empty());
+        assert!(!result.truncated);
+        assert_reaped(pid(&descendant)).await;
+    }
+
+    #[tokio::test]
+    async fn container_runtime_stdin_is_null() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let observation = temp.path().join("stdin-observation");
+        let runtime = fake_container_runtime_checking_stdin(temp.path(), &observation);
+        let mut command = std::process::Command::new(env::current_exe().expect("test executable"));
+        command
+            .args([
+                "--exact",
+                "tool_runtime::tests::container_runtime_stdin_helper",
+                "--nocapture",
+            ])
+            .env("HARDKNOCK_TEST_CONTAINER_RUNTIME", &runtime)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().expect("spawn helper test");
+        child
+            .stdin
+            .take()
+            .expect("helper stdin")
+            .write_all(b"caller input must not reach the runtime\n")
+            .expect("write helper stdin");
+        let output = child.wait_with_output().expect("wait for helper test");
+
+        assert!(
+            output.status.success(),
+            "helper failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        assert_eq!(
+            fs::read_to_string(observation).expect("stdin observation"),
+            "eof"
+        );
+    }
+
+    #[tokio::test]
+    async fn container_runtime_stdin_helper() {
+        let Some(runtime) = env::var_os("HARDKNOCK_TEST_CONTAINER_RUNTIME") else {
+            return;
+        };
+        let (tool, sandbox) = sandbox(MicroSandboxRuntime::Container, 5_000);
+        let provider =
+            ContainerMicroSandboxProvider::new(runtime.to_string_lossy().into_owned(), "fixture")
+                .expect("provider");
+        provider
+            .containers
+            .lock()
+            .expect("containers")
+            .insert(sandbox.id.clone(), "fixture-container".into());
+        let result = provider
+            .execute(&sandbox, &invocation(&tool, "printf 'ok'".into()))
+            .await
+            .expect("container execution");
+
+        assert_eq!(result.status, ToolExecutionStatus::Success);
+        assert_eq!(result.stdout, "ok");
+    }
+
+    #[tokio::test]
+    async fn dropping_execution_for_cancellation_stops_the_process_group() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let leader = temp.path().join("leader.pid");
+        let release = temp.path().join("release");
+        let sentinel = temp.path().join("survived");
+        let (tool, sandbox) = sandbox(MicroSandboxRuntime::Host, 5_000);
+        let provider = HostMicroSandboxProvider::trusted_development();
+        provider.workspaces.lock().expect("workspaces").insert(
+            sandbox.id.clone(),
+            temp.path().canonicalize().expect("workspace"),
+        );
+        let script = format!(
+            "printf '%s' \"$$\" > {leader}; \
+             (while [ ! -e {release} ]; do sleep 0.01; done; touch {sentinel}) & \
+             while :; do sleep 1; done",
+            leader = shell_path(&leader),
+            release = shell_path(&release),
+            sentinel = shell_path(&sentinel),
+        );
+        let invocation = invocation(&tool, script);
+        let execution = tokio::spawn({
+            let provider = provider.clone();
+            let sandbox = sandbox.clone();
+            async move { provider.execute(&sandbox, &invocation).await }
+        });
+
+        let leader_pid = wait_for_pid(&leader).await;
+        execution.abort();
+        assert!(execution.await.expect_err("cancelled task").is_cancelled());
+        assert_reaped(leader_pid).await;
+        assert_descendant_stopped(&release, &sentinel).await;
+    }
 }

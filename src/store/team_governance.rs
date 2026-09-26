@@ -5,6 +5,16 @@ use chrono::Utc;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Serialize, de::DeserializeOwned};
 use std::collections::{BTreeMap, BTreeSet};
+
+#[derive(Clone, Debug)]
+pub(crate) struct PreparedRoleKnowledgeView {
+    pub(crate) view: RoleKnowledgeView,
+    context: RuntimeDecisionContext,
+    id: String,
+    team: AgentTeamId,
+    data: String,
+}
+
 fn invalid(s: &str) -> Error {
     Error::InvalidInput(s.into())
 }
@@ -173,6 +183,18 @@ impl Store {
         &self,
         context: &RuntimeDecisionContext,
     ) -> Result<RoleKnowledgeView> {
+        let prepared = self.prepare_role_knowledge_view(context)?;
+        let view = prepared.view.clone();
+        let transaction =
+            Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;
+        self.persist_prepared_role_knowledge_view(&transaction, &prepared)?;
+        transaction.commit()?;
+        Ok(view)
+    }
+    pub(crate) fn prepare_role_knowledge_view(
+        &self,
+        context: &RuntimeDecisionContext,
+    ) -> Result<PreparedRoleKnowledgeView> {
         let b = context
             .team
             .as_ref()
@@ -253,11 +275,15 @@ impl Store {
         let mut hidden = policy.hidden_artifacts.clone();
         let mut visible = BTreeSet::new();
         let mut fresh = context.clone();
-        self.attach_runtime_knowledge(&mut fresh)?;
+        self.attach_runtime_knowledge_read_only(&mut fresh)?;
         let mut origins = BTreeMap::new();
         if let Some(knowledge) = &fresh.operational_knowledge {
-            let snapshot = self.knowledge_snapshot(&knowledge.snapshot.id)?;
-            for hierarchy in self.snapshot_hierarchies(&snapshot)? {
+            if !self.guidance_is_current(&knowledge.validity, &knowledge.context)? {
+                return Err(Error::Intervention(
+                    "Hierarchy changed before role knowledge projection".into(),
+                ));
+            }
+            for hierarchy in self.knowledge_hierarchies()? {
                 for node in hierarchy.nodes.values() {
                     origins.insert(node.artifact.id.clone(), node.provenance.origin);
                 }
@@ -338,13 +364,40 @@ impl Store {
             lessons,
             snapshot: fresh.operational_knowledge.map(|k| k.snapshot),
         };
-        self.team_record(
-            "knowledge_exposed",
-            &uuid::Uuid::new_v4().to_string(),
-            &b.team,
-            &view,
+        let data = serde_json::to_string(&view)?;
+        if data.len() > 1024 * 1024 {
+            return Err(invalid("Team record exceeds 1 MiB"));
+        }
+        Ok(PreparedRoleKnowledgeView {
+            view,
+            context: context.clone(),
+            id: uuid::Uuid::new_v4().to_string(),
+            team: b.team.clone(),
+            data,
+        })
+    }
+    pub(crate) fn persist_prepared_role_knowledge_view(
+        &self,
+        transaction: &Transaction<'_>,
+        prepared: &PreparedRoleKnowledgeView,
+    ) -> Result<()> {
+        let current = self.prepare_role_knowledge_view(&prepared.context)?;
+        if serde_json::to_value(&current.view)? != serde_json::to_value(&prepared.view)? {
+            return Err(Error::Intervention(
+                "Team authority or role knowledge changed after preparation".into(),
+            ));
+        }
+        transaction.execute(
+            "INSERT INTO team_records(kind,id,team,data)
+             VALUES('knowledge_exposed',?1,?2,?3)",
+            params![prepared.id, prepared.team.to_string(), prepared.data],
         )?;
-        Ok(view)
+        transaction.execute(
+            "INSERT INTO team_events(team,kind,data)
+             VALUES(?1,'knowledge_exposed',?2)",
+            params![prepared.team.to_string(), prepared.data],
+        )?;
+        Ok(())
     }
     pub fn assign_responsibility(&self, r: &ResponsibilityAssignment) -> Result<()> {
         let tx = Transaction::new_unchecked(&self.connection, TransactionBehavior::Immediate)?;

@@ -20,20 +20,20 @@ fn identity(name: &str) -> AgentIdentity {
     }
 }
 
-fn process_state(pid: i32) -> String {
-    let output = std::process::Command::new("ps")
-        .args(["-p", &pid.to_string(), "-o", "stat="])
-        .output()
-        .unwrap();
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+fn process_exists(pid: i32) -> bool {
+    match nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None) {
+        Ok(()) => true,
+        Err(nix::errno::Errno::ESRCH) => false,
+        Err(error) => panic!("could not inspect descendant {pid}: {error}"),
+    }
 }
 
-async fn wait_for_process_to_stop(pid: i32) -> String {
+async fn wait_for_process_to_stop(pid: i32) -> bool {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
     loop {
-        let state = process_state(pid);
-        if state.is_empty() || state.starts_with('Z') || tokio::time::Instant::now() >= deadline {
-            return state;
+        let exists = process_exists(pid);
+        if !exists || tokio::time::Instant::now() >= deadline {
+            return exists;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
@@ -404,10 +404,9 @@ async fn cancellation_kills_child_discards_realities_and_retains_interrupted_exp
         hardknock::experience::Outcome::Interrupted
     );
     for pid in pid {
-        let state = wait_for_process_to_stop(pid).await;
         assert!(
-            state.is_empty() || state.starts_with('Z'),
-            "descendant {pid} still active: {state}"
+            !wait_for_process_to_stop(pid).await,
+            "descendant {pid} still exists"
         );
     }
     f.assert_source_unchanged();

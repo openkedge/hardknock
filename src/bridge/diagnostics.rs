@@ -842,6 +842,7 @@ mod tests {
                 .to_string()
                 .contains("diagnostic launcher is already active")
         );
+        FileExt::unlock(&first).unwrap();
         drop(first);
         launcher_lock(&directory).unwrap();
     }

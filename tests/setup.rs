@@ -5,7 +5,9 @@ use std::{
     fs,
     os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 fn command(user_home: &Path, data_home: &Path) -> Command {
@@ -53,6 +55,20 @@ fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
     let data_home = temporary.path().join("data");
     private_directory(&user_home);
     (temporary, user_home, data_home)
+}
+
+fn recovery_directories(parent: &Path) -> Vec<PathBuf> {
+    fs::read_dir(parent)
+        .unwrap()
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name().is_some_and(|name| {
+                let name = name.to_string_lossy();
+                name.starts_with(".hardknock-setup-") && name.ends_with(".recovery")
+            })
+        })
+        .collect()
 }
 
 #[test]
@@ -160,7 +176,13 @@ fn setup_repair_upgrade_and_uninstall_preserve_idempotent_ownership() {
             "--non-interactive",
         ],
     );
-    assert_eq!(repair_output.status.code(), Some(1));
+    assert_eq!(
+        repair_output.status.code(),
+        Some(1),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&repair_output.stdout),
+        String::from_utf8_lossy(&repair_output.stderr)
+    );
     assert_eq!(result(&repair_output)["operation"], "repair");
     assert_eq!(backup_count(&data_home), 1);
 
@@ -286,14 +308,13 @@ fn failed_setup_restores_agent_configuration_and_managed_files() {
     assert_eq!(fs::read(&settings).unwrap(), original);
     assert!(!data_home.join("setup/manifest-v1.json").exists());
     assert!(!data_home.join("integrations/claude.json").exists());
-    assert!(
-        fs::read_dir(data_home.parent().unwrap())
+    assert!(recovery_directories(data_home.parent().unwrap()).is_empty());
+    assert_eq!(
+        fs::read_dir(data_home.join("setup/transactions"))
             .unwrap()
             .filter_map(std::result::Result::ok)
-            .any(|entry| entry
-                .file_name()
-                .to_string_lossy()
-                .contains("hardknock-setup"))
+            .count(),
+        1
     );
 }
 
@@ -338,7 +359,136 @@ fn failed_new_setup_preserves_files_created_concurrently() {
         "not valid = [\n"
     );
     assert!(!data_home.join("setup/manifest-v1.json").exists());
-    assert!(data_home.join("hardknock.db").is_file());
+    assert!(!data_home.join("hardknock.db").exists());
+    assert!(recovery_directories(data_home.parent().unwrap()).is_empty());
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn repair_recovers_setup_killed_during_service_activation() {
+    use nix::{
+        sys::signal::{Signal, kill, killpg},
+        unistd::Pid,
+    };
+
+    let (_temporary, user_home, data_home) = fixture();
+    let claude = user_home.join(".claude");
+    private_directory(&claude);
+    let settings = claude.join("settings.json");
+    let original = serde_json::to_vec_pretty(&json!({"model":"unchanged"})).unwrap();
+    fs::write(&settings, &original).unwrap();
+    fs::set_permissions(&settings, fs::Permissions::from_mode(0o600)).unwrap();
+
+    let manager_directory = user_home.join("fake-manager");
+    private_directory(&manager_directory);
+    let marker = user_home.join("manager.pid");
+    let manager_name = if cfg!(target_os = "linux") {
+        "systemctl"
+    } else {
+        "launchctl"
+    };
+    let manager = manager_directory.join(manager_name);
+    fs::write(
+        &manager,
+        "#!/bin/sh\numask 077\nprintf '%s\\n' \"$$\" > \"$HARDKNOCK_TEST_MANAGER_MARKER\"\nwhile :; do /bin/sleep 1; done\n",
+    )
+    .unwrap();
+    fs::set_permissions(&manager, fs::Permissions::from_mode(0o700)).unwrap();
+
+    let mut interrupted = command(&user_home, &data_home)
+        .env("PATH", &manager_directory)
+        .env("XDG_CONFIG_HOME", user_home.join(".config"))
+        .env("HARDKNOCK_TEST_MANAGER_MARKER", &marker)
+        .args([
+            "setup",
+            "--agent",
+            "claude",
+            "--mode",
+            "workstation",
+            "--non-interactive",
+            "--start",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !marker.is_file() && Instant::now() < deadline {
+        assert!(
+            interrupted.try_wait().unwrap().is_none(),
+            "setup exited before service activation"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+    if !marker.is_file() {
+        let _ = interrupted.kill();
+        let _ = interrupted.wait();
+        panic!("setup did not reach service activation");
+    }
+    assert_ne!(fs::read(&settings).unwrap(), original);
+    assert_eq!(recovery_directories(data_home.parent().unwrap()).len(), 1);
+
+    kill(Pid::from_raw(interrupted.id() as i32), Signal::SIGKILL).unwrap();
+    interrupted.wait().unwrap();
+    let manager_pid = fs::read_to_string(&marker)
+        .unwrap()
+        .trim()
+        .parse::<i32>()
+        .unwrap();
+    let _ = killpg(Pid::from_raw(manager_pid), Signal::SIGKILL);
+
+    let refused = run(
+        &user_home,
+        &data_home,
+        &[
+            "setup",
+            "--agent",
+            "none",
+            "--mode",
+            "ci",
+            "--non-interactive",
+        ],
+    );
+    assert!(!refused.status.success());
+    assert!(refused.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("unfinished Hardknock setup transaction")
+    );
+
+    let repair_output = run(
+        &user_home,
+        &data_home,
+        &[
+            "repair",
+            "--agent",
+            "none",
+            "--mode",
+            "ci",
+            "--non-interactive",
+        ],
+    );
+    assert_eq!(
+        repair_output.status.code(),
+        Some(1),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&repair_output.stdout),
+        String::from_utf8_lossy(&repair_output.stderr)
+    );
+    let repair = result(&repair_output);
+    assert!(
+        repair["warnings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|warning| {
+                warning
+                    .as_str()
+                    .is_some_and(|warning| warning.contains("Recovered and rolled back"))
+            })
+    );
+    assert_eq!(fs::read(&settings).unwrap(), original);
+    assert!(recovery_directories(data_home.parent().unwrap()).is_empty());
 }
 
 #[test]

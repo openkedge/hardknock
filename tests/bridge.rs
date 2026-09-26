@@ -238,10 +238,15 @@ fn action_path_does_not_wait_for_evaluator_and_p95_is_bounded() {
     }
     timings.sort_unstable();
     let p95 = timings[189];
+    let p95_limit_us = if cfg!(debug_assertions) {
+        250_000
+    } else {
+        25_000
+    };
     println!(
-        "BRIDGE_PRE_ACTION_P95_US={p95} N=200 (including enqueue; background evaluator running)"
+        "BRIDGE_PRE_ACTION_P95_US={p95} N=200 (including durable commit; background evaluator running; limit={p95_limit_us}us)"
     );
-    assert!(p95 < 25000, "p95 {p95}us exceeded 25ms");
+    assert!(p95 < p95_limit_us, "p95 {p95}us exceeded {p95_limit_us}us");
 }
 #[test]
 fn independent_user_policy_is_the_only_block_source() {
@@ -274,6 +279,12 @@ async fn authenticated_unix_and_tcp_transport_and_cleanup() {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        if server.is_finished() {
+            panic!(
+                "Bridge server exited before the first request: {:?}",
+                server.await.unwrap()
+            );
         }
         assert_eq!(
             client.request(AgentEvent::Status).await.unwrap()["status"],
@@ -1016,6 +1027,12 @@ async fn bridge_shutdown_cancels_and_reaps_a_running_evaluator() {
             break;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    if server.is_finished() {
+        panic!(
+            "Bridge server exited before the shutdown test request: {:?}",
+            server.await.unwrap()
+        );
     }
     let mut client = BridgeClient::new(&f.home);
     client.timeout = Duration::from_secs(2);

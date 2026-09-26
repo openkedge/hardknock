@@ -3,8 +3,13 @@ use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
+    fs::{self, File, OpenOptions},
+    io::Read,
+    os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
 };
+
+const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -120,20 +125,99 @@ impl RuntimeConfig {
 pub struct RuntimeExperimentConfig {
     pub mode: crate::runtime::ExperimentMode,
 }
+
+struct OpenedConfig {
+    file: File,
+    metadata: fs::Metadata,
+}
+
+fn invalid(message: impl Into<String>) -> Error {
+    Error::InvalidInput(message.into())
+}
+
+fn same_identity(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    left.dev() == right.dev() && left.ino() == right.ino()
+}
+
+fn open_config(path: &Path) -> Result<Option<OpenedConfig>> {
+    let path_metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    if path_metadata.file_type().is_symlink() {
+        return Err(invalid("Configuration must not be a symlink"));
+    }
+    if !path_metadata.is_file() {
+        return Err(invalid("Configuration must be a regular file"));
+    }
+    if path_metadata.len() > MAX_CONFIG_BYTES {
+        return Err(invalid("Configuration exceeds 1 MiB"));
+    }
+
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_NOFOLLOW)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || !same_identity(&path_metadata, &metadata) {
+        return Err(invalid("Configuration changed while it was being opened"));
+    }
+    if metadata.len() > MAX_CONFIG_BYTES {
+        return Err(invalid("Configuration exceeds 1 MiB"));
+    }
+    Ok(Some(OpenedConfig { file, metadata }))
+}
+
+fn read_opened_config(path: &Path, opened: &mut OpenedConfig) -> Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(
+        usize::try_from(opened.metadata.len())
+            .unwrap_or(0)
+            .min(8192),
+    );
+    (&mut opened.file)
+        .take(MAX_CONFIG_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+
+    let descriptor_metadata = opened.file.metadata()?;
+    if bytes.len() as u64 > MAX_CONFIG_BYTES || descriptor_metadata.len() > MAX_CONFIG_BYTES {
+        return Err(invalid("Configuration exceeds 1 MiB"));
+    }
+    let path_metadata = fs::symlink_metadata(path)?;
+    if path_metadata.file_type().is_symlink()
+        || !path_metadata.is_file()
+        || !same_identity(&opened.metadata, &descriptor_metadata)
+        || !same_identity(&opened.metadata, &path_metadata)
+        || opened.metadata.len() != descriptor_metadata.len()
+        || opened.metadata.mtime() != descriptor_metadata.mtime()
+        || opened.metadata.mtime_nsec() != descriptor_metadata.mtime_nsec()
+        || opened.metadata.ctime() != descriptor_metadata.ctime()
+        || opened.metadata.ctime_nsec() != descriptor_metadata.ctime_nsec()
+        || opened.metadata.len() != path_metadata.len()
+        || opened.metadata.mtime() != path_metadata.mtime()
+        || opened.metadata.mtime_nsec() != path_metadata.mtime_nsec()
+        || opened.metadata.ctime() != path_metadata.ctime()
+        || opened.metadata.ctime_nsec() != path_metadata.ctime_nsec()
+    {
+        return Err(invalid("Configuration changed while it was being read"));
+    }
+    Ok(bytes)
+}
+
+fn read_config(path: &Path) -> Result<Option<Vec<u8>>> {
+    let Some(mut opened) = open_config(path)? else {
+        return Ok(None);
+    };
+    read_opened_config(path, &mut opened).map(Some)
+}
+
 impl Config {
     pub fn load(home: &Path) -> Result<Self> {
         let path = home.join("config.toml");
-        let config: Self = if path.exists() {
-            if std::fs::symlink_metadata(&path)?.file_type().is_symlink() {
-                return Err(Error::InvalidInput(
-                    "Configuration must not be a symlink".into(),
-                ));
-            }
-            let bytes = std::fs::read_to_string(path)?;
-            if bytes.len() > 1024 * 1024 {
-                return Err(Error::InvalidInput("Configuration exceeds 1 MiB".into()));
-            }
-            toml::from_str(&bytes)
+        let config: Self = if let Some(bytes) = read_config(&path)? {
+            let text = std::str::from_utf8(&bytes)
+                .map_err(|_| invalid("Configuration must be valid UTF-8"))?;
+            toml::from_str(text)
                 .map_err(|e| Error::InvalidInput(format!("Invalid Hardknock configuration: {e}")))?
         } else {
             Self::default()
@@ -193,5 +277,138 @@ impl Config {
             .validate()?;
         }
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        io::Write,
+        os::unix::fs::{MetadataExt, symlink},
+        process::Command,
+        time::Duration,
+    };
+
+    #[test]
+    fn config_read_rejects_symlinks_and_sparse_oversized_files() {
+        let temporary = tempfile::tempdir().unwrap();
+        let home = temporary.path().join("home");
+        fs::create_dir(&home).unwrap();
+        let target = temporary.path().join("target.toml");
+        fs::write(&target, "").unwrap();
+        let path = home.join("config.toml");
+        symlink(&target, &path).unwrap();
+
+        assert!(
+            Config::load(&home)
+                .unwrap_err()
+                .to_string()
+                .contains("symlink")
+        );
+
+        fs::remove_file(&path).unwrap();
+        File::create(&path)
+            .unwrap()
+            .set_len(MAX_CONFIG_BYTES + 1)
+            .unwrap();
+        assert!(
+            Config::load(&home)
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds 1 MiB")
+        );
+    }
+
+    #[test]
+    fn config_read_enforces_the_limit_when_the_open_file_grows() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("config.toml");
+        fs::write(&path, "").unwrap();
+        let mut opened = open_config(&path).unwrap().unwrap();
+        OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(MAX_CONFIG_BYTES + 1)
+            .unwrap();
+
+        assert!(
+            read_opened_config(&path, &mut opened)
+                .unwrap_err()
+                .to_string()
+                .contains("exceeds 1 MiB")
+        );
+    }
+
+    #[test]
+    fn config_read_rejects_path_replacement_after_open() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("config.toml");
+        let original = temporary.path().join("original.toml");
+        fs::write(&path, "").unwrap();
+        let mut opened = open_config(&path).unwrap().unwrap();
+        fs::rename(&path, &original).unwrap();
+        fs::write(&path, "").unwrap();
+
+        assert!(
+            read_opened_config(&path, &mut opened)
+                .unwrap_err()
+                .to_string()
+                .contains("changed while it was being read")
+        );
+    }
+
+    #[test]
+    fn config_read_rejects_same_inode_rewrite_with_restored_mtime() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("config.toml");
+        let timestamp_reference = temporary.path().join("timestamp-reference");
+        fs::write(&path, b"aaaa").unwrap();
+        assert!(
+            Command::new("touch")
+                .arg("-r")
+                .arg(&path)
+                .arg(&timestamp_reference)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let mut opened = open_config(&path).unwrap().unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+
+        let mut writer = OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap();
+        writer.write_all(b"bbbb").unwrap();
+        writer.sync_all().unwrap();
+        drop(writer);
+        assert!(
+            Command::new("touch")
+                .arg("-r")
+                .arg(&timestamp_reference)
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success()
+        );
+
+        let rewritten = fs::metadata(&path).unwrap();
+        assert_eq!(opened.metadata.ino(), rewritten.ino());
+        assert_eq!(opened.metadata.len(), rewritten.len());
+        assert_eq!(opened.metadata.mtime(), rewritten.mtime());
+        assert_eq!(opened.metadata.mtime_nsec(), rewritten.mtime_nsec());
+        assert_ne!(
+            (opened.metadata.ctime(), opened.metadata.ctime_nsec()),
+            (rewritten.ctime(), rewritten.ctime_nsec())
+        );
+        assert!(
+            read_opened_config(&path, &mut opened)
+                .unwrap_err()
+                .to_string()
+                .contains("changed while it was being read")
+        );
     }
 }

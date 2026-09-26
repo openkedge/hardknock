@@ -10,9 +10,12 @@
 use std::{
     ffi::OsStr,
     fs::{self, File},
-    io::{Read, Write},
-    os::unix::fs::{MetadataExt, PermissionsExt},
+    io::Read,
     os::unix::process::CommandExt,
+    os::{
+        fd::OwnedFd,
+        unix::fs::{MetadataExt, PermissionsExt},
+    },
     path::{Component, Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::mpsc::{self, Receiver},
@@ -24,9 +27,18 @@ use nix::{
     sys::signal::{Signal, killpg},
     unistd::{Pid, geteuid},
 };
+use rustix::fs::{
+    AtFlags, CWD, FileType, Mode, OFlags, RenameFlags, Stat, fstat, open, openat, renameat_with,
+    statat,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{Error, Result};
+
+use super::transaction::{
+    MutationObserver, PrivateMutationDirectory, UnobservedMutation, WriteReceipt,
+    ensure_directory_tree,
+};
 
 const SYSTEMD_UNIT_NAME: &str = "hardknock-bridge.service";
 const LAUNCHD_LABEL: &str = "dev.openkedge.hardknock.bridge";
@@ -34,6 +46,7 @@ const MANAGED_MARKER: &str = "Managed by Hardknock service setup; schema=1";
 const COMMAND_TIMEOUT_MS: u64 = 10_000;
 const CAPTURE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_COMMAND_OUTPUT_BYTES: usize = 64 * 1024;
+const MAX_SERVICE_FILE_BYTES: usize = 1024 * 1024;
 
 fn invalid(message: impl Into<String>) -> Error {
     Error::InvalidInput(message.into())
@@ -143,9 +156,20 @@ impl ServicePlan {
     /// Apply with an explicit dry-run switch for setup previews.
     pub async fn apply_with_options(&self, start: bool, dry_run: bool) -> Result<ServiceReport> {
         let plan = self.clone();
-        tokio::task::spawn_blocking(move || apply_sync(&plan, start, dry_run))
-            .await
-            .map_err(|error| Error::Intervention(format!("Service apply task failed: {error}")))?
+        tokio::task::spawn_blocking(move || {
+            let mut observer = UnobservedMutation;
+            apply_sync(&plan, start, dry_run, &mut observer)
+        })
+        .await
+        .map_err(|error| Error::Intervention(format!("Service apply task failed: {error}")))?
+    }
+
+    pub(crate) async fn apply_observed(
+        &self,
+        start: bool,
+        observer: &mut impl MutationObserver,
+    ) -> Result<ServiceReport> {
+        apply_sync(self, start, false, observer)
     }
 
     /// Stop the managed service when requested, then remove its exact definition.
@@ -156,9 +180,20 @@ impl ServicePlan {
     /// Uninstall with an explicit dry-run switch for setup previews.
     pub async fn uninstall_with_options(&self, stop: bool, dry_run: bool) -> Result<ServiceReport> {
         let plan = self.clone();
-        tokio::task::spawn_blocking(move || remove_sync(&plan, stop, dry_run))
-            .await
-            .map_err(|error| Error::Intervention(format!("Service removal task failed: {error}")))?
+        tokio::task::spawn_blocking(move || {
+            let mut observer = UnobservedMutation;
+            remove_sync(&plan, stop, dry_run, &mut observer)
+        })
+        .await
+        .map_err(|error| Error::Intervention(format!("Service removal task failed: {error}")))?
+    }
+
+    pub(crate) async fn uninstall_observed(
+        &self,
+        stop: bool,
+        observer: &mut impl MutationObserver,
+    ) -> Result<ServiceReport> {
+        remove_sync(self, stop, false, observer)
     }
 }
 
@@ -335,7 +370,12 @@ pub fn plan(options: &ServiceOptions) -> Result<ServicePlan> {
 ///
 /// Manager failures are returned in [`ServiceReport::commands`] so callers can
 /// preserve the installed definition and present the on-demand fallback.
-fn apply_sync(plan: &ServicePlan, start: bool, dry_run: bool) -> Result<ServiceReport> {
+fn apply_sync(
+    plan: &ServicePlan,
+    start: bool,
+    dry_run: bool,
+    observer: &mut impl MutationObserver,
+) -> Result<ServiceReport> {
     let mut report = base_report(plan, dry_run);
     if matches!(plan.manager, ServiceManager::OnDemand { .. }) {
         report.fallback = Some(plan.fallback.clone());
@@ -343,7 +383,7 @@ fn apply_sync(plan: &ServicePlan, start: bool, dry_run: bool) -> Result<ServiceR
     }
     let (target, root, content) = plan_parts(plan)?;
     validate_managed_path(root, target, geteuid().as_raw(), false)?;
-    let current = classify_target(target, content, geteuid().as_raw())?;
+    let (current, current_bytes) = classify_target_with_bytes(target, content, geteuid().as_raw())?;
     if current != plan.change {
         return Err(invalid(format!(
             "Service target changed after planning: planned {:?}, now {:?}; create a new service plan",
@@ -359,10 +399,11 @@ fn apply_sync(plan: &ServicePlan, start: bool, dry_run: bool) -> Result<ServiceR
         target
             .parent()
             .ok_or_else(|| invalid(format!("Service target {} has no parent", target.display())))?,
+        observer,
     )?;
     validate_managed_path(root, target, geteuid().as_raw(), true)?;
     if !matches!(current, ServiceChange::Unchanged) {
-        atomic_write_managed(target, content)?;
+        atomic_write_managed_observed(target, content, current_bytes.as_deref(), observer)?;
         report.changed = true;
     }
     validate_exact_target(target, content, geteuid().as_raw())?;
@@ -376,7 +417,12 @@ fn apply_sync(plan: &ServicePlan, start: bool, dry_run: bool) -> Result<ServiceR
 }
 
 /// Remove only the exact service definition represented by the plan.
-fn remove_sync(plan: &ServicePlan, stop: bool, dry_run: bool) -> Result<ServiceReport> {
+fn remove_sync(
+    plan: &ServicePlan,
+    stop: bool,
+    dry_run: bool,
+    observer: &mut impl MutationObserver,
+) -> Result<ServiceReport> {
     let mut report = base_report(plan, dry_run);
     if matches!(plan.manager, ServiceManager::OnDemand { .. }) {
         return Ok(report);
@@ -412,12 +458,7 @@ fn remove_sync(plan: &ServicePlan, stop: bool, dry_run: bool) -> Result<ServiceR
         return Ok(report);
     }
     validate_exact_target(target, content, geteuid().as_raw())?;
-    fs::remove_file(target)?;
-    sync_directory(
-        target
-            .parent()
-            .ok_or_else(|| invalid(format!("Service target {} has no parent", target.display())))?,
-    )?;
+    remove_managed_file_observed(target, content.as_bytes(), observer)?;
     let reload_reports = run_commands(&post_remove_commands(&plan.manager, stop));
     report.manager_ready &= commands_succeeded(&reload_reports);
     report.commands.extend(reload_reports);
@@ -885,6 +926,12 @@ fn validate_target_metadata(path: &Path, metadata: &fs::Metadata, expected_uid: 
             expected_uid
         )));
     }
+    if metadata.nlink() != 1 {
+        return Err(invalid(format!(
+            "Service target {} must be singly linked",
+            path.display()
+        )));
+    }
     if metadata.permissions().mode() & 0o022 != 0 {
         return Err(invalid(format!(
             "Service target {} must not be group- or world-writable",
@@ -894,45 +941,50 @@ fn validate_target_metadata(path: &Path, metadata: &fs::Metadata, expected_uid: 
     Ok(())
 }
 
-fn ensure_secure_directory_tree(root: &Path, parent: &Path) -> Result<()> {
+fn ensure_secure_directory_tree(
+    root: &Path,
+    parent: &Path,
+    observer: &mut impl MutationObserver,
+) -> Result<()> {
     let expected_uid = geteuid().as_raw();
     validate_existing_component(root, expected_uid, true)?;
     let relative = parent
         .strip_prefix(root)
         .map_err(|_| invalid("Service parent escaped its security root"))?;
-    let mut current = root.to_path_buf();
-    for component in relative.components() {
-        if !matches!(component, Component::Normal(_)) {
-            return Err(invalid("Service parent contains an unsafe path component"));
-        }
-        current.push(component);
-        match fs::create_dir(&current) {
-            Ok(()) => fs::set_permissions(&current, fs::Permissions::from_mode(0o700))?,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-        validate_existing_component(&current, expected_uid, true)?;
+    if relative
+        .components()
+        .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(invalid("Service parent contains an unsafe path component"));
     }
-    Ok(())
+    ensure_directory_tree(parent, false, observer)
 }
 
 fn classify_target(path: &Path, expected: &str, expected_uid: u32) -> Result<ServiceChange> {
+    classify_target_with_bytes(path, expected, expected_uid).map(|(change, _)| change)
+}
+
+fn classify_target_with_bytes(
+    path: &Path,
+    expected: &str,
+    expected_uid: u32,
+) -> Result<(ServiceChange, Option<Vec<u8>>)> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(ServiceChange::Create);
+            return Ok((ServiceChange::Create, None));
         }
         Err(error) => return Err(error.into()),
     };
     validate_target_metadata(path, &metadata, expected_uid)?;
     let existing = read_bounded(path, expected.len().max(4096).saturating_add(1))?;
     if existing == expected.as_bytes() {
-        return Ok(ServiceChange::Unchanged);
+        return Ok((ServiceChange::Unchanged, Some(existing)));
     }
-    let existing = String::from_utf8(existing)
+    let existing_text = String::from_utf8(existing.clone())
         .map_err(|_| invalid(format!("Service target {} is not UTF-8", path.display())))?;
-    if is_managed_content(&existing) {
-        Ok(ServiceChange::ReplaceManaged)
+    if is_managed_content(&existing_text) {
+        Ok((ServiceChange::ReplaceManaged, Some(existing)))
     } else {
         Err(invalid(format!(
             "Refusing to overwrite unmanaged service target {}",
@@ -962,51 +1014,386 @@ fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-fn atomic_write_managed(path: &Path, content: &str) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| invalid("Service target has no parent"))?;
-    let before = fs::symlink_metadata(parent)?;
-    validate_existing_component(parent, geteuid().as_raw(), true)?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    temporary
-        .as_file()
-        .set_permissions(fs::Permissions::from_mode(0o600))?;
-    temporary.write_all(content.as_bytes())?;
-    temporary.flush()?;
-    temporary.as_file().sync_all()?;
-    let after = fs::symlink_metadata(parent)?;
-    if before.dev() != after.dev()
-        || before.ino() != after.ino()
-        || before.uid() != after.uid()
-        || after.permissions().mode() & 0o022 != 0
-    {
-        return Err(invalid(format!(
-            "Service parent {} changed while writing",
-            parent.display()
-        )));
-    }
-    if let Ok(metadata) = fs::symlink_metadata(path) {
-        validate_target_metadata(path, &metadata, geteuid().as_raw())?;
-        let existing = read_bounded(path, content.len().max(4096).saturating_add(1))?;
-        if existing != content.as_bytes()
-            && !is_managed_content(
-                &String::from_utf8(existing).map_err(|_| {
-                    invalid(format!("Service target {} is not UTF-8", path.display()))
-                })?,
-            )
+struct BoundServiceParent {
+    descriptor: OwnedFd,
+    path: PathBuf,
+    stat: Stat,
+}
+
+impl BoundServiceParent {
+    fn open(path: &Path) -> Result<Self> {
+        validate_existing_component(path, geteuid().as_raw(), true)?;
+        let descriptor = open(
+            path,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(errno_error)?;
+        let stat = fstat(&descriptor).map_err(errno_error)?;
+        let named = statat(CWD, path, AtFlags::SYMLINK_NOFOLLOW).map_err(errno_error)?;
+        if FileType::from_raw_mode(stat.st_mode) != FileType::Directory
+            || !same_stat_identity(&stat, &named)
+            || stat.st_uid != geteuid().as_raw()
+            || stat.st_mode & 0o022 != 0
         {
             return Err(invalid(format!(
-                "Service target {} became unmanaged while writing",
+                "Service parent {} changed or is insecure",
                 path.display()
             )));
         }
+        Ok(Self {
+            descriptor,
+            path: path.to_path_buf(),
+            stat,
+        })
     }
-    temporary
-        .persist(path)
-        .map_err(|error| Error::Io(error.error))?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    sync_directory(parent)
+
+    fn verify(&self) -> Result<()> {
+        let opened = fstat(&self.descriptor).map_err(errno_error)?;
+        let named = statat(CWD, &self.path, AtFlags::SYMLINK_NOFOLLOW).map_err(errno_error)?;
+        if FileType::from_raw_mode(opened.st_mode) != FileType::Directory
+            || !same_stat_identity(&self.stat, &opened)
+            || !same_stat_identity(&self.stat, &named)
+        {
+            return Err(invalid(format!(
+                "Service parent {} changed during mutation",
+                self.path.display()
+            )));
+        }
+        Ok(())
+    }
+
+    fn sync(&self) -> Result<()> {
+        rustix::fs::fsync(&self.descriptor).map_err(errno_error)?;
+        Ok(())
+    }
+}
+
+fn errno_error(error: rustix::io::Errno) -> Error {
+    Error::Io(std::io::Error::from(error))
+}
+
+fn same_stat_identity(left: &Stat, right: &Stat) -> bool {
+    left.st_dev == right.st_dev && left.st_ino == right.st_ino
+}
+
+fn service_path_parts(path: &Path) -> Result<(&Path, &OsStr)> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| invalid("Service target has no parent"))?;
+    let name = path
+        .file_name()
+        .ok_or_else(|| invalid("Service target has no file name"))?;
+    if name == OsStr::new(".") || name == OsStr::new("..") {
+        return Err(invalid("Service target has an unsafe file name"));
+    }
+    Ok((parent, name))
+}
+
+fn read_bound_file(file: &File, limit: usize) -> Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(limit.min(8192));
+    file.try_clone()?
+        .take(limit.min(1024 * 1024) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() == limit.min(1024 * 1024) {
+        return Err(invalid("Service target exceeds the expected bounded size"));
+    }
+    Ok(bytes)
+}
+
+fn validate_bound_target(
+    parent: &BoundServiceParent,
+    name: &OsStr,
+    path: &Path,
+    file: &File,
+) -> Result<Stat> {
+    parent.verify()?;
+    let opened = fstat(file).map_err(errno_error)?;
+    let named = statat(&parent.descriptor, name, AtFlags::SYMLINK_NOFOLLOW).map_err(errno_error)?;
+    if FileType::from_raw_mode(opened.st_mode) != FileType::RegularFile
+        || !same_stat_identity(&opened, &named)
+    {
+        return Err(invalid(format!(
+            "Service target {} changed during mutation",
+            path.display()
+        )));
+    }
+    Ok(opened)
+}
+
+fn open_expected_service_target(
+    parent: &BoundServiceParent,
+    name: &OsStr,
+    path: &Path,
+    expected: Option<&[u8]>,
+) -> Result<Option<File>> {
+    let descriptor = match openat(
+        &parent.descriptor,
+        name,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+        Mode::empty(),
+    ) {
+        Ok(descriptor) => descriptor,
+        Err(rustix::io::Errno::NOENT) if expected.is_none() => return Ok(None),
+        Err(rustix::io::Errno::NOENT) => {
+            return Err(invalid(format!(
+                "Service target {} disappeared before mutation",
+                path.display()
+            )));
+        }
+        Err(error) => return Err(errno_error(error)),
+    };
+    let file = File::from(descriptor);
+    let metadata = file.metadata()?;
+    validate_target_metadata(path, &metadata, geteuid().as_raw())?;
+    let Some(expected) = expected else {
+        return Err(invalid(format!(
+            "Service target {} appeared before mutation",
+            path.display()
+        )));
+    };
+    let actual = read_bound_file(&file, MAX_SERVICE_FILE_BYTES + 1)?;
+    if actual != expected {
+        return Err(invalid(format!(
+            "Service target {} changed before mutation",
+            path.display()
+        )));
+    }
+    validate_bound_target(parent, name, path, &file)?;
+    Ok(Some(file))
+}
+
+fn atomic_write_managed_observed(
+    path: &Path,
+    content: &str,
+    expected: Option<&[u8]>,
+    observer: &mut impl MutationObserver,
+) -> Result<()> {
+    let receipt =
+        atomic_write_managed_observed_with_hook(path, content, expected, observer, || {})?;
+    observer.record_write(receipt)
+}
+
+#[cfg(test)]
+fn atomic_write_managed_with_hook(
+    path: &Path,
+    content: &str,
+    expected: Option<&[u8]>,
+    before_commit: impl FnOnce(),
+) -> Result<WriteReceipt> {
+    let mut observer = UnobservedMutation;
+    let receipt = atomic_write_managed_observed_with_hook(
+        path,
+        content,
+        expected,
+        &mut observer,
+        before_commit,
+    )?;
+    observer.record_write(receipt.clone())?;
+    Ok(receipt.without_cleanup())
+}
+
+fn atomic_write_managed_observed_with_hook(
+    path: &Path,
+    content: &str,
+    expected: Option<&[u8]>,
+    observer: &mut impl MutationObserver,
+    before_commit: impl FnOnce(),
+) -> Result<WriteReceipt> {
+    let (parent_path, target_name) = service_path_parts(path)?;
+    let parent = BoundServiceParent::open(parent_path)?;
+    let current = open_expected_service_target(&parent, target_name, path, expected)?;
+    let namespace =
+        PrivateMutationDirectory::create(&parent.descriptor, parent_path, "service-write")?;
+    let temporary = namespace.create_file(content.as_bytes(), 0o600)?;
+    observer.prepare_write(
+        namespace.staged_write(
+            path,
+            current
+                .as_ref()
+                .map(|file| (file, expected.unwrap_or_default())),
+            &temporary,
+            content.as_bytes(),
+        )?,
+    )?;
+    parent.verify()?;
+
+    let pending_cleanup = if let Some(current) = current {
+        validate_bound_target(&parent, target_name, path, &current)?;
+        before_commit();
+        if let Err(error) = renameat_with(
+            namespace.descriptor(),
+            "entry",
+            &parent.descriptor,
+            target_name,
+            RenameFlags::EXCHANGE,
+        ) {
+            let cleanup = namespace.cleanup_for_entry(&temporary)?;
+            if let Err(cleanup_error) = observer.abort_mutation(path, cleanup) {
+                return Err(Error::Cleanup {
+                    primary: Box::new(errno_error(error)),
+                    cleanup: Box::new(cleanup_error),
+                });
+            }
+            return Err(errno_error(error));
+        }
+        let displaced_matches = (|| -> Result<bool> {
+            let displaced = openat(
+                namespace.descriptor(),
+                "entry",
+                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+                Mode::empty(),
+            )
+            .map(File::from)
+            .map_err(errno_error)?;
+            let displaced_stat = fstat(&displaced).map_err(errno_error)?;
+            let expected_stat = fstat(&current).map_err(errno_error)?;
+            let displaced_bytes = read_bound_file(&displaced, MAX_SERVICE_FILE_BYTES + 1)?;
+            Ok(same_stat_identity(&displaced_stat, &expected_stat)
+                && displaced_bytes == expected.unwrap_or_default())
+        })();
+        if !matches!(displaced_matches, Ok(true)) {
+            renameat_with(
+                namespace.descriptor(),
+                "entry",
+                &parent.descriptor,
+                target_name,
+                RenameFlags::EXCHANGE,
+            )
+            .map_err(errno_error)?;
+            parent.sync()?;
+            observer.abort_mutation(path, namespace.cleanup_for_entry(&temporary)?)?;
+            displaced_matches?;
+            return Err(invalid(format!(
+                "Service target {} changed during compare-and-swap",
+                path.display()
+            )));
+        }
+        parent.sync()?;
+        namespace.cleanup_for_entry(&current)?
+    } else {
+        before_commit();
+        match renameat_with(
+            namespace.descriptor(),
+            "entry",
+            &parent.descriptor,
+            target_name,
+            RenameFlags::NOREPLACE,
+        ) {
+            Ok(()) => parent.sync()?,
+            Err(error) => {
+                let cleanup = namespace.cleanup_for_entry(&temporary)?;
+                if let Err(cleanup_error) = observer.abort_mutation(path, cleanup) {
+                    return Err(Error::Cleanup {
+                        primary: Box::new(if error == rustix::io::Errno::EXIST {
+                            invalid(format!(
+                                "Service target {} appeared during compare-and-swap",
+                                path.display()
+                            ))
+                        } else {
+                            errno_error(error)
+                        }),
+                        cleanup: Box::new(cleanup_error),
+                    });
+                }
+                if error == rustix::io::Errno::EXIST {
+                    return Err(invalid(format!(
+                        "Service target {} appeared during compare-and-swap",
+                        path.display()
+                    )));
+                }
+                return Err(errno_error(error));
+            }
+        }
+        namespace.cleanup_empty()
+    };
+    parent.verify()?;
+    WriteReceipt::persisted_with_cleanup(
+        path,
+        &temporary,
+        content.as_bytes(),
+        Some(pending_cleanup),
+    )
+}
+
+fn remove_managed_file_observed(
+    path: &Path,
+    expected: &[u8],
+    observer: &mut impl MutationObserver,
+) -> Result<()> {
+    let receipt = remove_managed_file_observed_with_hook(path, expected, observer, || {})?;
+    observer.record_removal(receipt)
+}
+
+#[cfg(test)]
+fn remove_managed_file_with_hook(
+    path: &Path,
+    expected: &[u8],
+    before_commit: impl FnOnce(),
+) -> Result<WriteReceipt> {
+    let mut observer = UnobservedMutation;
+    let receipt =
+        remove_managed_file_observed_with_hook(path, expected, &mut observer, before_commit)?;
+    observer.record_removal(receipt.clone())?;
+    Ok(receipt.without_cleanup())
+}
+
+fn remove_managed_file_observed_with_hook(
+    path: &Path,
+    expected: &[u8],
+    observer: &mut impl MutationObserver,
+    before_commit: impl FnOnce(),
+) -> Result<WriteReceipt> {
+    let (parent_path, target_name) = service_path_parts(path)?;
+    let parent = BoundServiceParent::open(parent_path)?;
+    let current = open_expected_service_target(&parent, target_name, path, Some(expected))?
+        .ok_or_else(|| invalid(format!("Service target {} disappeared", path.display())))?;
+    let namespace =
+        PrivateMutationDirectory::create(&parent.descriptor, parent_path, "service-remove")?;
+    validate_bound_target(&parent, target_name, path, &current)?;
+    observer.prepare_removal(namespace.planned_removal(path, &current, expected)?)?;
+    before_commit();
+    renameat_with(
+        &parent.descriptor,
+        target_name,
+        namespace.descriptor(),
+        "entry",
+        RenameFlags::NOREPLACE,
+    )
+    .map_err(errno_error)?;
+    let quarantined_matches = (|| -> Result<bool> {
+        let quarantined = openat(
+            namespace.descriptor(),
+            "entry",
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+            Mode::empty(),
+        )
+        .map(File::from)
+        .map_err(errno_error)?;
+        let current_stat = fstat(&current).map_err(errno_error)?;
+        let quarantined_stat = fstat(&quarantined).map_err(errno_error)?;
+        let quarantined_bytes = read_bound_file(&quarantined, MAX_SERVICE_FILE_BYTES + 1)?;
+        Ok(same_stat_identity(&current_stat, &quarantined_stat) && quarantined_bytes == expected)
+    })();
+    if !matches!(quarantined_matches, Ok(true)) {
+        renameat_with(
+            namespace.descriptor(),
+            "entry",
+            &parent.descriptor,
+            target_name,
+            RenameFlags::NOREPLACE,
+        )
+        .map_err(errno_error)?;
+        parent.sync()?;
+        observer.abort_mutation(path, namespace.cleanup_empty())?;
+        quarantined_matches?;
+        return Err(invalid(format!(
+            "Service target {} changed during compare-and-swap",
+            path.display()
+        )));
+    }
+    parent.sync()?;
+    WriteReceipt::removed_with_cleanup(path, Some(namespace.cleanup_for_entry(&current)?))
 }
 
 fn validate_exact_target(path: &Path, expected: &str, expected_uid: u32) -> Result<()> {
@@ -1024,11 +1411,6 @@ fn validate_exact_target(path: &Path, expected: &str, expected_uid: u32) -> Resu
             path.display()
         )));
     }
-    Ok(())
-}
-
-fn sync_directory(path: &Path) -> Result<()> {
-    File::open(path)?.sync_all()?;
     Ok(())
 }
 
@@ -1355,22 +1737,117 @@ mod tests {
     async fn remove_requires_exact_managed_content() {
         let fixture = Fixture::new();
         let options = fixture.options(ServicePlatform::Linux);
-        let plan = plan(&options).unwrap();
-        plan.apply(false).await.unwrap();
-        let target = plan.target.as_ref().unwrap();
+        let service_plan = plan(&options).unwrap();
+        service_plan.apply(false).await.unwrap();
+        let target = service_plan.target.as_ref().unwrap();
         let mut changed = fs::read_to_string(target).unwrap();
         changed.push_str("# user change\n");
         fs::write(target, changed).unwrap();
         fs::set_permissions(target, fs::Permissions::from_mode(0o600)).unwrap();
-        let error = plan.uninstall(false).await.unwrap_err();
+        let error = service_plan.uninstall(false).await.unwrap_err();
         assert!(error.to_string().contains("exactly match"));
         assert!(target.exists());
 
-        fs::write(target, plan.content.as_ref().unwrap()).unwrap();
+        fs::write(target, service_plan.content.as_ref().unwrap()).unwrap();
         fs::set_permissions(target, fs::Permissions::from_mode(0o600)).unwrap();
-        let report = plan.uninstall(false).await.unwrap();
+        let report = service_plan.uninstall(false).await.unwrap();
         assert!(report.removed);
         assert!(!target.exists());
+    }
+
+    #[tokio::test]
+    async fn hardlinked_service_target_is_refused() {
+        let fixture = Fixture::new();
+        let options = fixture.options(ServicePlatform::Linux);
+        let service_plan = plan(&options).unwrap();
+        service_plan.apply(false).await.unwrap();
+        let target = service_plan.target.as_ref().unwrap();
+        fs::hard_link(target, fixture.user_home.join("service-hardlink")).unwrap();
+
+        let error = plan(&options).unwrap_err();
+
+        assert!(error.to_string().contains("singly linked"));
+    }
+
+    #[test]
+    fn service_write_preserves_a_concurrent_replacement() {
+        let fixture = Fixture::new();
+        let parent = fixture.user_home.join("service");
+        let target = parent.join("hardknock.service");
+        let original = parent.join("hardknock.original");
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+        let managed = format!("# {MANAGED_MARKER}\nold\n");
+        fs::write(&target, &managed).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let error = atomic_write_managed_with_hook(
+            &target,
+            "replacement",
+            Some(managed.as_bytes()),
+            || {
+                fs::rename(&target, &original).unwrap();
+                fs::write(&target, "concurrent").unwrap();
+                fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+            },
+        )
+        .unwrap_err();
+
+        assert!(
+            error.to_string().contains("compare-and-swap"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(fs::read_to_string(&target).unwrap(), "concurrent");
+        assert_eq!(fs::read_to_string(&original).unwrap(), managed);
+    }
+
+    #[test]
+    fn service_create_refuses_a_concurrent_file() {
+        let fixture = Fixture::new();
+        let parent = fixture.user_home.join("service");
+        let target = parent.join("hardknock.service");
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+
+        let error = atomic_write_managed_with_hook(&target, "managed", None, || {
+            fs::write(&target, "concurrent").unwrap();
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+        })
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("appeared during compare-and-swap")
+        );
+        assert_eq!(fs::read_to_string(&target).unwrap(), "concurrent");
+    }
+
+    #[test]
+    fn service_remove_preserves_a_concurrent_replacement() {
+        let fixture = Fixture::new();
+        let parent = fixture.user_home.join("service");
+        let target = parent.join("hardknock.service");
+        let original = parent.join("hardknock.original");
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+        let managed = format!("# {MANAGED_MARKER}\nmanaged\n");
+        fs::write(&target, &managed).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let error = remove_managed_file_with_hook(&target, managed.as_bytes(), || {
+            fs::rename(&target, &original).unwrap();
+            fs::write(&target, "concurrent").unwrap();
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+        })
+        .unwrap_err();
+
+        assert!(
+            error.to_string().contains("compare-and-swap"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(fs::read_to_string(&target).unwrap(), "concurrent");
+        assert_eq!(fs::read_to_string(&original).unwrap(), managed);
     }
 
     #[test]

@@ -302,27 +302,6 @@ impl Store {
         context.operational_knowledge = Some(resolution);
         Ok(())
     }
-    pub(crate) fn persist_knowledge_applications(
-        &self,
-        record: &RuntimeDecisionRecord,
-    ) -> Result<()> {
-        let Some(k) = &record.context.operational_knowledge else {
-            return Ok(());
-        };
-        for applied in &k.effective.applied {
-            let a = KnowledgeApplication {
-                id: KnowledgeApplicationId::new(),
-                knowledge: KnowledgeRevisionRef::from(&applied.artifact),
-                resolution: k.provenance.resolution_id.clone(),
-                role: applied.role,
-                runtime_decision: record.id.clone(),
-                outcome: None,
-            };
-            self.connection.execute("INSERT INTO knowledge_applications(id,resolution,decision,data) VALUES(?1,?2,?3,?4)",params![a.id.to_string(),a.resolution.to_string(),a.runtime_decision.to_string(),serde_json::to_string(&a)?])?;
-            self.knowledge_event("knowledge_applied", &a)?;
-        }
-        Ok(())
-    }
     pub fn knowledge_applications(&self) -> Result<Vec<KnowledgeApplication>> {
         self.connection
             .prepare("SELECT data FROM knowledge_applications ORDER BY id")?

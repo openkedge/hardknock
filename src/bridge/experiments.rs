@@ -10,37 +10,148 @@ use crate::{
 };
 use serde_json::{Value, json};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, MutexGuard, TryLockError,
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, SyncSender},
     },
     thread::JoinHandle,
+    time::{Duration, Instant},
 };
+
+/// Bridge shutdown waits this long for experiment and curriculum cleanup before
+/// detaching the worker. The worker retains its cancellation tokens and may
+/// finish later, but the Bridge caller is never held indefinitely.
+const EXPERIMENT_SHUTDOWN_POLL: Duration = Duration::from_millis(10);
+const ENDED_SESSION_CAPACITY: usize = 1024;
 
 struct Pending {
     session: String,
     cancel: Cancellation,
 }
 #[derive(Default)]
+struct EndedSessions {
+    members: HashSet<String>,
+    order: VecDeque<String>,
+}
+
+impl EndedSessions {
+    fn contains(&self, id: &str) -> bool {
+        self.members.contains(id)
+    }
+
+    fn insert(&mut self, id: String) {
+        if self.members.insert(id.clone()) {
+            self.order.push_back(id);
+        }
+        while self.order.len() > ENDED_SESSION_CAPACITY {
+            if let Some(evicted) = self.order.pop_front() {
+                self.members.remove(&evicted);
+            }
+        }
+    }
+
+    fn remove(&mut self, id: &str) {
+        if self.members.remove(id) {
+            self.order.retain(|current| current != id);
+        }
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.members.len()
+    }
+}
+
+#[derive(Default)]
 struct State {
     pending: HashMap<ExperimentId, Pending>,
     curricula: HashMap<CurriculumId, Pending>,
-    ended: HashSet<String>,
+    ended: EndedSessions,
+    sender: Option<SyncSender<Work>>,
 }
 enum Work {
     Experiment(ExperimentId),
     Curriculum(CurriculumId),
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ExperimentShutdownOutcome {
+    Complete,
+    TimedOut,
+    WorkerPanicked,
+    WorkerExitedWithPending,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[must_use = "experiment shutdown failures and pending work must be observed"]
+pub(crate) struct ExperimentShutdownReport {
+    pub outcome: ExperimentShutdownOutcome,
+    pub admission_closed: bool,
+    pub state_observed: bool,
+    pub cancelled_experiments: usize,
+    pub cancelled_curricula: usize,
+    pub pending_experiments: Vec<ExperimentId>,
+    pub pending_curricula: Vec<CurriculumId>,
+    pub waited: Duration,
+}
+
+impl ExperimentShutdownReport {
+    pub fn completed(&self) -> bool {
+        self.outcome == ExperimentShutdownOutcome::Complete
+    }
+}
+
+struct WorkerState {
+    handle: Option<JoinHandle<()>>,
+    outcome: Option<ExperimentShutdownOutcome>,
+}
+
 pub struct ExperimentService {
     home: PathBuf,
     state: Arc<Mutex<State>>,
-    sender: Option<SyncSender<Work>>,
-    worker: Option<JoinHandle<()>>,
+    accepting: AtomicBool,
+    worker: Mutex<WorkerState>,
+}
+
+fn lock_until<'a, T>(mutex: &'a Mutex<T>, deadline: Instant) -> Option<MutexGuard<'a, T>> {
+    loop {
+        match mutex.try_lock() {
+            Ok(guard) => return Some(guard),
+            Err(TryLockError::Poisoned(poisoned)) => return Some(poisoned.into_inner()),
+            Err(TryLockError::WouldBlock) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return None;
+                }
+                std::thread::sleep(EXPERIMENT_SHUTDOWN_POLL.min(remaining));
+            }
+        }
+    }
 }
 
 impl ExperimentService {
+    fn session_is_active(&self, session: &Session) -> Result<bool> {
+        if session.ended || !self.accepting.load(Ordering::Acquire) {
+            return Ok(false);
+        }
+        if self
+            .state
+            .lock()
+            .expect("experiment service lock")
+            .ended
+            .contains(&session.id)
+        {
+            return Ok(false);
+        }
+        Ok(
+            super::engine::persisted_bridge_session(&self.home, &session.id)?
+                .is_some_and(|persisted| !persisted.ended),
+        )
+    }
+
     pub fn request_curriculum(
         &self,
         wire: super::protocol::CurriculumRequested,
@@ -48,8 +159,7 @@ impl ExperimentService {
         config: &Config,
     ) -> Result<Value> {
         use crate::{curriculum::*, store::CurriculumStore};
-        let state = self.state.lock().expect("experiment service lock");
-        if !config.curriculum.agent_requests || session.ended || state.ended.contains(&session.id) {
+        if !config.curriculum.agent_requests || !self.session_is_active(session)? {
             return Err(Error::Intervention(
                 "Agent curricula require explicit configuration and an active session".into(),
             ));
@@ -140,6 +250,11 @@ impl ExperimentService {
             if let TrialExecution::Experiment { request } = &t.execution
                 && (request.starting_state.state_ref.repo_path!=session.starting_state.repo_path || request.candidates.iter().any(|c|!matches!(&c.execution,crate::experimentation::CandidateExecution::Shell {commands} if commands==&vec!["/bin/sh ./operation.sh".to_string()])) || request.evaluator.checks!=vec!["/bin/sh ./test.sh".to_string()]) {return Err(Error::Intervention("Agent curriculum cannot execute unverified or cross-repository recipes".into()));}
         }
+        if !self.session_is_active(session)? {
+            return Err(Error::Intervention(
+                "Session ended before curriculum planning completed".into(),
+            ));
+        }
         CurriculumStore::insert(&store, &c)?;
         store.bridge_event(
             &session.id,
@@ -156,8 +271,7 @@ impl ExperimentService {
         id: &CurriculumId,
         config: &Config,
     ) -> Result<Value> {
-        let mut state = self.state.lock().expect("experiment service lock");
-        if !config.curriculum.agent_requests || session.ended || state.ended.contains(&session.id) {
+        if !config.curriculum.agent_requests || !self.session_is_active(session)? {
             return Err(Error::Intervention(
                 "Curriculum start requires an active enabled session".into(),
             ));
@@ -169,6 +283,17 @@ impl ExperimentService {
                 "Curriculum belongs to another session".into(),
             ));
         }
+        if !self.session_is_active(session)? {
+            return Err(Error::Intervention(
+                "Session ended before curriculum admission completed".into(),
+            ));
+        }
+        let mut state = self.state.lock().expect("experiment service lock");
+        if !self.accepting.load(Ordering::Acquire) || state.ended.contains(&session.id) {
+            return Err(Error::Intervention(
+                "Curriculum start requires an active enabled session".into(),
+            ));
+        }
         if !c.status.terminal() && !state.curricula.contains_key(id) {
             state.curricula.insert(
                 id.clone(),
@@ -177,11 +302,7 @@ impl ExperimentService {
                     cancel: Cancellation::default(),
                 },
             );
-            if self
-                .sender
-                .as_ref()
-                .is_none_or(|s| s.try_send(Work::Curriculum(id.clone())).is_err())
-            {
+            if !Self::enqueue_locked(&state, Work::Curriculum(id.clone())) {
                 state.curricula.remove(id);
                 return Err(Error::Intervention(
                     "Experiment/curriculum queue is full or stopping".into(),
@@ -227,7 +348,10 @@ impl ExperimentService {
     }
     pub fn open(home: &Path, config: &Config) -> Result<Self> {
         let (sender, receiver) = mpsc::sync_channel::<Work>(16);
-        let state = Arc::new(Mutex::new(State::default()));
+        let state = Arc::new(Mutex::new(State {
+            sender: Some(sender),
+            ..State::default()
+        }));
         let shared = state.clone();
         let root = home.to_owned();
         let settings = config.clone();
@@ -274,8 +398,11 @@ impl ExperimentService {
         Ok(Self {
             home: home.to_owned(),
             state,
-            sender: Some(sender),
-            worker: Some(worker),
+            accepting: AtomicBool::new(true),
+            worker: Mutex::new(WorkerState {
+                handle: Some(worker),
+                outcome: None,
+            }),
         })
     }
 
@@ -285,9 +412,7 @@ impl ExperimentService {
         session: &Session,
         config: &Config,
     ) -> Result<Value> {
-        // Serialize admission and session-end cancellation, not candidate execution.
-        let mut state = self.state.lock().expect("experiment service lock");
-        if session.ended || state.ended.contains(&session.id) {
+        if !self.session_is_active(session)? {
             return Err(Error::InvalidInput(
                 "Session ended; experiment not started".into(),
             ));
@@ -331,7 +456,7 @@ impl ExperimentService {
             config,
         }
         .submit(request)?;
-        if !experiment.status.terminal() && !state.pending.contains_key(&experiment.id) {
+        if !experiment.status.terminal() {
             // Session experiment spending is cumulative, preventing trivial repeated-budget bypass.
             let (spent, agent_runs) =
                 store.session_experiment_reservations(&session.id, &experiment.id)?;
@@ -350,21 +475,40 @@ impl ExperimentService {
                 experiment.failure = Some("Agent session Reality budget exhausted (completed, cancelled and queued work count)".into());
                 ExperimentStore::update_status(&store, &experiment)?;
             } else {
-                state.pending.insert(
-                    experiment.id.clone(),
-                    Pending {
-                        session: session.id.clone(),
-                        cancel: Cancellation::default(),
-                    },
-                );
-                if self.sender.as_ref().is_none_or(|sender| {
-                    sender
-                        .try_send(Work::Experiment(experiment.id.clone()))
-                        .is_err()
-                }) {
-                    state.pending.remove(&experiment.id);
+                if !self.session_is_active(session)? {
                     experiment.status = ExperimentStatus::Rejected;
-                    experiment.failure = Some("Experiment queue is full or stopping".into());
+                    experiment.failure =
+                        Some("Session ended before experiment admission completed".into());
+                    ExperimentStore::update_status(&store, &experiment)?;
+                }
+            }
+            if !experiment.status.terminal() {
+                let rejection = {
+                    let mut state = self.state.lock().expect("experiment service lock");
+                    if !self.accepting.load(Ordering::Acquire) || state.ended.contains(&session.id)
+                    {
+                        Some("Session ended before experiment admission completed")
+                    } else if state.pending.contains_key(&experiment.id) {
+                        None
+                    } else {
+                        state.pending.insert(
+                            experiment.id.clone(),
+                            Pending {
+                                session: session.id.clone(),
+                                cancel: Cancellation::default(),
+                            },
+                        );
+                        if Self::enqueue_locked(&state, Work::Experiment(experiment.id.clone())) {
+                            None
+                        } else {
+                            state.pending.remove(&experiment.id);
+                            Some("Experiment queue is full or stopping")
+                        }
+                    }
+                };
+                if let Some(reason) = rejection {
+                    experiment.status = ExperimentStatus::Rejected;
+                    experiment.failure = Some(reason.into());
                     ExperimentStore::update_status(&store, &experiment)?;
                 }
             }
@@ -421,15 +565,17 @@ impl ExperimentService {
     }
 
     pub fn end_session(&self, id: &str, continue_after_end: bool) {
-        let mut state = self.state.lock().expect("experiment service lock");
-        state.ended.insert(id.into());
-        if !continue_after_end {
-            for pending in state.pending.values().filter(|p| p.session == id) {
+        {
+            let mut state = self.state.lock().expect("experiment service lock");
+            state.ended.insert(id.into());
+            if !continue_after_end {
+                for pending in state.pending.values().filter(|p| p.session == id) {
+                    pending.cancel.cancel();
+                }
+            }
+            for pending in state.curricula.values().filter(|p| p.session == id) {
                 pending.cancel.cancel();
             }
-        }
-        for pending in state.curricula.values().filter(|p| p.session == id) {
-            pending.cancel.cancel();
         }
         // Also retire persisted plans that were never enqueued. Leaving them
         // Planned would suppress equivalent evidence gathering in later sessions.
@@ -458,35 +604,161 @@ impl ExperimentService {
             .ended
             .remove(id);
     }
-    pub fn cancel_all(&self) {
-        for pending in self
-            .state
-            .lock()
-            .expect("experiment service lock")
-            .curricula
-            .values()
-        {
-            pending.cancel.cancel();
+
+    fn enqueue_locked(state: &State, work: Work) -> bool {
+        state
+            .sender
+            .as_ref()
+            .is_some_and(|sender| sender.try_send(work).is_ok())
+    }
+
+    #[cfg(test)]
+    fn enqueue(&self, work: Work) -> bool {
+        if !self.accepting.load(Ordering::Acquire) {
+            return false;
         }
-        for pending in self
-            .state
-            .lock()
-            .expect("experiment service lock")
-            .pending
-            .values()
-        {
-            pending.cancel.cancel();
+        let state = self.state.lock().expect("experiment service lock");
+        self.accepting.load(Ordering::Acquire) && Self::enqueue_locked(&state, work)
+    }
+
+    pub(crate) fn request_shutdown(&self) {
+        self.accepting.store(false, Ordering::Release);
+        if let Ok(mut state) = self.state.try_lock() {
+            state.sender.take();
+            for pending in state.curricula.values() {
+                pending.cancel.cancel();
+            }
+            for pending in state.pending.values() {
+                pending.cancel.cancel();
+            }
         }
+    }
+
+    /// Close admission, cancel all registered work, and wait at most two
+    /// seconds for cooperative cleanup. A timeout leaves persisted work in its
+    /// actual partial state and returns the IDs pending at the deadline; it
+    /// never turns a timeout or worker panic into a successful shutdown.
+    pub(crate) fn shutdown_with_timeout(&self, timeout: Duration) -> ExperimentShutdownReport {
+        let started = Instant::now();
+        let deadline = started.checked_add(timeout).unwrap_or(started);
+        self.accepting.store(false, Ordering::Release);
+        let (cancelled_experiments, cancelled_curricula) =
+            if let Some(mut state) = lock_until(&self.state, deadline) {
+                state.sender.take();
+                for pending in state.pending.values() {
+                    pending.cancel.cancel();
+                }
+                for pending in state.curricula.values() {
+                    pending.cancel.cancel();
+                }
+                (state.pending.len(), state.curricula.len())
+            } else {
+                return ExperimentShutdownReport {
+                    outcome: ExperimentShutdownOutcome::TimedOut,
+                    admission_closed: true,
+                    state_observed: false,
+                    cancelled_experiments: 0,
+                    cancelled_curricula: 0,
+                    pending_experiments: Vec::new(),
+                    pending_curricula: Vec::new(),
+                    waited: started.elapsed(),
+                };
+            };
+
+        let Some(mut worker) = lock_until(&self.worker, deadline) else {
+            let pending = self.pending_work_until(deadline);
+            return ExperimentShutdownReport {
+                outcome: ExperimentShutdownOutcome::TimedOut,
+                admission_closed: true,
+                state_observed: pending.is_some(),
+                cancelled_experiments,
+                cancelled_curricula,
+                pending_experiments: pending
+                    .as_ref()
+                    .map(|work| work.0.clone())
+                    .unwrap_or_default(),
+                pending_curricula: pending.map(|work| work.1).unwrap_or_default(),
+                waited: started.elapsed(),
+            };
+        };
+
+        let outcome = if let Some(handle) = worker.handle.as_ref() {
+            while !handle.is_finished() {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+                std::thread::sleep(EXPERIMENT_SHUTDOWN_POLL.min(remaining));
+            }
+            if handle.is_finished() {
+                let handle = worker
+                    .handle
+                    .take()
+                    .expect("finished experiment worker handle");
+                if handle.join().is_err() {
+                    ExperimentShutdownOutcome::WorkerPanicked
+                } else {
+                    ExperimentShutdownOutcome::Complete
+                }
+            } else {
+                worker.handle.take();
+                ExperimentShutdownOutcome::TimedOut
+            }
+        } else {
+            worker
+                .outcome
+                .unwrap_or(ExperimentShutdownOutcome::WorkerExitedWithPending)
+        };
+        worker.outcome = Some(outcome);
+        drop(worker);
+
+        let pending = self.pending_work_until(deadline);
+        let state_observed = pending.is_some();
+        let (pending_experiments, pending_curricula) = pending.unwrap_or_default();
+        let outcome = if !state_observed {
+            ExperimentShutdownOutcome::TimedOut
+        } else if outcome == ExperimentShutdownOutcome::Complete
+            && (!pending_experiments.is_empty() || !pending_curricula.is_empty())
+        {
+            ExperimentShutdownOutcome::WorkerExitedWithPending
+        } else {
+            outcome
+        };
+        if let Ok(mut worker) = self.worker.try_lock() {
+            worker.outcome = Some(outcome);
+        }
+        ExperimentShutdownReport {
+            outcome,
+            admission_closed: true,
+            state_observed,
+            cancelled_experiments,
+            cancelled_curricula,
+            pending_experiments,
+            pending_curricula,
+            waited: started.elapsed(),
+        }
+    }
+
+    fn pending_work_until(
+        &self,
+        deadline: Instant,
+    ) -> Option<(Vec<ExperimentId>, Vec<CurriculumId>)> {
+        let state = lock_until(&self.state, deadline)?;
+        let mut experiments = state.pending.keys().cloned().collect::<Vec<_>>();
+        let mut curricula = state.curricula.keys().cloned().collect::<Vec<_>>();
+        experiments.sort();
+        curricula.sort();
+        Some((experiments, curricula))
     }
 }
 impl Drop for ExperimentService {
     fn drop(&mut self) {
-        self.cancel_all();
-        self.sender.take();
-        if let Some(worker) = self.worker.take()
-            && worker.join().is_err()
+        self.request_shutdown();
+        if let Ok(mut worker) = self.worker.try_lock()
+            && let Some(handle) = worker.handle.take()
+            && handle.is_finished()
         {
-            tracing::error!("Experiment service worker panicked");
+            let _ = handle.join();
         }
     }
 }
@@ -533,4 +805,211 @@ fn compact_curriculum_result(c: &crate::curriculum::Curriculum) -> Value {
 /// Return evaluator evidence without transcripts, native prompts, or raw artifacts.
 fn compact_result(result: &ExperimentResult) -> Value {
     json!({"experiment_id":result.experiment_id,"question":super::privacy::redact(&result.question,512),"quality":result.quality,"changed_variables":result.changed_variables,"starting_state":result.starting_state,"comparison":result.comparison,"recommendation":result.recommendation,"confidence":result.confidence,"created_experience":result.created_experience,"candidate_lessons":result.candidate_lessons,"usage":result.usage,"candidates":result.candidates.iter().map(|c|json!({"candidate_id":c.candidate_id,"name":c.name,"reality_id":c.reality_id,"experience_id":c.experience_id,"execution_status":c.execution_status,"evaluation":{"success":c.evaluation.success,"status":c.evaluation.status,"summary":c.evaluation.summary,"checks":c.evaluation.checks.iter().map(|check|json!({"name":check.name,"status":check.status})).collect::<Vec<_>>()},"diff_summary":c.diff_summary,"duration_ms":c.duration_ms,"starting_fingerprint":c.starting_fingerprint})).collect::<Vec<_>>()})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn service_with(
+        state: Arc<Mutex<State>>,
+        sender: SyncSender<Work>,
+        worker: JoinHandle<()>,
+    ) -> ExperimentService {
+        state.lock().unwrap().sender = Some(sender);
+        ExperimentService {
+            home: PathBuf::new(),
+            state,
+            accepting: AtomicBool::new(true),
+            worker: Mutex::new(WorkerState {
+                handle: Some(worker),
+                outcome: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn shutdown_closes_admission_cancels_work_and_joins_completed_worker() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let experiment_id = ExperimentId::new();
+        let cancellation = Cancellation::default();
+        state.lock().unwrap().pending.insert(
+            experiment_id.clone(),
+            Pending {
+                session: "session-test".into(),
+                cancel: cancellation.clone(),
+            },
+        );
+        let (sender, receiver) = mpsc::sync_channel(1);
+        sender
+            .try_send(Work::Experiment(experiment_id.clone()))
+            .unwrap();
+        let shared = state.clone();
+        let worker = std::thread::spawn(move || {
+            for work in receiver {
+                let Work::Experiment(id) = work else {
+                    panic!("unexpected curriculum work");
+                };
+                let cancel = shared
+                    .lock()
+                    .unwrap()
+                    .pending
+                    .get(&id)
+                    .unwrap()
+                    .cancel
+                    .clone();
+                while !cancel.is_cancelled() {
+                    std::thread::yield_now();
+                }
+                shared.lock().unwrap().pending.remove(&id);
+            }
+        });
+        let service = service_with(state, sender, worker);
+
+        let report = service.shutdown_with_timeout(Duration::from_secs(1));
+
+        assert_eq!(report.outcome, ExperimentShutdownOutcome::Complete);
+        assert!(report.admission_closed);
+        assert!(report.state_observed);
+        assert_eq!(report.cancelled_experiments, 1);
+        assert_eq!(report.cancelled_curricula, 0);
+        assert!(report.pending_experiments.is_empty());
+        assert!(report.pending_curricula.is_empty());
+        assert!(cancellation.is_cancelled());
+        assert!(!service.enqueue(Work::Experiment(ExperimentId::new())));
+    }
+
+    #[test]
+    fn shutdown_timeout_is_bounded_and_reports_pending_work() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let curriculum_id = CurriculumId::new();
+        let cancellation = Cancellation::default();
+        state.lock().unwrap().curricula.insert(
+            curriculum_id.clone(),
+            Pending {
+                session: "session-test".into(),
+                cancel: cancellation.clone(),
+            },
+        );
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let (release_sender, release_receiver) = mpsc::channel();
+        let (finished_sender, finished_receiver) = mpsc::channel();
+        let shared = state.clone();
+        let worker_id = curriculum_id.clone();
+        let worker = std::thread::spawn(move || {
+            let _receiver = receiver;
+            release_receiver.recv().unwrap();
+            shared.lock().unwrap().curricula.remove(&worker_id);
+            finished_sender.send(()).unwrap();
+        });
+        let service = service_with(state, sender, worker);
+
+        let started = Instant::now();
+        let report = service.shutdown_with_timeout(Duration::from_millis(25));
+
+        assert_eq!(report.outcome, ExperimentShutdownOutcome::TimedOut);
+        assert!(report.admission_closed);
+        assert!(report.state_observed);
+        assert_eq!(report.cancelled_curricula, 1);
+        assert_eq!(report.pending_curricula, vec![curriculum_id]);
+        assert!(report.waited >= Duration::from_millis(25));
+        assert!(started.elapsed() < Duration::from_millis(250));
+        assert!(cancellation.is_cancelled());
+
+        release_sender.send(()).unwrap();
+        finished_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+        let repeated = service.shutdown_with_timeout(Duration::ZERO);
+        assert_eq!(repeated.outcome, ExperimentShutdownOutcome::TimedOut);
+        assert!(repeated.pending_curricula.is_empty());
+    }
+
+    #[test]
+    fn shutdown_reports_worker_panic_without_clearing_partial_state() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let experiment_id = ExperimentId::new();
+        let cancellation = Cancellation::default();
+        state.lock().unwrap().pending.insert(
+            experiment_id.clone(),
+            Pending {
+                session: "session-test".into(),
+                cancel: cancellation.clone(),
+            },
+        );
+        let (sender, _receiver) = mpsc::sync_channel(1);
+        let worker = std::thread::spawn(|| panic!("worker failure"));
+        let service = service_with(state, sender, worker);
+
+        let report = service.shutdown_with_timeout(Duration::from_secs(1));
+
+        assert_eq!(report.outcome, ExperimentShutdownOutcome::WorkerPanicked);
+        assert_eq!(report.pending_experiments, vec![experiment_id]);
+        assert!(cancellation.is_cancelled());
+    }
+
+    #[test]
+    fn clean_worker_exit_with_pending_state_is_not_reported_as_success() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let experiment_id = ExperimentId::new();
+        state.lock().unwrap().pending.insert(
+            experiment_id.clone(),
+            Pending {
+                session: "session-test".into(),
+                cancel: Cancellation::default(),
+            },
+        );
+        let (sender, _receiver) = mpsc::sync_channel(1);
+        let worker = std::thread::spawn(|| {});
+        let service = service_with(state, sender, worker);
+
+        let report = service.shutdown_with_timeout(Duration::from_secs(1));
+
+        assert_eq!(
+            report.outcome,
+            ExperimentShutdownOutcome::WorkerExitedWithPending
+        );
+        assert_eq!(report.pending_experiments, vec![experiment_id]);
+        assert!(!report.completed());
+    }
+
+    #[test]
+    fn shutdown_deadline_includes_state_mutex_acquisition() {
+        let state = Arc::new(Mutex::new(State::default()));
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || for _ in receiver {});
+        let service = service_with(state.clone(), sender, worker);
+        let (locked_sender, locked_receiver) = mpsc::sync_channel(1);
+        let (release_sender, release_receiver) = mpsc::sync_channel(1);
+        let lock_holder = std::thread::spawn(move || {
+            let _guard = state.lock().unwrap();
+            locked_sender.send(()).unwrap();
+            release_receiver.recv().unwrap();
+        });
+        locked_receiver.recv().unwrap();
+
+        let started = Instant::now();
+        let report = service.shutdown_with_timeout(Duration::from_millis(25));
+
+        assert_eq!(report.outcome, ExperimentShutdownOutcome::TimedOut);
+        assert!(report.admission_closed);
+        assert!(!report.state_observed);
+        assert!(started.elapsed() < Duration::from_millis(250));
+        release_sender.send(()).unwrap();
+        lock_holder.join().unwrap();
+    }
+
+    #[test]
+    fn ended_session_tombstones_evict_oldest_entries_at_a_fixed_cap() {
+        let mut ended = EndedSessions::default();
+        for index in 0..ENDED_SESSION_CAPACITY + 64 {
+            ended.insert(format!("session-{index}"));
+        }
+
+        assert_eq!(ended.len(), ENDED_SESSION_CAPACITY);
+        assert!(!ended.contains("session-0"));
+        assert!(ended.contains(&format!("session-{}", ENDED_SESSION_CAPACITY + 63)));
+        ended.remove(&format!("session-{}", ENDED_SESSION_CAPACITY + 63));
+        assert_eq!(ended.len(), ENDED_SESSION_CAPACITY - 1);
+    }
 }
