@@ -22,10 +22,9 @@ OpenClaw ────┘                          │
 ## Quick start
 
 ```bash
-cargo build --locked
-hardknock bridge start
+hardknock setup --agent auto --mode workstation --non-interactive --start
+hardknock --json doctor --strict
 hardknock bridge status
-hardknock integrate claude install
 hardknock integrate codex check
 hardknock agent capabilities
 hardknock integrate doctor
@@ -34,6 +33,13 @@ hardknock bridge sessions
 hardknock bridge inspect hk-s-<id>
 hardknock bridge stop
 ```
+
+Use `hardknock setup --dry-run --json` to inspect detected agents and exact
+managed paths before installation. Setup records the stable Hardknock binary
+path in Claude hooks, preserves unrelated user configuration, refuses
+unmanaged plugin-directory collisions, and makes repeated application
+idempotent. Direct `hardknock integrate <agent> install|uninstall|check`
+commands remain available for one-adapter administration.
 
 For foreground diagnostics use `hardknock bridge start --foreground`. Detached
 startup retains bounded structured diagnostics under
@@ -111,4 +117,4 @@ cargo test --test integrations real_codex_model_lifecycle_smoke -- --ignored --n
 
 `hardknock-test-adapter` reads lifecycle JSONL from stdin, supplies local authentication and prints Bridge replies. It is a conformance tool, not a reasoning agent. `hardknock bridge call` sends one payload. Neither should receive raw tokens on the command line.
 
-Existing `run --agent test-agent`, `run --script`, and `run --agent-command` remain available without plugins. `run --experience-budget N` bounds additional controlled trials plus retries; the initial task execution is outside this additional budget. Native Codex uses `integrate codex run`, not `codex mcp-server`. No MCP compatibility layer is included yet.
+Existing `run --agent test-agent`, `run --script`, and `run --agent-command` remain available without plugins. `run --experience-budget N` bounds additional controlled trials plus retries; the initial task execution is outside this additional budget. Native Codex uses `integrate codex run`, not `codex mcp-server`. The generic MCP facade is tracked separately in the portable-integration milestone.

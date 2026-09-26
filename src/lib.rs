@@ -41,6 +41,7 @@ pub mod reflection;
 pub mod resilience;
 pub mod retrieval;
 pub mod runtime;
+pub mod setup;
 pub mod storage;
 pub mod storage_policy;
 pub mod store;

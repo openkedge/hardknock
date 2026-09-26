@@ -36,6 +36,7 @@ const MAX_BACKUP_ENTRIES: usize = MAX_BACKUP_FILES + BACKUP_FIXED_ENTRY_COUNT;
 const MAX_BACKUP_SOURCE_ENTRIES: usize = MAX_BACKUP_ENTRIES - BACKUP_FIXED_ENTRY_COUNT;
 const MAX_BACKUP_NESTING_DEPTH: usize = 64;
 const MAX_MANIFEST_PATH_BYTES: usize = 4096;
+const MAX_MANAGED_RECOVERY_POINT_LABEL_BYTES: usize = 64;
 const MAINTENANCE_LOCK_FILE: &str = "maintenance.lock";
 const ARTIFACT_CAPACITY_LOCK_FILE: &str = "artifact-capacity.lock";
 const ARTIFACT_RESERVATIONS_DIRECTORY: &str = "artifact-reservations";
@@ -73,6 +74,13 @@ pub struct BackupReport {
     pub artifact_count: usize,
     pub total_bytes: u64,
     pub verified: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct ManagedRecoveryPointReport {
+    pub label: String,
+    #[serde(flatten)]
+    pub backup: BackupReport,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -188,6 +196,12 @@ struct DatabaseState {
     shared_memory: Option<FileState>,
 }
 
+#[derive(Clone, Copy)]
+enum BackupDestination {
+    External,
+    ManagedInternal,
+}
+
 pub(crate) fn current_schema_version(connection: &Connection) -> Result<i64> {
     let table_exists: i64 = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='schema_migrations')",
@@ -257,7 +271,38 @@ pub fn create_backup(home: &Path, destination: &Path) -> Result<BackupReport> {
     let _maintenance = acquire_home_maintenance_lock(&home)?;
     let _artifact_capacity = acquire_artifact_capacity_lock(&home)?;
     require_no_active_artifact_reservations_locked(&home, "Backup")?;
-    create_backup_internal(&home, destination, false)
+    create_backup_internal(&home, destination, BackupDestination::External)
+}
+
+pub fn create_managed_recovery_point(
+    home: &Path,
+    label: &str,
+) -> Result<ManagedRecoveryPointReport> {
+    validate_managed_recovery_point_label(label)?;
+    let home = canonical_source_home(home)?;
+    let _maintenance = acquire_home_maintenance_lock(&home)?;
+    let _artifact_capacity = acquire_artifact_capacity_lock(&home)?;
+    require_no_active_artifact_reservations_locked(&home, "Managed recovery point")?;
+    let directory = managed_backup_directory_locked(&home)?;
+    let timestamp = Utc::now().format("%Y%m%dT%H%M%S%.6fZ");
+    let destination = directory.join(format!(
+        "{label}-{timestamp}-{}.hkbak",
+        uuid::Uuid::new_v4()
+    ));
+    let backup = create_backup_internal(&home, &destination, BackupDestination::ManagedInternal)?;
+    let verified = verify_backup_internal(&backup.destination)?;
+    if verified.manifest.schema_version != backup.schema_version
+        || verified.manifest.package_version != backup.package_version
+        || verified.manifest.artifacts.len() != backup.artifact_count
+    {
+        return Err(Error::Intervention(
+            "Published managed recovery point did not match its verified staging report.".into(),
+        ));
+    }
+    Ok(ManagedRecoveryPointReport {
+        label: label.to_owned(),
+        backup,
+    })
 }
 
 pub fn verify_backup(path: &Path) -> Result<BackupManifest> {
@@ -332,16 +377,14 @@ pub(crate) fn backup_before_migration_locked(
             "Pre-migration backup requires an existing older schema.".into(),
         ));
     }
-    let directory = home.join("backups");
-    fs::create_dir_all(&directory)?;
-    set_directory_mode(&directory)?;
+    let directory = managed_backup_directory_locked(home)?;
     let home = canonical_source_home(home)?;
     let timestamp = Utc::now().format("%Y%m%dT%H%M%S%.3fZ");
     let destination = directory.join(format!(
         "schema-{current_schema}-to-{target_schema}-{timestamp}-{}.hkbak",
         uuid::Uuid::new_v4()
     ));
-    let report = create_backup_internal(&home, &destination, true)?;
+    let report = create_backup_internal(&home, &destination, BackupDestination::ManagedInternal)?;
     if report.schema_version != current_schema {
         return Err(Error::Intervention(format!(
             "Pre-migration backup captured schema {}, expected {current_schema}.",
@@ -354,16 +397,28 @@ pub(crate) fn backup_before_migration_locked(
 fn create_backup_internal(
     home: &Path,
     destination: &Path,
-    allow_inside_home: bool,
+    destination_policy: BackupDestination,
 ) -> Result<BackupReport> {
     let home = canonical_source_home(home)?;
     let database = home.join(RESTORED_DATABASE_FILE);
     require_regular_file(&database, "Hardknock database")?;
     let destination = resolve_new_destination(destination)?;
-    if !allow_inside_home && destination.starts_with(&home) {
-        return Err(Error::Intervention(
-            "Public backups must be written outside HARDKNOCK_HOME.".into(),
-        ));
+    match destination_policy {
+        BackupDestination::External if destination.starts_with(&home) => {
+            return Err(Error::Intervention(
+                "Public backups must be written outside HARDKNOCK_HOME.".into(),
+            ));
+        }
+        BackupDestination::ManagedInternal => {
+            let managed_directory = home.join("backups").canonicalize()?;
+            if destination.parent() != Some(managed_directory.as_path()) {
+                return Err(Error::Intervention(
+                    "Managed recovery points must be written directly under HARDKNOCK_HOME/backups."
+                        .into(),
+                ));
+            }
+        }
+        BackupDestination::External => {}
     }
     if fs::symlink_metadata(&destination).is_ok() {
         return Err(Error::Intervention(format!(
@@ -1197,6 +1252,78 @@ fn canonical_source_home(home: &Path) -> Result<PathBuf> {
     let home = absolute.canonicalize()?;
     validate_dedicated_home(&home)?;
     Ok(home)
+}
+
+fn validate_managed_recovery_point_label(label: &str) -> Result<()> {
+    let bytes = label.as_bytes();
+    if bytes.is_empty() || bytes.len() > MAX_MANAGED_RECOVERY_POINT_LABEL_BYTES {
+        return Err(Error::InvalidInput(format!(
+            "Managed recovery point label must contain 1 to {MAX_MANAGED_RECOVERY_POINT_LABEL_BYTES} bytes."
+        )));
+    }
+    if !bytes.first().is_some_and(u8::is_ascii_alphanumeric)
+        || !bytes.last().is_some_and(u8::is_ascii_alphanumeric)
+        || !bytes
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(Error::InvalidInput(
+            "Managed recovery point label must start and end with an ASCII letter or digit and contain only ASCII letters, digits, hyphens, or underscores."
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
+fn managed_backup_directory_locked(home: &Path) -> Result<PathBuf> {
+    let path = home.join("backups");
+    let created = match fs::create_dir(&path) {
+        Ok(()) => {
+            set_directory_mode(&path)?;
+            true
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => false,
+        Err(error) => return Err(error.into()),
+    };
+    let before = fs::symlink_metadata(&path)?;
+    if before.file_type().is_symlink() || !before.is_dir() {
+        return Err(Error::Intervention(format!(
+            "Managed backup path must be a directory, not a symlink or special file: {}",
+            path.display()
+        )));
+    }
+    require_owner(&before, "Managed backup directory")?;
+    require_mode(&before, 0o700, "Managed backup directory")?;
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW)
+        .open(&path)?;
+    let opened = directory.metadata()?;
+    let current = fs::symlink_metadata(&path)?;
+    for metadata in [&opened, &current] {
+        if metadata.file_type().is_symlink()
+            || !metadata.is_dir()
+            || metadata.uid() != geteuid().as_raw()
+            || metadata.permissions().mode() & 0o777 != 0o700
+        {
+            return Err(Error::Intervention(
+                "Managed backup directory is not an owned private directory.".into(),
+            ));
+        }
+    }
+    if before.dev() != opened.dev()
+        || before.ino() != opened.ino()
+        || opened.dev() != current.dev()
+        || opened.ino() != current.ino()
+    {
+        return Err(Error::Intervention(
+            "Managed backup directory changed while it was being opened.".into(),
+        ));
+    }
+    if created {
+        sync_directory(home)?;
+    }
+    Ok(path)
 }
 
 fn resolve_without_mutation(path: &Path) -> Result<PathBuf> {

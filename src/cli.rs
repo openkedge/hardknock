@@ -24,11 +24,12 @@ mod federation;
 mod guard_candidate;
 pub mod integrations;
 mod knowledge;
-mod maintenance;
+pub(crate) mod maintenance;
 mod plan;
 mod predictive;
 mod resilience;
 pub(crate) mod runtime;
+pub mod setup;
 mod team;
 pub(crate) mod tools;
 use resilience::{ChaosCommand, EnvelopeCommand, RecoveryCommand, ReflexCommand, SkillCommand};
@@ -300,6 +301,14 @@ pub enum Commands {
         #[command(subcommand)]
         command: integrations::IntegrationCommand,
     },
+    /// Plan and apply a private, single-user production installation.
+    Setup(setup::SetupArgs),
+    /// Create a recovery point, migrate once, and refresh managed installation files.
+    Upgrade(setup::SetupArgs),
+    /// Revalidate and repair files owned by the managed installation.
+    Repair(setup::SetupArgs),
+    /// Remove only managed adapters and service files; preserve data by default.
+    Uninstall(setup::UninstallArgs),
     /// Native hook entry point; bounded JSON is read from stdin.
     IntegrationEvent {
         #[arg(long, value_enum)]
@@ -833,6 +842,17 @@ impl Response {
                 if result["kind"] == "doctor" && result["strict"] == true =>
             {
                 result["report"]["exit_code"]
+                    .as_u64()
+                    .and_then(|code| u8::try_from(code).ok())
+                    .unwrap_or(2)
+            }
+            Self::Maintenance { result }
+                if matches!(
+                    result["operation"].as_str(),
+                    Some("setup" | "upgrade" | "repair" | "uninstall")
+                ) =>
+            {
+                result["exit_code"]
                     .as_u64()
                     .and_then(|code| u8::try_from(code).ok())
                     .unwrap_or(2)
@@ -1445,6 +1465,55 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
     }
     if matches!(
         cli.command,
+        Commands::Setup(_) | Commands::Upgrade(_) | Commands::Repair(_) | Commands::Uninstall(_)
+    ) {
+        let user_home = env::var_os("HOME")
+            .map(PathBuf::from)
+            .ok_or_else(|| Error::Intervention("HOME is required for managed setup.".into()))?
+            .canonicalize()?;
+        let executable = env::current_exe()?;
+        let result = match &cli.command {
+            Commands::Setup(args) => {
+                crate::setup::apply(
+                    crate::setup::Operation::Setup,
+                    &home,
+                    &user_home,
+                    &executable,
+                    args,
+                )
+                .await?
+            }
+            Commands::Upgrade(args) => {
+                crate::setup::apply(
+                    crate::setup::Operation::Upgrade,
+                    &home,
+                    &user_home,
+                    &executable,
+                    args,
+                )
+                .await?
+            }
+            Commands::Repair(args) => {
+                crate::setup::apply(
+                    crate::setup::Operation::Repair,
+                    &home,
+                    &user_home,
+                    &executable,
+                    args,
+                )
+                .await?
+            }
+            Commands::Uninstall(args) => {
+                crate::setup::uninstall(&home, &user_home, &executable, args).await?
+            }
+            _ => unreachable!(),
+        };
+        return Ok(Response::Maintenance {
+            result: serde_json::to_value(result)?,
+        });
+    }
+    if matches!(
+        cli.command,
         Commands::Bridge { .. }
             | Commands::Integrate { .. }
             | Commands::IntegrationEvent { .. }
@@ -1718,9 +1787,11 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         Commands::Backup { .. }
         | Commands::Restore { .. }
         | Commands::Migration { .. }
-        | Commands::Storage { .. } => {
-            Err(Error::InvalidInput("Maintenance dispatch failed".into()))
-        }
+        | Commands::Storage { .. }
+        | Commands::Setup(_)
+        | Commands::Upgrade(_)
+        | Commands::Repair(_)
+        | Commands::Uninstall(_) => Err(Error::InvalidInput("Maintenance dispatch failed".into())),
         Commands::Curriculum { .. }
         | Commands::TaskFamily { .. }
         | Commands::Skill {

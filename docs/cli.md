@@ -1,5 +1,40 @@
 # CLI reference
 
+## Installation and lifecycle
+
+```text
+hardknock setup [--agent auto|none|claude|codex|hermes|openclaw]...
+  [--mode workstation|ci] [--non-interactive] [--dry-run] [--start]
+hardknock upgrade [setup options]
+hardknock repair [setup options]
+hardknock uninstall [--non-interactive] [--dry-run] [--remove-data]
+```
+
+Setup resolves a complete plan before mutation. The JSON result includes host
+and agent detection, migration state, every managed path, recovery-point
+status, service-manager results, strict doctor output, and the private
+transaction journal. Setup and repair create an initial recovery point when no
+verified managed backup exists. Upgrade always creates or confirms a
+pre-migration recovery boundary before refreshing adapters and services.
+
+`--agent auto` installs adapters only for detected hosts during initial setup.
+Upgrade and repair reuse the agents recorded by the prior managed setup.
+Codex uses its app-server integration and owns no hook file. Workstation mode
+plans a `systemd --user` unit or launchd agent; CI mode records the on-demand
+Bridge command. `--start` uses the native manager when available and falls back
+to bounded detached startup.
+
+Setup refuses symlinked, ambiguously owned, shared-writable, oversized, or
+unmanaged conflicting files. Mutating setup operations take a bounded
+transaction lock. A failed transaction restores a snapshotted adapter,
+service, or setup-manifest file only while its post-write fingerprint still
+matches; concurrent changes are preserved and reported for manual recovery.
+Recovery backups and a completed database migration remain available rather
+than being destructively undone. Uninstall removes only exact managed content,
+restarts a previously running Bridge if a later removal step fails, and retains
+the evidence home unless `--remove-data` is supplied with a valid matching
+setup manifest.
+
 ## V0.17 experience abstraction
 
 ```text

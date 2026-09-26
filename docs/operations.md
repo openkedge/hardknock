@@ -8,6 +8,70 @@ per installation. The examples below use:
 export HARDKNOCK_HOME="$HOME/.hardknock"
 ```
 
+## Binary installation and managed setup
+
+Install a pinned archive without a Rust toolchain:
+
+```bash
+./scripts/install.sh --version <version> --dry-run --json
+./scripts/install.sh --version <version>
+hardknock setup \
+  --agent auto \
+  --mode workstation \
+  --non-interactive \
+  --start \
+  --json
+```
+
+The installer accepts the official HTTPS release base, an absolute local
+mirror, or a `file://` mirror. Official downloads fail closed unless GitHub CLI
+binds the archive to the requested `openkedge/hardknock` release tag and
+verifies an attestation from the repository's release workflow. Provenance and
+candidate-binary checks have wall-clock and output limits. A custom HTTPS
+source requires the explicit `--no-verify-provenance` bypass. Local mirrors
+remain available for offline agents and report checksum-only provenance. The
+installer rejects insecure HTTP, archive traversal, links, oversized members,
+checksum ambiguity, changed same-version payloads, unsafe prefixes, concurrent
+transactions, and unmanaged destination collisions. It installs two binaries
+plus license, notice, and an integrity manifest. PATH changes use one bounded
+managed block and can be disabled with `--no-modify-path`.
+
+Setup emits its full plan before applying it. Applied steps are recorded in
+owner-private JSONL under `$HARDKNOCK_HOME/setup/transactions/`. Mutations take
+a bounded transaction lock. Rollback snapshots contain only bounded managed
+files; journal output records paths and results, not prior user file contents.
+Rollback compares each current file with the fingerprint recorded immediately
+after the setup step, preserving concurrent changes instead of overwriting
+them. Workstation mode installs an exact managed `systemd --user` or launchd
+definition. CI mode uses the documented on-demand Bridge command.
+
+After replacing the binaries with a newer pinned release:
+
+```bash
+hardknock upgrade --agent auto --mode workstation --non-interactive --start --json
+hardknock repair --agent auto --mode workstation --non-interactive --json
+```
+
+Upgrade preserves recorded agent choices, creates a verified recovery
+boundary, performs any database migration once, refreshes exact managed files,
+and runs strict doctor. Repair performs the same ownership and health checks
+without forcing an extra backup when a managed recovery point already exists.
+
+Managed removal is non-destructive by default:
+
+```bash
+hardknock uninstall --dry-run --json
+hardknock uninstall --non-interactive --json
+```
+
+This stops the Bridge when reachable and removes only exact managed adapter,
+service, and setup-manifest files. If a later uninstall step fails, managed
+files are restored and a Bridge that was running before the attempt is
+restarted. An absent managed installation is a true no-op. Successful removal
+retains the database, artifacts, backups, and transaction history.
+`--remove-data` additionally removes the exact owner-private home only when its
+setup manifest matches that path.
+
 ## Readiness checks
 
 Run the strict doctor after installation, configuration changes, upgrades, and

@@ -14,7 +14,7 @@ use std::{
 use fs2::FileExt;
 use hardknock::{
     core::{ExecutionRecord, RealityId},
-    storage::{BackupManifest, migration_plan, verify_backup},
+    storage::{BackupManifest, create_managed_recovery_point, migration_plan, verify_backup},
     store::{LATEST_SCHEMA_VERSION, Store, artifact},
 };
 use support::Fixture;
@@ -527,6 +527,117 @@ fn backup_waits_for_artifact_producers_to_finish() {
 
     drop(reservation);
     hardknock::storage::create_backup(&store.home, &destination).unwrap();
+}
+
+#[test]
+fn managed_recovery_point_supports_a_fresh_current_schema_home() {
+    let fixture = Fixture::new();
+    drop(Store::open(&fixture.home).unwrap());
+
+    let report = create_managed_recovery_point(&fixture.home, "setup").unwrap();
+
+    assert_eq!(report.label, "setup");
+    assert!(report.backup.verified);
+    assert_eq!(report.backup.schema_version, LATEST_SCHEMA_VERSION);
+    assert_eq!(report.backup.artifact_count, 0);
+    assert_eq!(
+        report.backup.destination.parent(),
+        Some(
+            fixture
+                .home
+                .join("backups")
+                .canonicalize()
+                .unwrap()
+                .as_path()
+        )
+    );
+    assert_eq!(
+        fs::metadata(&report.backup.destination)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        verify_backup(&report.backup.destination)
+            .unwrap()
+            .schema_version,
+        LATEST_SCHEMA_VERSION
+    );
+    let json = serde_json::to_value(&report).unwrap();
+    assert_eq!(json["label"], "setup");
+    assert_eq!(json["verified"], true);
+    assert_eq!(
+        json["destination"],
+        report.backup.destination.to_str().unwrap()
+    );
+}
+
+#[test]
+fn managed_recovery_point_captures_existing_evidence() {
+    let fixture = Fixture::new();
+    let execution = create_recorded_artifacts(&fixture);
+
+    let report = create_managed_recovery_point(&fixture.home, "pre_upgrade").unwrap();
+    let manifest = verify_backup(&report.backup.destination).unwrap();
+
+    assert_eq!(report.backup.artifact_count, manifest.artifacts.len());
+    assert!(!manifest.artifacts.is_empty());
+    let canonical_home = fixture.home.canonicalize().unwrap();
+    let canonical_stdout = execution.action.stdout.path.canonicalize().unwrap();
+    let recorded_stdout = canonical_stdout
+        .strip_prefix(canonical_home)
+        .unwrap()
+        .to_string_lossy();
+    assert!(
+        manifest
+            .artifacts
+            .iter()
+            .any(|artifact| artifact.path == recorded_stdout)
+    );
+}
+
+#[test]
+fn managed_recovery_point_rejects_invalid_labels_without_writing() {
+    let fixture = Fixture::new();
+    drop(Store::open(&fixture.home).unwrap());
+    let too_long = "a".repeat(65);
+
+    for label in ["", "../escape", "contains space", "-leading", "trailing-"] {
+        let error = create_managed_recovery_point(&fixture.home, label)
+            .expect_err("invalid managed recovery point labels must fail");
+        assert!(error.to_string().contains("label"), "{error}");
+    }
+    let error = create_managed_recovery_point(&fixture.home, &too_long)
+        .expect_err("overlong managed recovery point labels must fail");
+    assert!(error.to_string().contains("1 to 64 bytes"), "{error}");
+    assert_eq!(
+        fs::read_dir(fixture.home.join("backups")).unwrap().count(),
+        0
+    );
+}
+
+#[test]
+fn repeated_managed_recovery_points_never_overwrite() {
+    let fixture = Fixture::new();
+    drop(Store::open(&fixture.home).unwrap());
+
+    let first = create_managed_recovery_point(&fixture.home, "repair").unwrap();
+    let first_manifest = verify_backup(&first.backup.destination).unwrap();
+    let second = create_managed_recovery_point(&fixture.home, "repair").unwrap();
+
+    assert_ne!(first.backup.destination, second.backup.destination);
+    assert!(first.backup.destination.exists());
+    assert!(second.backup.destination.exists());
+    assert_eq!(
+        verify_backup(&first.backup.destination).unwrap(),
+        first_manifest
+    );
+    assert_eq!(
+        fs::read_dir(fixture.home.join("backups")).unwrap().count(),
+        2
+    );
 }
 
 #[test]

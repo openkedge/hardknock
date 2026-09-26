@@ -16,6 +16,29 @@ Task → disposable Reality → execution + checks → immutable Experience
                                     scoped Lesson → later decision
 ```
 
+## Install a binary release
+
+The bootstrap installer does not require Rust. It accepts the official HTTPS
+release location or an absolute local mirror, verifies the selected archive
+checksum and contents, and installs only `hardknock` and `hk-effect`. Official
+downloads also require GitHub CLI to bind the archive to the requested release
+tag and verify an attestation from Hardknock's release workflow:
+
+```bash
+./scripts/install.sh --version <version>
+hardknock setup --agent auto --mode workstation --non-interactive --start
+hardknock --json doctor --strict
+```
+
+Use `--dry-run --json` on either installer or setup to inspect every planned
+change. `hardknock upgrade` creates a verified recovery point and refreshes
+managed configuration after the binary is replaced. `hardknock repair`
+revalidates owned files. `hardknock uninstall` removes managed adapters and
+service files while preserving the data home; `--remove-data` is a separate
+explicit action. Offline mirrors report checksum-only provenance, and
+`--no-verify-provenance` is the explicit escape hatch for a custom HTTPS
+source. See [production operations](docs/operations.md).
+
 ## Try it locally
 
 Hardknock is a pre-release Rust CLI. Build it on Linux or macOS with Rust 1.88
@@ -60,10 +83,10 @@ The [documentation index](docs/README.md) groups the full guides, design details
 
 ## Current status and limits
 
-Hardknock is pre-release and currently built from source. The local V0.22
-checkpoint is implemented, while its general-production release criteria
-remain incomplete. The [V0.22 progress record](docs/v0.22-progress.md) lists
-the checkpoint boundary.
+Hardknock is pre-release. Source builds and the version-pinned binary installer
+are implemented, while published release artifacts and the remaining
+general-production evidence are still gated. The [V0.22 progress
+record](docs/v0.22-progress.md) lists the checkpoint boundary.
 
 The [production-readiness and installation plan](docs/production-readiness-plan.md) gives the current overall verdict and the gated path to a supported 1.0 release for general local and CI agent use.
 Implementation status and validation evidence are tracked in the [production progress record](docs/production-progress.md).

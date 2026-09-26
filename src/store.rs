@@ -79,6 +79,7 @@ pub(crate) const HOME_ENTRIES: &[&str] = &[
     "federation",
     "effects",
     "tools",
+    "setup",
 ];
 
 const HOME_DIRECTORIES: &[&str] = &[
@@ -94,6 +95,7 @@ const HOME_DIRECTORIES: &[&str] = &[
     "federation",
     "effects",
     "tools",
+    "setup",
 ];
 
 pub struct Store {

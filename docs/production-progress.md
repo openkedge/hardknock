@@ -25,7 +25,7 @@ with its own reviewed commit and validation summary.
 | 0. Verdict and implementation plan | Complete | `17a79d2` | Plan reviewed; documentation links added |
 | 1. Build, package, version, schema, and lifecycle truth | Complete locally | `1998244` | Local release gates pass; hosted Linux/macOS workflows await their first remote run |
 | 2. Storage and Bridge operations | Complete locally | `1f6c077` | Local implementation and sandbox-compatible gates pass; 24-hour and host-facility runs remain release evidence |
-| 3. Binary installer and transactional setup | Pending | — | Fresh host setup, dry-run JSON, repair, upgrade, and non-destructive uninstall |
+| 3. Binary installer and transactional setup | Complete locally | Pending milestone commit | Hermetic installer and lifecycle fixtures pass; published-release and native-manager runs remain release evidence |
 | 4. Portable agent integration | Pending | — | MCP stdio, integration manifest, conformance harness, and live adapter matrix |
 | 5. Production validation | Pending | — | Cross-platform security, parser, load, soak, and recovery evidence |
 | 6. Beta and 1.0 release | Pending | — | Published compatibility policy and all 1.0 release gates complete |
@@ -159,6 +159,76 @@ Implementation commit: `1f6c077`.
 The first 24-hour Linux and macOS soak results, hosted service-manager checks,
 and a complete host-facility serial run remain release evidence. They are not
 claimed by this local milestone.
+
+## Milestone 3 checklist
+
+- [x] Add a version-pinned, Rust-free installer with explicit prefix, PATH,
+      dry-run JSON, upgrade, rollback, repair detection, and managed uninstall.
+- [x] Reject insecure repositories, unsafe archives, links, traversal,
+      oversized payloads, checksum ambiguity, and same-version content drift.
+- [x] Add top-level setup, upgrade, repair, and uninstall commands.
+- [x] Produce the complete setup plan before mutation and journal every applied
+      step without retaining prior user configuration content.
+- [x] Roll back managed adapter, service, and manifest files after a failed
+      setup.
+- [x] Detect Git, Docker, Podman, Claude Code, Codex, Hermes, OpenClaw, and the
+      native user service manager.
+- [x] Preserve prior agent selection across upgrade and repair.
+- [x] Use the stable installed binary path in managed Claude hooks.
+- [x] Install exact owner-private systemd user or launchd definitions with an
+      on-demand fallback.
+- [x] Create managed verified recovery points for setup and upgrade.
+- [x] Keep uninstall non-destructive unless a matching manifest authorizes
+      explicit data removal.
+- [x] Verify GitHub build provenance for official HTTPS downloads and require
+      an explicit bypass for custom HTTPS sources.
+- [x] Bind official archives to the requested release tag and release workflow,
+      with bounded provenance and candidate-binary execution.
+- [x] Serialize setup mutations and preserve files changed concurrently during
+      rollback.
+- [x] Restore a previously running Bridge when a later uninstall step fails,
+      and bound service-manager descendants and output capture.
+- [x] Make uninstall of an absent managed installation a mutation-free no-op.
+- [ ] Run the published installer and native manager lifecycle on each
+      supported platform and architecture.
+
+## Milestone 3 completion evidence
+
+Implementation commit: pending.
+
+- The POSIX installer passed 33/33 hermetic cases under both `/bin/sh` and
+  `/bin/dash`. The suite covers dry-run nonmutation, local and HTTPS mirrors,
+  archive and checksum attacks, unsafe prefixes and profiles, lock handling,
+  idempotent upgrade, same-version drift, rollback, abandoned transactions,
+  PATH ownership, non-destructive uninstall, release-tag mismatch, successful
+  and failed workflow-scoped GitHub attestation verification, unavailable and
+  timed-out verifiers, timed-out candidate binaries, and explicit provenance
+  bypass.
+- Managed recovery-point tests expanded the storage suite to 21/21. Recovery
+  bundles use the existing maintenance and artifact gates, private unique
+  destinations, bounded labels, and full post-publication verification.
+- Service planning and application passed 11 focused tests for systemd,
+  launchd, on-demand fallback, safe rendering, atomic private writes,
+  idempotency, unmanaged conflicts, exact-content removal, bounded manager
+  output, timeouts, and descendants that inherit capture streams.
+- Setup transaction unit tests passed 20/20 across service, transaction
+  locking, compare-before-rollback snapshots, journal, selection, and manifest
+  behavior. End-to-end lifecycle fixtures passed 8/8, including a
+  post-mutation doctor failure that restored the original Claude settings and
+  removed newly managed files, a late failed fresh setup that preserved files
+  created concurrently, and a mutation-free absent uninstall.
+- An independent follow-up review confirmed that the three setup blockers were
+  resolved: concurrent files survive rollback, a previously running Bridge is
+  health-checked and restored after failed uninstall, and service-manager
+  descendants cannot hold output capture open indefinitely.
+- Locked offline all-target/all-feature compiler checks, shell syntax checks,
+  formatting, strict Clippy, and the focused suites pass on the combined
+  milestone tree.
+
+Published release assets do not yet exist for this development version, so the
+real HTTPS release and build-attestation run remains release evidence. Native
+systemd and launchd mutation is covered by hermetic manager fixtures locally
+and still needs supported-host runs.
 
 ## Baseline evidence
 
