@@ -24,7 +24,7 @@ TAG = "v1.0.0"
 SOURCE_TAG = "v1.0.0-rc.1"
 SOURCE_COMMIT = "1" * 40
 SOURCE_TREE = "2" * 40
-SOURCE_EPOCH = 1790380800
+SOURCE_EPOCH = 1790294400
 REPOSITORY = "openkedge/hardknock"
 TARGETS = (
     "x86_64-unknown-linux-gnu",
@@ -341,7 +341,7 @@ def candidate() -> dict[str, Any]:
             "id": 2002,
             "login": "release-reviewer",
         },
-        "frozen_at_utc": "2026-09-26T00:00:00Z",
+        "frozen_at_utc": "2026-09-25T00:00:00Z",
         "evidence_completed_at_utc": "2026-09-26T02:00:00Z",
     }
 
@@ -365,7 +365,20 @@ def details(kind: str, gate: str, artifacts: dict[str, Any]) -> dict[str, Any]:
     if kind == "repository":
         value = {
             "clean_checkout": True,
-            "serial_test_passes": 2,
+            "serial_test_passes": {
+                "linux": {
+                    "passes": 2,
+                    "workflow_run_url": (
+                        "https://github.com/openkedge/hardknock/actions/runs/1"
+                    ),
+                },
+                "macos": {
+                    "passes": 2,
+                    "workflow_run_url": (
+                        "https://github.com/openkedge/hardknock/actions/runs/1"
+                    ),
+                },
+            },
             "package_verified": True,
             "default_branch": "main",
             "default_branch_protected": True,
@@ -549,6 +562,34 @@ def assert_rejected(
             path.write_bytes(contents)
 
 
+def assert_accepted(
+    evidence_root: Path,
+    asset_root: Path,
+    passing: dict[str, Any],
+    name: str,
+    mutate: Callable[[dict[str, Any]], None],
+) -> None:
+    receipt_contents = {
+        path: path.read_bytes()
+        for path in (evidence_root / "receipts").iterdir()
+        if path.is_file()
+    }
+    record = copy.deepcopy(passing)
+    try:
+        mutate(record)
+        path = evidence_root / f"{name}.json"
+        write_record(path, record)
+        schema = json.loads(SCHEMA.read_text())
+        errors = schema_document_errors(record, evidence_root, schema)
+        assert not errors, f"{name} unexpectedly failed schema: {errors}"
+        process, result = run(path, evidence_root, asset_root=asset_root)
+        assert process.returncode == 0, result
+        assert result["ok"] is True
+    finally:
+        for path, contents in receipt_contents.items():
+            path.write_bytes(contents)
+
+
 def validate_schema_contract(schema: dict[str, Any]) -> None:
     assert schema["additionalProperties"] is False
     assert "artifacts" in schema["required"]
@@ -620,6 +661,20 @@ def validate_schema_contract(schema: dict[str, Any]) -> None:
         "force_push_blocked",
         "bypass_actor_count",
     } <= repository_fields
+    serial = schema["$defs"]["repository_details"]["properties"][
+        "serial_test_passes"
+    ]
+    assert set(serial["required"]) == {"linux", "macos"}
+    assert serial["additionalProperties"] is False
+    assert serial["properties"]["linux"]["$ref"] == (
+        "#/$defs/serial_test_pass_result"
+    )
+    serial_result = schema["$defs"]["serial_test_pass_result"]
+    assert set(serial_result["required"]) == {"passes", "workflow_run_url"}
+    assert serial_result["properties"]["passes"]["minimum"] == 2
+    assert serial_result["properties"]["workflow_run_url"]["pattern"].startswith(
+        "^https://github"
+    )
     assert "(?!0{64}" in schema["$defs"]["artifact"]["properties"]["sha256"]["pattern"]
     assert "(?!0{40}" in schema["$defs"]["source"]["properties"]["commit"]["pattern"]
     assert "-rc\\." in schema["$defs"]["source"]["properties"]["tag"]["pattern"]
@@ -845,7 +900,7 @@ def main() -> None:
             passing,
             "completion-before-freeze",
             lambda record: record["candidate"].update(
-                {"evidence_completed_at_utc": "2026-09-25T23:59:59Z"}
+                {"evidence_completed_at_utc": "2026-09-24T23:59:59Z"}
             ),
             "evidence_completed_at_utc: precedes candidate.frozen_at_utc",
             schema_must_accept=True,
@@ -963,6 +1018,200 @@ def main() -> None:
             ),
             "bypass_actor_count: must be integer zero",
             schema_must_reject=True,
+        )
+        assert_rejected(
+            evidence_root,
+            asset_root,
+            passing,
+            "legacy-serial-pass-scalar",
+            lambda record: mutate_receipt(
+                record, "gates.repository", "serial_test_passes", 2
+            ),
+            "must contain exactly linux and macos",
+            schema_must_reject=True,
+        )
+        assert_rejected(
+            evidence_root,
+            asset_root,
+            passing,
+            "missing-macos-serial-pass",
+            lambda record: mutate_receipt(
+                record,
+                "gates.repository",
+                "serial_test_passes",
+                {
+                    "linux": {
+                        "passes": 2,
+                        "workflow_run_url": (
+                            "https://github.com/openkedge/hardknock/"
+                            "actions/runs/1"
+                        ),
+                    }
+                },
+            ),
+            "must contain exactly linux and macos",
+            schema_must_reject=True,
+        )
+        assert_rejected(
+            evidence_root,
+            asset_root,
+            passing,
+            "one-linux-serial-pass",
+            lambda record: mutate_receipt(
+                record,
+                "gates.repository",
+                "serial_test_passes",
+                {
+                    "linux": {
+                        "passes": 1,
+                        "workflow_run_url": (
+                            "https://github.com/openkedge/hardknock/"
+                            "actions/runs/1"
+                        ),
+                    },
+                    "macos": {
+                        "passes": 2,
+                        "workflow_run_url": (
+                            "https://github.com/openkedge/hardknock/"
+                            "actions/runs/1"
+                        ),
+                    },
+                },
+            ),
+            "linux.passes: must be an integer from 2 through 16",
+            schema_must_reject=True,
+        )
+        assert_rejected(
+            evidence_root,
+            asset_root,
+            passing,
+            "extra-windows-serial-pass",
+            lambda record: mutate_receipt(
+                record,
+                "gates.repository",
+                "serial_test_passes",
+                {
+                    "linux": {
+                        "passes": 2,
+                        "workflow_run_url": (
+                            "https://github.com/openkedge/hardknock/"
+                            "actions/runs/1"
+                        ),
+                    },
+                    "macos": {
+                        "passes": 2,
+                        "workflow_run_url": (
+                            "https://github.com/openkedge/hardknock/"
+                            "actions/runs/1"
+                        ),
+                    },
+                    "windows": {
+                        "passes": 2,
+                        "workflow_run_url": (
+                            "https://github.com/openkedge/hardknock/"
+                            "actions/runs/1"
+                        ),
+                    },
+                },
+            ),
+            "must contain exactly linux and macos",
+            schema_must_reject=True,
+        )
+        assert_rejected(
+            evidence_root,
+            asset_root,
+            passing,
+            "invalid-serial-workflow-url",
+            lambda record: mutate_receipt(
+                record,
+                "gates.repository",
+                "serial_test_passes",
+                {
+                    "linux": {
+                        "passes": 2,
+                        "workflow_run_url": "https://example.invalid/run/1",
+                    },
+                    "macos": {
+                        "passes": 2,
+                        "workflow_run_url": (
+                            "https://github.com/openkedge/hardknock/"
+                            "actions/runs/1"
+                        ),
+                    },
+                },
+            ),
+            "must be an exact Hardknock GitHub Actions run URL",
+            schema_must_reject=True,
+        )
+        assert_rejected(
+            evidence_root,
+            asset_root,
+            passing,
+            "advisory-database-before-freeze",
+            lambda record: mutate_receipt(
+                record,
+                "gates.dependency_advisories",
+                "database_updated_at_utc",
+                "2026-09-24T23:59:59Z",
+            ),
+            "precedes candidate.frozen_at_utc",
+            schema_must_accept=True,
+        )
+        assert_rejected(
+            evidence_root,
+            asset_root,
+            passing,
+            "advisory-database-after-observation",
+            lambda record: mutate_receipt(
+                record,
+                "gates.dependency_advisories",
+                "database_updated_at_utc",
+                "2026-09-26T01:00:01Z",
+            ),
+            "exceeds receipt observation time",
+            schema_must_accept=True,
+        )
+        assert_rejected(
+            evidence_root,
+            asset_root,
+            passing,
+            "stale-advisory-database",
+            lambda record: (
+                mutate_receipt_root(
+                    record,
+                    "gates.dependency_advisories",
+                    "observed_at_utc",
+                    "2026-09-26T00:00:01Z",
+                ),
+                mutate_receipt(
+                    record,
+                    "gates.dependency_advisories",
+                    "database_updated_at_utc",
+                    "2026-09-25T00:00:00Z",
+                ),
+            ),
+            "advisory database is more than 24 hours old",
+            schema_must_accept=True,
+        )
+        assert_accepted(
+            evidence_root,
+            asset_root,
+            passing,
+            "advisory-database-exactly-24-hours-old",
+            lambda record: (
+                mutate_receipt_root(
+                    record,
+                    "gates.dependency_advisories",
+                    "observed_at_utc",
+                    "2026-09-26T00:00:00Z",
+                ),
+                mutate_receipt(
+                    record,
+                    "gates.dependency_advisories",
+                    "database_updated_at_utc",
+                    "2026-09-25T00:00:00Z",
+                ),
+            ),
         )
         assert_rejected(
             evidence_root,

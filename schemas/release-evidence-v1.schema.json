@@ -768,6 +768,27 @@
         "$ref": "#/$defs/check"
       }
     },
+    "serial_test_pass_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passes",
+        "workflow_run_url"
+      ],
+      "properties": {
+        "passes": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 16
+        },
+        "workflow_run_url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^https://github\\.com/openkedge/hardknock/actions/runs/[1-9][0-9]*$"
+        }
+      }
+    },
     "repository_details": {
       "type": "object",
       "additionalProperties": false,
@@ -792,8 +813,20 @@
           "const": true
         },
         "serial_test_passes": {
-          "type": "integer",
-          "minimum": 2
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "linux",
+            "macos"
+          ],
+          "properties": {
+            "linux": {
+              "$ref": "#/$defs/serial_test_pass_result"
+            },
+            "macos": {
+              "$ref": "#/$defs/serial_test_pass_result"
+            }
+          }
         },
         "package_verified": {
           "const": true
@@ -1405,6 +1438,7 @@
           "$ref": "#/$defs/checks"
         },
         "database_updated_at_utc": {
+          "description": "Successful advisory-database refresh completed at or after candidate freeze, no later than receipt observation, and at most 24 hours before receipt observation.",
           "type": "string",
           "minLength": 1,
           "maxLength": 256,

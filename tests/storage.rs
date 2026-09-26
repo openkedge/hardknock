@@ -400,7 +400,7 @@ fn automatic_migration_backup_waits_for_the_bounded_maintenance_lock() {
     let home = fixture.home.clone();
     let migration = thread::spawn(move || Store::open(&home));
     thread::sleep(Duration::from_millis(150));
-    lock.unlock().unwrap();
+    FileExt::unlock(&lock).unwrap();
     drop(lock);
 
     let store = migration.join().unwrap().unwrap();

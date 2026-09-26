@@ -24,9 +24,14 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
 const GIB: u64 = 1024 * 1024 * 1024;
 const TRANSIENT_DIRECTORY: &str = "transient";
+const TRANSIENT_DIRECTORY_PREFIX: &str = "hk-transient-";
 const TRANSIENT_LEASE_MARKER: &str = ".hardknock-active-v1";
 const TRANSIENT_LEASE_CONTENT: &[u8] = b"hardknock-transient-lease-v1\n";
 const MIN_ABANDONED_LEASE_AGE: Duration = Duration::from_secs(5 * 60);
+// Experiments permit at most 32 concurrent realities. A capacity scan can
+// therefore observe several separately leased scratch directories finishing
+// one after another while it walks the managed transient namespace.
+const MAX_TRANSIENT_INVENTORY_RETRIES: usize = 32;
 
 /// A private transient directory that remains protected from retention while
 /// this value is alive.
@@ -58,7 +63,7 @@ impl LeasedTransientDir {
         }
 
         let directory = tempfile::Builder::new()
-            .prefix("hk-transient-")
+            .prefix(TRANSIENT_DIRECTORY_PREFIX)
             .tempdir_in(transient_root)?;
         fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700))?;
         let lease = open(
@@ -732,6 +737,69 @@ fn inventory_artifacts(
     policy: &StoragePolicy,
     artifacts_root: &Path,
 ) -> Result<StorageInventory, StoragePolicyError> {
+    inventory_artifacts_with_retry(policy, artifacts_root, &mut |_, _| {})
+}
+
+fn inventory_artifacts_with_retry<F>(
+    policy: &StoragePolicy,
+    artifacts_root: &Path,
+    after_directory_read: &mut F,
+) -> Result<StorageInventory, StoragePolicyError>
+where
+    F: FnMut(&Path, &[PathBuf]),
+{
+    for attempt in 0..=MAX_TRANSIENT_INVENTORY_RETRIES {
+        match inventory_artifacts_once(policy, artifacts_root, after_directory_read) {
+            Err(error)
+                if attempt < MAX_TRANSIENT_INVENTORY_RETRIES
+                    && retryable_transient_disappearance(artifacts_root, &error) =>
+            {
+                std::thread::yield_now();
+                continue;
+            }
+            result => return result,
+        }
+    }
+    unreachable!("bounded inventory retry loop always returns")
+}
+
+fn retryable_transient_disappearance(artifacts_root: &Path, error: &StoragePolicyError) -> bool {
+    matches!(
+        error,
+        StoragePolicyError::Io { path, source, .. }
+            if source.kind() == io::ErrorKind::NotFound
+                && is_managed_transient_path(artifacts_root, path)
+    )
+}
+
+fn is_managed_transient_path(artifacts_root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(artifacts_root) else {
+        return false;
+    };
+    let mut components = relative.components();
+    if !matches!(
+        components.next(),
+        Some(Component::Normal(name)) if name == TRANSIENT_DIRECTORY
+    ) {
+        return false;
+    }
+    matches!(
+        components.next(),
+        Some(Component::Normal(name))
+            if name
+                .to_str()
+                .is_some_and(|name| name.starts_with(TRANSIENT_DIRECTORY_PREFIX))
+    )
+}
+
+fn inventory_artifacts_once<F>(
+    policy: &StoragePolicy,
+    artifacts_root: &Path,
+    after_directory_read: &mut F,
+) -> Result<StorageInventory, StoragePolicyError>
+where
+    F: FnMut(&Path, &[PathBuf]),
+{
     let root_metadata = fs::symlink_metadata(artifacts_root)
         .map_err(|error| io_error("inspect artifacts root", artifacts_root, error))?;
     if root_metadata.file_type().is_symlink() {
@@ -789,6 +857,7 @@ fn inventory_artifacts(
             );
         }
         children.sort();
+        after_directory_read(&directory, &children);
 
         let mut child_directories = Vec::new();
         for path in children {
@@ -984,14 +1053,25 @@ fn inspect_transient_lease(
 
     match flock(&descriptor, FlockOperation::NonBlockingLockExclusive) {
         Ok(()) => {
-            let stable_marker = statat(
+            let stable_marker = match statat(
                 &descriptor,
                 TRANSIENT_LEASE_MARKER,
                 AtFlags::SYMLINK_NOFOLLOW,
-            )
-            .map_err(|_| StoragePolicyError::EntryChanged {
-                path: directory.join(TRANSIENT_LEASE_MARKER),
-            })?;
+            ) {
+                Ok(stat) => stat,
+                Err(rustix::io::Errno::NOENT) => {
+                    return Err(io_error(
+                        "inspect transient lease marker",
+                        &directory.join(TRANSIENT_LEASE_MARKER),
+                        io::Error::from(io::ErrorKind::NotFound),
+                    ));
+                }
+                Err(_) => {
+                    return Err(StoragePolicyError::EntryChanged {
+                        path: directory.join(TRANSIENT_LEASE_MARKER),
+                    });
+                }
+            };
             if !same_file_identity(&marker_stat, &stable_marker)
                 || !same_file_state(&marker_stat, &stable_marker)
             {
@@ -1840,6 +1920,129 @@ mod tests {
             ))
         ));
         assert_eq!(fs::read(&candidate).unwrap(), b"active");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inventory_restarts_when_a_managed_transient_directory_disappears() {
+        let directory = tempdir().unwrap();
+        let root = directory.path().join("artifacts");
+        let transient_root = root.join(TRANSIENT_DIRECTORY);
+        fs::create_dir_all(&transient_root).unwrap();
+        let leased = LeasedTransientDir::create(&transient_root).unwrap();
+        let disappearing = leased.path().to_path_buf();
+        write_file(&disappearing.join("evaluation.out"), b"temporary");
+        let protected = root.join("experience/evidence.bin");
+        write_file(&protected, b"protected");
+
+        let mut leased = Some(leased);
+        let mut removals = 0;
+        let inventory = inventory_artifacts_with_retry(
+            &test_policy(u64::MAX, u64::MAX),
+            &root,
+            &mut |scanned, children| {
+                if scanned == transient_root
+                    && children.iter().any(|path| path == &disappearing)
+                    && leased.is_some()
+                {
+                    drop(leased.take());
+                    removals += 1;
+                }
+            },
+        )
+        .unwrap();
+
+        assert_eq!(removals, 1);
+        assert!(!disappearing.exists());
+        assert_eq!(inventory.usage, StorageUsage { bytes: 9, files: 1 });
+        assert_eq!(inventory.protected, inventory.usage);
+        assert!(inventory.entries.iter().all(|entry| {
+            !entry
+                .relative_path
+                .starts_with(disappearing.strip_prefix(&root).unwrap())
+        }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn inventory_tolerates_multiple_managed_transient_teardowns() {
+        let directory = tempdir().unwrap();
+        let root = directory.path().join("artifacts");
+        let transient_root = root.join(TRANSIENT_DIRECTORY);
+        fs::create_dir_all(&transient_root).unwrap();
+        let mut leased = (0..4)
+            .map(|_| LeasedTransientDir::create(&transient_root).unwrap())
+            .collect::<Vec<_>>();
+        for (index, directory) in leased.iter().enumerate() {
+            write_file(
+                &directory.path().join(format!("evaluation-{index}.out")),
+                b"temporary",
+            );
+        }
+        let protected = root.join("experience/evidence.bin");
+        write_file(&protected, b"protected");
+
+        let mut removals = 0;
+        let inventory = inventory_artifacts_with_retry(
+            &test_policy(u64::MAX, u64::MAX),
+            &root,
+            &mut |scanned, _| {
+                if scanned != transient_root {
+                    return;
+                }
+                let Some(directory) = leased.pop() else {
+                    return;
+                };
+                drop(directory);
+                removals += 1;
+            },
+        )
+        .unwrap();
+
+        assert_eq!(removals, 4);
+        assert!(leased.is_empty());
+        assert_eq!(inventory.usage, StorageUsage { bytes: 9, files: 1 });
+        assert_eq!(inventory.protected, inventory.usage);
+    }
+
+    #[test]
+    fn inventory_retry_is_limited_to_not_found_under_managed_transients() {
+        let root = Path::new("/tmp/hardknock-artifacts");
+        let managed = root.join("transient/hk-transient-test/evaluation.out");
+        let unleased = root.join("transient/user-cache/evaluation.out");
+        let protected = root.join("experience/evidence.bin");
+
+        let not_found = |path: &Path| {
+            io_error(
+                "inspect artifact entry",
+                path,
+                io::Error::from(io::ErrorKind::NotFound),
+            )
+        };
+        assert!(retryable_transient_disappearance(
+            root,
+            &not_found(&managed)
+        ));
+        assert!(!retryable_transient_disappearance(
+            root,
+            &not_found(&unleased)
+        ));
+        assert!(!retryable_transient_disappearance(
+            root,
+            &not_found(&protected)
+        ));
+        assert!(!retryable_transient_disappearance(
+            root,
+            &io_error(
+                "inspect artifact entry",
+                &managed,
+                io::Error::from(io::ErrorKind::PermissionDenied),
+            )
+        ));
+        assert!(!retryable_transient_disappearance(
+            root,
+            &StoragePolicyError::EntryChanged { path: managed }
+        ));
     }
 
     #[cfg(unix)]

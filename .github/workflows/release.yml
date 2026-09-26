@@ -308,7 +308,7 @@ jobs:
           retention-days: 90
 
   verify-candidate:
-    name: Verify candidate source and metadata
+    name: Verify candidate source, metadata, and regressions
     needs: resolve
     if: needs.resolve.outputs.channel == 'candidate'
     runs-on: ubuntu-24.04
@@ -359,10 +359,6 @@ jobs:
         run: >-
           cargo +"${RELEASE_RUST}" clippy --locked
           --all-targets --all-features -- -D warnings
-      - name: Run the full serial suite (pass 1)
-        run: >-
-          cargo +"${RELEASE_RUST}" test --locked --all-targets --all-features
-          -- --test-threads=1
       - name: Run focused production regressions
         run: |
           set -euo pipefail
@@ -371,10 +367,6 @@ jobs:
           cargo +"${RELEASE_RUST}" test --locked --test bridge_capacity -- --nocapture
           cargo +"${RELEASE_RUST}" test --locked --test integrations -- --nocapture
           cargo +"${RELEASE_RUST}" test --locked --test security -- --nocapture
-      - name: Run the full serial suite (pass 2)
-        run: >-
-          cargo +"${RELEASE_RUST}" test --locked --all-targets --all-features
-          -- --test-threads=1
       - name: Verify package contents
         run: cargo +"${RELEASE_RUST}" package --locked
       - name: Generate candidate metadata
@@ -408,6 +400,50 @@ jobs:
           path: ${{ runner.temp }}/release-metadata/*
           if-no-files-found: error
           retention-days: 30
+
+  verify-candidate-serial:
+    name: Verify candidate serial suite (${{ matrix.family }})
+    needs: resolve
+    if: needs.resolve.outputs.channel == 'candidate'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - family: linux
+            os: ubuntu-24.04
+          - family: macos
+            os: macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: refs/tags/${{ needs.resolve.outputs.release_tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind candidate checkout
+        env:
+          RELEASE_COMMIT: ${{ needs.resolve.outputs.release_commit }}
+          RELEASE_TREE: ${{ needs.resolve.outputs.release_tree }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse 'HEAD^{commit}')" = "${RELEASE_COMMIT}"
+          test "$(git show -s --format=%T HEAD)" = "${RELEASE_TREE}"
+      - name: Install release Rust
+        run: >-
+          rustup toolchain install "${RELEASE_RUST}"
+          --profile minimal
+      - name: Run the full serial suite (pass 1)
+        run: >-
+          cargo +"${RELEASE_RUST}" test --locked --all-targets --all-features
+          -- --test-threads=1
+      - name: Run the full serial suite (pass 2)
+        run: >-
+          cargo +"${RELEASE_RUST}" test --locked --all-targets --all-features
+          -- --test-threads=1
 
   installer:
     name: Installer (${{ matrix.os }}, ${{ matrix.shell }})
@@ -552,6 +588,7 @@ jobs:
     needs:
       - resolve
       - verify-candidate
+      - verify-candidate-serial
       - installer
       - build
     if: needs.resolve.outputs.channel == 'candidate'

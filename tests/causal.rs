@@ -253,10 +253,11 @@ async fn interaction_requires_qualified_scope_and_does_not_establish_sufficiency
     i.hypotheses.retain(|h| h.cause == latency);
     i.hypotheses[0].claim = CausalClaim::SufficientUnderScope;
     let inv = store.create_causal_investigation(&i).unwrap();
-    test_variable(&store, &i, &inv, "latency").await;
+    let report = test_variable(&store, &i, &inv, "latency").await;
     assert_eq!(
         store.causal_hypothesis(&i.hypotheses[0].id).unwrap().status,
-        CausalHypothesisStatus::Inconclusive
+        CausalHypothesisStatus::Inconclusive,
+        "{report:#}"
     );
     i.hypotheses[0].id = CausalHypothesisId::new();
     i.hypotheses[0].claim = CausalClaim::Causes;

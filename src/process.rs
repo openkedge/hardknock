@@ -207,8 +207,8 @@ impl ProcessRunner {
                 group.kill()?;
                 (ProcessStatus::TimedOut, child.wait().await?)
             }
-            stream = limit_rx.recv() => {
-                exceeded_stream = stream;
+            Some(stream) = limit_rx.recv() => {
+                exceeded_stream = Some(stream);
                 group.kill()?;
                 (ProcessStatus::Failed, child.wait().await?)
             }
@@ -266,6 +266,33 @@ mod tests {
 
     use super::{MAX_CAPTURE_BYTES_PER_STREAM, ProcessRunner};
     use crate::core::{CommandSpec, EnvironmentMode, ProcessStatus};
+
+    #[tokio::test]
+    async fn normal_capture_shutdown_never_interrupts_a_successful_process() {
+        const ITERATIONS: usize = 128;
+
+        let temp = tempfile::tempdir().unwrap();
+        let cwd = temp.path().join("cwd");
+        fs::create_dir(&cwd).unwrap();
+        let command = CommandSpec::shell(":", EnvironmentMode::Controlled);
+
+        for iteration in 0..ITERATIONS {
+            let artifacts = temp.path().join(format!("artifacts-{iteration}"));
+            let (status, action) = ProcessRunner
+                .run(
+                    &command,
+                    &cwd,
+                    &artifacts,
+                    Duration::from_secs(5),
+                    std::future::pending(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(status, ProcessStatus::Succeeded);
+            assert_eq!(action.exit_code, Some(0));
+            assert_eq!(action.signal, None);
+        }
+    }
 
     #[tokio::test]
     async fn cancellation_sweeps_process_group_during_bounded_fork_bursts() {

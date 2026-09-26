@@ -24,6 +24,7 @@ MAX_SOURCE_DATE_EPOCH = 253402300799
 NANOSECONDS_PER_SECOND = 1_000_000_000
 MAX_SOURCE_TO_FREEZE_SECONDS = 3 * 24 * 60 * 60
 MAX_EVIDENCE_WINDOW_SECONDS = 14 * 24 * 60 * 60
+MAX_DEPENDENCY_DATABASE_AGE_SECONDS = 24 * 60 * 60
 SCHEMA = "hardknock-release-evidence-v1"
 RECEIPT_SCHEMA = "hardknock-release-gate-receipt-v1"
 RESULT_SCHEMA = "hardknock-release-evidence-verification-v1"
@@ -36,6 +37,9 @@ RELEASE_CANDIDATE_TAG = re.compile(
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 GIT_OBJECT = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+WORKFLOW_RUN_URL = re.compile(
+    r"^https://github\.com/openkedge/hardknock/actions/runs/[1-9][0-9]*$"
+)
 GITHUB_LOGIN = re.compile(
     r"^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$"
 )
@@ -533,6 +537,7 @@ def validate_receipt_details(
     gate_label: str,
     candidate: dict[str, Any] | None,
     artifacts: dict[str, Any] | None,
+    observed_at: int | None,
     blockers: list[str],
 ) -> None:
     fields: dict[str, tuple[str, ...]] = {
@@ -641,12 +646,46 @@ def validate_receipt_details(
 
     if kind == "repository":
         require_true(details["clean_checkout"], f"{label}.clean_checkout", blockers)
-        if (
-            not isinstance(details["serial_test_passes"], int)
-            or isinstance(details["serial_test_passes"], bool)
-            or details["serial_test_passes"] < 2
-        ):
-            blockers.append(f"{label}.serial_test_passes: must be at least 2")
+        serial_passes = details["serial_test_passes"]
+        if not isinstance(serial_passes, dict) or set(serial_passes) != {
+            "linux",
+            "macos",
+        }:
+            blockers.append(
+                f"{label}.serial_test_passes: must contain exactly linux and macos"
+            )
+        else:
+            for operating_system in ("linux", "macos"):
+                result = serial_passes[operating_system]
+                result_label = (
+                    f"{label}.serial_test_passes.{operating_system}"
+                )
+                if not exact_object(
+                    result,
+                    result_label,
+                    ("passes", "workflow_run_url"),
+                    (),
+                    blockers,
+                ):
+                    continue
+                assert isinstance(result, dict)
+                passes = result["passes"]
+                if not isinstance(passes, int) or isinstance(
+                    passes, bool
+                ) or not 2 <= passes <= 16:
+                    blockers.append(
+                        f"{result_label}.passes: must be an integer from "
+                        "2 through 16"
+                    )
+                workflow_run_url = result["workflow_run_url"]
+                if (
+                    not isinstance(workflow_run_url, str)
+                    or WORKFLOW_RUN_URL.fullmatch(workflow_run_url) is None
+                ):
+                    blockers.append(
+                        f"{result_label}.workflow_run_url: must be an exact "
+                        "Hardknock GitHub Actions run URL"
+                    )
         require_true(details["package_verified"], f"{label}.package_verified", blockers)
         if not is_nonempty_string(details["default_branch"], 255):
             blockers.append(f"{label}.default_branch: invalid")
@@ -933,8 +972,34 @@ def validate_receipt_details(
         require_true(details["probes_checked"], f"{label}.probes_checked", blockers)
         require_zero_integer(details["failures"], f"{label}.failures", blockers)
     elif kind == "dependency_advisories":
-        if not valid_rfc3339_utc(details["database_updated_at_utc"]):
+        database_updated_at = rfc3339_utc_nanoseconds(
+            details["database_updated_at_utc"]
+        )
+        if database_updated_at is None:
             blockers.append(f"{label}.database_updated_at_utc: invalid")
+        else:
+            frozen_at = (
+                rfc3339_utc_nanoseconds(candidate.get("frozen_at_utc"))
+                if isinstance(candidate, dict)
+                else None
+            )
+            if frozen_at is not None and database_updated_at < frozen_at:
+                blockers.append(
+                    f"{label}.database_updated_at_utc: precedes "
+                    "candidate.frozen_at_utc"
+                )
+            if observed_at is not None and database_updated_at > observed_at:
+                blockers.append(
+                    f"{label}.database_updated_at_utc: exceeds receipt observation time"
+                )
+            elif observed_at is not None and (
+                observed_at - database_updated_at
+                > MAX_DEPENDENCY_DATABASE_AGE_SECONDS * NANOSECONDS_PER_SECOND
+            ):
+                blockers.append(
+                    f"{label}.database_updated_at_utc: advisory database is "
+                    "more than 24 hours old"
+                )
         for field in ("critical", "high"):
             require_zero_integer(details[field], f"{label}.{field}", blockers)
     elif kind == "security_support":
@@ -1042,6 +1107,7 @@ def validate_receipt(
         gate_label,
         candidate,
         artifacts,
+        observed_at,
         blockers,
     )
 
