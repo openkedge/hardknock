@@ -24,7 +24,7 @@ with its own reviewed commit and validation summary.
 | --- | --- | --- | --- |
 | 0. Verdict and implementation plan | Complete | `17a79d2` | Plan reviewed; documentation links added |
 | 1. Build, package, version, schema, and lifecycle truth | Complete locally | `1998244` | Local release gates pass; hosted Linux/macOS workflows await their first remote run |
-| 2. Storage and Bridge operations | Complete locally | Pending milestone commit | Local implementation and sandbox-compatible gates pass; 24-hour and host-facility runs remain release evidence |
+| 2. Storage and Bridge operations | Complete locally | `1f6c077` | Local implementation and sandbox-compatible gates pass; 24-hour and host-facility runs remain release evidence |
 | 3. Binary installer and transactional setup | Pending | — | Fresh host setup, dry-run JSON, repair, upgrade, and non-destructive uninstall |
 | 4. Portable agent integration | Pending | — | MCP stdio, integration manifest, conformance harness, and live adapter matrix |
 | 5. Production validation | Pending | — | Cross-platform security, parser, load, soak, and recovery evidence |
@@ -102,7 +102,7 @@ remain release evidence rather than assumed results.
 
 ## Milestone 2 completion evidence
 
-Implementation commit: pending.
+Implementation commit: `1f6c077`.
 
 - Backup uses SQLite's online backup API, copies and hashes referenced
   artifacts, verifies integrity and foreign keys, and publishes only a
