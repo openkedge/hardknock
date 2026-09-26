@@ -1,0 +1,239 @@
+{
+  "schema": "hardknock-release-evidence-v1",
+  "candidate": {
+    "version": "0.22.0",
+    "tag": "v0.22.0",
+    "source": {
+      "repository": "openkedge/hardknock",
+      "tag": "v0.22.0-rc.1",
+      "commit": "0000000000000000000000000000000000000000",
+      "tree": "0000000000000000000000000000000000000000",
+      "source_date_epoch": 1
+    },
+    "operator": {
+      "type": "User",
+      "id": 0,
+      "login": "unassigned"
+    },
+    "independent_reviewer": {
+      "type": "User",
+      "id": 0,
+      "login": "unassigned"
+    },
+    "frozen_at_utc": "2026-09-26T00:00:00Z",
+    "evidence_completed_at_utc": "2026-09-26T23:59:59Z"
+  },
+  "artifacts": {
+    "metadata": {
+      "installer": {
+        "name": "install-hardknock",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "installer_checksum": {
+        "name": "install-hardknock.sha256",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "sbom": {
+        "name": "hardknock-0.22.0-sbom.cdx.json",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "license_inventory": {
+        "name": "hardknock-0.22.0-third-party-licenses.json",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "targets": {
+      "x86_64-unknown-linux-gnu": {
+        "archive": {
+          "name": "hardknock-0.22.0-x86_64-unknown-linux-gnu.tar.gz",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "checksum": {
+          "name": "hardknock-0.22.0-x86_64-unknown-linux-gnu.tar.gz.sha256",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "aarch64-unknown-linux-gnu": {
+        "archive": {
+          "name": "hardknock-0.22.0-aarch64-unknown-linux-gnu.tar.gz",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "checksum": {
+          "name": "hardknock-0.22.0-aarch64-unknown-linux-gnu.tar.gz.sha256",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "x86_64-apple-darwin": {
+        "archive": {
+          "name": "hardknock-0.22.0-x86_64-apple-darwin.tar.gz",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "checksum": {
+          "name": "hardknock-0.22.0-x86_64-apple-darwin.tar.gz.sha256",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "aarch64-apple-darwin": {
+        "archive": {
+          "name": "hardknock-0.22.0-aarch64-apple-darwin.tar.gz",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "checksum": {
+          "name": "hardknock-0.22.0-aarch64-apple-darwin.tar.gz.sha256",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      }
+    }
+  },
+  "decision": "hold",
+  "gates": {
+    "repository": {
+      "status": "pending",
+      "evidence": []
+    },
+    "release_controls": {
+      "status": "pending",
+      "evidence": []
+    },
+    "published_artifacts": {
+      "metadata": {
+        "status": "pending",
+        "evidence": []
+      },
+      "x86_64-unknown-linux-gnu": {
+        "status": "pending",
+        "evidence": []
+      },
+      "aarch64-unknown-linux-gnu": {
+        "status": "pending",
+        "evidence": []
+      },
+      "x86_64-apple-darwin": {
+        "status": "pending",
+        "evidence": []
+      },
+      "aarch64-apple-darwin": {
+        "status": "pending",
+        "evidence": []
+      }
+    },
+    "hosted_matrix": {
+      "x86_64-unknown-linux-gnu": {
+        "status": "pending",
+        "evidence": []
+      },
+      "aarch64-unknown-linux-gnu": {
+        "status": "pending",
+        "evidence": []
+      },
+      "x86_64-apple-darwin": {
+        "status": "pending",
+        "evidence": []
+      },
+      "aarch64-apple-darwin": {
+        "status": "pending",
+        "evidence": []
+      }
+    },
+    "native_services": {
+      "systemd_user": {
+        "status": "pending",
+        "evidence": []
+      },
+      "launchd": {
+        "status": "pending",
+        "evidence": []
+      }
+    },
+    "live_agents": {
+      "generic_mcp": {
+        "status": "pending",
+        "evidence": []
+      },
+      "claude_code": {
+        "status": "pending",
+        "evidence": []
+      },
+      "codex": {
+        "status": "pending",
+        "evidence": []
+      },
+      "second_agent_transfer": {
+        "status": "pending",
+        "evidence": []
+      }
+    },
+    "container_security": {
+      "rootless_docker": {
+        "status": "pending",
+        "evidence": []
+      },
+      "rootless_podman": {
+        "status": "pending",
+        "evidence": []
+      }
+    },
+    "recovery_drills": {
+      "interrupted_setup": {
+        "status": "pending",
+        "evidence": []
+      },
+      "failed_upgrade_restore": {
+        "status": "pending",
+        "evidence": []
+      },
+      "corrupted_database": {
+        "status": "pending",
+        "evidence": []
+      },
+      "full_disk_or_quota": {
+        "status": "pending",
+        "evidence": []
+      },
+      "killed_bridge": {
+        "status": "pending",
+        "evidence": []
+      },
+      "failed_uninstall": {
+        "status": "pending",
+        "evidence": []
+      },
+      "signing_compromise": {
+        "status": "pending",
+        "evidence": []
+      }
+    },
+    "soak": {
+      "linux_24h": {
+        "status": "pending",
+        "evidence": []
+      },
+      "macos_24h": {
+        "status": "pending",
+        "evidence": []
+      }
+    },
+    "dependency_advisories": {
+      "status": "pending",
+      "evidence": []
+    },
+    "security_support": {
+      "status": "pending",
+      "evidence": []
+    },
+    "compatibility_policy": {
+      "status": "pending",
+      "evidence": []
+    },
+    "bootstrap_interruption": {
+      "status": "pending",
+      "evidence": []
+    },
+    "repository_release_immutability": {
+      "status": "pending",
+      "evidence": []
+    }
+  },
+  "known_limitations": [],
+  "blocking_defects": []
+}

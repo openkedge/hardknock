@@ -1,0 +1,2859 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openkedge.github.io/hardknock/schemas/release-evidence-v1.schema.json",
+  "title": "Hardknock stable promotion evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "candidate",
+    "artifacts",
+    "decision",
+    "gates",
+    "known_limitations",
+    "blocking_defects"
+  ],
+  "properties": {
+    "schema": {
+      "const": "hardknock-release-evidence-v1"
+    },
+    "candidate": {
+      "$ref": "#/$defs/candidate"
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metadata",
+        "targets"
+      ],
+      "properties": {
+        "metadata": {
+          "$ref": "#/$defs/metadata_artifacts"
+        },
+        "targets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin"
+          ],
+          "properties": {
+            "x86_64-unknown-linux-gnu": {
+              "$ref": "#/$defs/target_artifacts_x86_64_unknown_linux_gnu"
+            },
+            "aarch64-unknown-linux-gnu": {
+              "$ref": "#/$defs/target_artifacts_aarch64_unknown_linux_gnu"
+            },
+            "x86_64-apple-darwin": {
+              "$ref": "#/$defs/target_artifacts_x86_64_apple_darwin"
+            },
+            "aarch64-apple-darwin": {
+              "$ref": "#/$defs/target_artifacts_aarch64_apple_darwin"
+            }
+          }
+        }
+      }
+    },
+    "decision": {
+      "enum": [
+        "hold",
+        "reject",
+        "promote"
+      ]
+    },
+    "gates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "release_controls",
+        "published_artifacts",
+        "hosted_matrix",
+        "native_services",
+        "live_agents",
+        "container_security",
+        "recovery_drills",
+        "soak",
+        "dependency_advisories",
+        "security_support",
+        "compatibility_policy",
+        "bootstrap_interruption",
+        "repository_release_immutability"
+      ],
+      "properties": {
+        "repository": {
+          "$ref": "#/$defs/gate_repository"
+        },
+        "release_controls": {
+          "$ref": "#/$defs/gate_release_controls"
+        },
+        "published_artifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "metadata",
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin"
+          ],
+          "properties": {
+            "metadata": {
+              "$ref": "#/$defs/gate_published_metadata"
+            },
+            "x86_64-unknown-linux-gnu": {
+              "$ref": "#/$defs/gate_published_artifact"
+            },
+            "aarch64-unknown-linux-gnu": {
+              "$ref": "#/$defs/gate_published_artifact"
+            },
+            "x86_64-apple-darwin": {
+              "$ref": "#/$defs/gate_published_artifact"
+            },
+            "aarch64-apple-darwin": {
+              "$ref": "#/$defs/gate_published_artifact"
+            }
+          }
+        },
+        "hosted_matrix": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin"
+          ],
+          "properties": {
+            "x86_64-unknown-linux-gnu": {
+              "$ref": "#/$defs/gate_hosted_matrix"
+            },
+            "aarch64-unknown-linux-gnu": {
+              "$ref": "#/$defs/gate_hosted_matrix"
+            },
+            "x86_64-apple-darwin": {
+              "$ref": "#/$defs/gate_hosted_matrix"
+            },
+            "aarch64-apple-darwin": {
+              "$ref": "#/$defs/gate_hosted_matrix"
+            }
+          }
+        },
+        "native_services": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "systemd_user",
+            "launchd"
+          ],
+          "properties": {
+            "systemd_user": {
+              "$ref": "#/$defs/gate_native_service"
+            },
+            "launchd": {
+              "$ref": "#/$defs/gate_native_service"
+            }
+          }
+        },
+        "live_agents": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "generic_mcp",
+            "claude_code",
+            "codex",
+            "second_agent_transfer"
+          ],
+          "properties": {
+            "generic_mcp": {
+              "$ref": "#/$defs/gate_live_agent"
+            },
+            "claude_code": {
+              "$ref": "#/$defs/gate_live_agent"
+            },
+            "codex": {
+              "$ref": "#/$defs/gate_live_agent"
+            },
+            "second_agent_transfer": {
+              "$ref": "#/$defs/gate_live_agent"
+            },
+            "hermes": {
+              "$ref": "#/$defs/gate_live_agent"
+            },
+            "openclaw": {
+              "$ref": "#/$defs/gate_live_agent"
+            }
+          }
+        },
+        "container_security": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rootless_docker",
+            "rootless_podman"
+          ],
+          "properties": {
+            "rootless_docker": {
+              "$ref": "#/$defs/gate_container_security"
+            },
+            "rootless_podman": {
+              "$ref": "#/$defs/gate_container_security"
+            }
+          }
+        },
+        "recovery_drills": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "interrupted_setup",
+            "failed_upgrade_restore",
+            "corrupted_database",
+            "full_disk_or_quota",
+            "killed_bridge",
+            "failed_uninstall",
+            "signing_compromise"
+          ],
+          "properties": {
+            "interrupted_setup": {
+              "$ref": "#/$defs/gate_recovery_drill"
+            },
+            "failed_upgrade_restore": {
+              "$ref": "#/$defs/gate_recovery_drill"
+            },
+            "corrupted_database": {
+              "$ref": "#/$defs/gate_recovery_drill"
+            },
+            "full_disk_or_quota": {
+              "$ref": "#/$defs/gate_recovery_drill"
+            },
+            "killed_bridge": {
+              "$ref": "#/$defs/gate_recovery_drill"
+            },
+            "failed_uninstall": {
+              "$ref": "#/$defs/gate_recovery_drill"
+            },
+            "signing_compromise": {
+              "$ref": "#/$defs/gate_recovery_drill"
+            }
+          }
+        },
+        "soak": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "linux_24h",
+            "macos_24h"
+          ],
+          "properties": {
+            "linux_24h": {
+              "$ref": "#/$defs/gate_soak"
+            },
+            "macos_24h": {
+              "$ref": "#/$defs/gate_soak"
+            }
+          }
+        },
+        "dependency_advisories": {
+          "$ref": "#/$defs/gate_dependency_advisories"
+        },
+        "security_support": {
+          "$ref": "#/$defs/gate_security_support"
+        },
+        "compatibility_policy": {
+          "$ref": "#/$defs/gate_compatibility_policy"
+        },
+        "bootstrap_interruption": {
+          "$ref": "#/$defs/gate_bootstrap_interruption"
+        },
+        "repository_release_immutability": {
+          "$ref": "#/$defs/gate_repository_release_immutability"
+        }
+      }
+    },
+    "known_limitations": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "\\S"
+      }
+    },
+    "blocking_defects": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 2048,
+        "pattern": "\\S"
+      }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "tag",
+        "commit",
+        "tree",
+        "source_date_epoch"
+      ],
+      "properties": {
+        "repository": {
+          "const": "openkedge/hardknock"
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[1-9][0-9]*$"
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 40,
+          "pattern": "^(?!0{40}$)[0-9a-f]{40}$"
+        },
+        "tree": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 40,
+          "pattern": "^(?!0{40}$)[0-9a-f]{40}$"
+        },
+        "source_date_epoch": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 253402300799
+        }
+      }
+    },
+    "github_user_identity": {
+      "description": "Direct GitHub user identity with immutable numeric ID and canonical lowercase login display.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "id",
+        "login"
+      ],
+      "properties": {
+        "type": {
+          "const": "User"
+        },
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "login": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 39,
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$"
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "tag",
+        "source",
+        "operator",
+        "independent_reviewer",
+        "frozen_at_utc",
+        "evidence_completed_at_utc"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "operator": {
+          "$ref": "#/$defs/github_user_identity"
+        },
+        "independent_reviewer": {
+          "$ref": "#/$defs/github_user_identity"
+        },
+        "frozen_at_utc": {
+          "description": "Must be between source_date_epoch and 72 hours after it; enforced by the verifier.",
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+        },
+        "evidence_completed_at_utc": {
+          "description": "Must be at or after frozen_at_utc and no more than 14 days later; enforced by the verifier.",
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "sha256"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^[^/\\u0000-\\u001F\\u007F]+$"
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+        }
+      }
+    },
+    "metadata_artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "installer",
+        "installer_checksum",
+        "sbom",
+        "license_inventory"
+      ],
+      "properties": {
+        "installer": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/artifact"
+            },
+            {
+              "properties": {
+                "name": {
+                  "const": "install-hardknock"
+                }
+              }
+            }
+          ]
+        },
+        "installer_checksum": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/artifact"
+            },
+            {
+              "properties": {
+                "name": {
+                  "const": "install-hardknock.sha256"
+                }
+              }
+            }
+          ]
+        },
+        "sbom": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/artifact"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^hardknock-[0-9]+\\.[0-9]+\\.[0-9]+-sbom\\.cdx\\.json$"
+                }
+              }
+            }
+          ]
+        },
+        "license_inventory": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/artifact"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^hardknock-[0-9]+\\.[0-9]+\\.[0-9]+-third-party-licenses\\.json$"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "target_artifacts_x86_64_unknown_linux_gnu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive",
+        "checksum"
+      ],
+      "properties": {
+        "archive": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/artifact"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^hardknock-[0-9]+\\.[0-9]+\\.[0-9]+-x86_64-unknown-linux-gnu\\.tar\\.gz$"
+                }
+              }
+            }
+          ]
+        },
+        "checksum": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/artifact"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^hardknock-[0-9]+\\.[0-9]+\\.[0-9]+-x86_64-unknown-linux-gnu\\.tar\\.gz\\.sha256$"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "target_artifacts_aarch64_unknown_linux_gnu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive",
+        "checksum"
+      ],
+      "properties": {
+        "archive": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/artifact"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^hardknock-[0-9]+\\.[0-9]+\\.[0-9]+-aarch64-unknown-linux-gnu\\.tar\\.gz$"
+                }
+              }
+            }
+          ]
+        },
+        "checksum": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/artifact"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^hardknock-[0-9]+\\.[0-9]+\\.[0-9]+-aarch64-unknown-linux-gnu\\.tar\\.gz\\.sha256$"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "target_artifacts_x86_64_apple_darwin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive",
+        "checksum"
+      ],
+      "properties": {
+        "archive": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/artifact"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^hardknock-[0-9]+\\.[0-9]+\\.[0-9]+-x86_64-apple-darwin\\.tar\\.gz$"
+                }
+              }
+            }
+          ]
+        },
+        "checksum": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/artifact"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^hardknock-[0-9]+\\.[0-9]+\\.[0-9]+-x86_64-apple-darwin\\.tar\\.gz\\.sha256$"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "target_artifacts_aarch64_apple_darwin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archive",
+        "checksum"
+      ],
+      "properties": {
+        "archive": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/artifact"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^hardknock-[0-9]+\\.[0-9]+\\.[0-9]+-aarch64-apple-darwin\\.tar\\.gz$"
+                }
+              }
+            }
+          ]
+        },
+        "checksum": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/artifact"
+            },
+            {
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "pattern": "^hardknock-[0-9]+\\.[0-9]+\\.[0-9]+-aarch64-apple-darwin\\.tar\\.gz\\.sha256$"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "evidence_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "kind"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^(?!/)(?!.*//)(?!.*\\\\)(?!\\.?\\.?$)(?!\\.\\.?/)(?!.*\\/\\.\\.?(?:\\/|$))(?!.*\\/$)(?=.*\\S)[^\\u0000-\\u001F\\u007F]+$"
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^(?!0{64}$)[0-9a-f]{64}$"
+        },
+        "kind": {
+          "enum": [
+            "repository",
+            "release_controls",
+            "published_metadata",
+            "published_artifact",
+            "hosted_matrix",
+            "native_service",
+            "live_agent",
+            "container_security",
+            "recovery_drill",
+            "soak",
+            "dependency_advisories",
+            "security_support",
+            "compatibility_policy",
+            "bootstrap_interruption",
+            "repository_release_immutability"
+          ]
+        }
+      }
+    },
+    "receipt_candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "source_repository",
+        "source_tag",
+        "source_commit",
+        "source_tree"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "source_repository": {
+          "const": "openkedge/hardknock"
+        },
+        "source_tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[1-9][0-9]*$"
+        },
+        "source_commit": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 40,
+          "pattern": "^(?!0{40}$)[0-9a-f]{40}$"
+        },
+        "source_tree": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 40,
+          "pattern": "^(?!0{40}$)[0-9a-f]{40}$"
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "status"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "status": {
+          "const": "pass"
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/$defs/check"
+      }
+    },
+    "repository_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "clean_checkout",
+        "serial_test_passes",
+        "package_verified",
+        "default_branch",
+        "default_branch_protected",
+        "required_approving_reviews",
+        "force_push_blocked",
+        "deletion_blocked",
+        "admin_enforcement",
+        "bypass_actor_count"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "clean_checkout": {
+          "const": true
+        },
+        "serial_test_passes": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "package_verified": {
+          "const": true
+        },
+        "default_branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "\\S"
+        },
+        "default_branch_protected": {
+          "const": true
+        },
+        "required_approving_reviews": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "force_push_blocked": {
+          "const": true
+        },
+        "deletion_blocked": {
+          "const": true
+        },
+        "admin_enforcement": {
+          "const": true
+        },
+        "bypass_actor_count": {
+          "const": 0
+        }
+      }
+    },
+    "environment_user_reviewer": {
+      "$ref": "#/$defs/github_user_identity"
+    },
+    "release_controls_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "candidate_tag",
+        "stable_tag",
+        "candidate_tag_ruleset_id",
+        "candidate_tag_ruleset_name",
+        "candidate_tag_update_blocked",
+        "candidate_tag_deletion_blocked",
+        "candidate_tag_bypass_actor_count",
+        "stable_tag_ruleset_id",
+        "stable_tag_ruleset_name",
+        "stable_tag_update_blocked",
+        "stable_tag_deletion_blocked",
+        "stable_tag_bypass_actor_count",
+        "candidate_environment",
+        "candidate_environment_protected",
+        "candidate_environment_deployment_branch_protected",
+        "candidate_environment_default_branch_only",
+        "candidate_environment_prevent_self_review",
+        "candidate_environment_required_reviewers",
+        "stable_environment",
+        "stable_environment_protected",
+        "stable_environment_deployment_branch_protected",
+        "stable_environment_default_branch_only",
+        "stable_environment_prevent_self_review",
+        "stable_environment_required_reviewers",
+        "reviewer_user_ids_disjoint"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "candidate_tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[1-9][0-9]*$"
+        },
+        "stable_tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "candidate_tag_ruleset_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "candidate_tag_ruleset_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "candidate_tag_update_blocked": {
+          "const": true
+        },
+        "candidate_tag_deletion_blocked": {
+          "const": true
+        },
+        "candidate_tag_bypass_actor_count": {
+          "const": 0
+        },
+        "stable_tag_ruleset_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "stable_tag_ruleset_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "stable_tag_update_blocked": {
+          "const": true
+        },
+        "stable_tag_deletion_blocked": {
+          "const": true
+        },
+        "stable_tag_bypass_actor_count": {
+          "const": 0
+        },
+        "candidate_environment": {
+          "const": "hardknock-candidate-publication"
+        },
+        "candidate_environment_protected": {
+          "const": true
+        },
+        "candidate_environment_deployment_branch_protected": {
+          "const": true
+        },
+        "candidate_environment_default_branch_only": {
+          "const": true
+        },
+        "candidate_environment_prevent_self_review": {
+          "const": true
+        },
+        "candidate_environment_required_reviewers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/environment_user_reviewer"
+          }
+        },
+        "stable_environment": {
+          "const": "hardknock-stable-publication"
+        },
+        "stable_environment_protected": {
+          "const": true
+        },
+        "stable_environment_deployment_branch_protected": {
+          "const": true
+        },
+        "stable_environment_default_branch_only": {
+          "const": true
+        },
+        "stable_environment_prevent_self_review": {
+          "const": true
+        },
+        "stable_environment_required_reviewers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/environment_user_reviewer"
+          }
+        },
+        "reviewer_user_ids_disjoint": {
+          "const": true
+        }
+      }
+    },
+    "published_metadata_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "release_tag",
+        "release_immutable",
+        "assets"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "release_tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[1-9][0-9]*$"
+        },
+        "release_immutable": {
+          "const": true
+        },
+        "assets": {
+          "$ref": "#/$defs/metadata_artifacts"
+        }
+      }
+    },
+    "published_artifact_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "target",
+        "release_tag",
+        "release_immutable",
+        "archive",
+        "checksum"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "target": {
+          "enum": [
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin"
+          ]
+        },
+        "release_tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[1-9][0-9]*$"
+        },
+        "release_immutable": {
+          "const": true
+        },
+        "archive": {
+          "$ref": "#/$defs/artifact"
+        },
+        "checksum": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "hosted_matrix_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "target",
+        "runner_image",
+        "operating_system",
+        "architecture",
+        "workflow_run_url"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "target": {
+          "enum": [
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin"
+          ]
+        },
+        "runner_image": {
+          "enum": [
+            "ubuntu-24.04",
+            "ubuntu-24.04-arm",
+            "macos-15-intel",
+            "macos-15"
+          ]
+        },
+        "operating_system": {
+          "enum": [
+            "linux",
+            "macos"
+          ]
+        },
+        "architecture": {
+          "enum": [
+            "x86_64",
+            "aarch64"
+          ]
+        },
+        "workflow_run_url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^https://\\S+$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "const": "x86_64-unknown-linux-gnu"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "runner_image": {
+                "const": "ubuntu-24.04"
+              },
+              "operating_system": {
+                "const": "linux"
+              },
+              "architecture": {
+                "const": "x86_64"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "const": "aarch64-unknown-linux-gnu"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "runner_image": {
+                "const": "ubuntu-24.04-arm"
+              },
+              "operating_system": {
+                "const": "linux"
+              },
+              "architecture": {
+                "const": "aarch64"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "const": "x86_64-apple-darwin"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "runner_image": {
+                "const": "macos-15-intel"
+              },
+              "operating_system": {
+                "const": "macos"
+              },
+              "architecture": {
+                "const": "x86_64"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "const": "aarch64-apple-darwin"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "runner_image": {
+                "const": "macos-15"
+              },
+              "operating_system": {
+                "const": "macos"
+              },
+              "architecture": {
+                "const": "aarch64"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "native_service_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "manager",
+        "platform",
+        "restart_verified",
+        "bounded_shutdown",
+        "logs_verified",
+        "upgrade_verified",
+        "uninstall_verified"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "manager": {
+          "enum": [
+            "systemd-user",
+            "launchd"
+          ]
+        },
+        "platform": {
+          "enum": [
+            "linux",
+            "macos"
+          ]
+        },
+        "architecture": {
+          "enum": [
+            "x86_64",
+            "aarch64"
+          ]
+        },
+        "restart_verified": {
+          "const": true
+        },
+        "bounded_shutdown": {
+          "const": true
+        },
+        "logs_verified": {
+          "const": true
+        },
+        "upgrade_verified": {
+          "const": true
+        },
+        "uninstall_verified": {
+          "const": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "manager": {
+                "const": "systemd-user"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "platform": {
+                "const": "linux"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "manager": {
+                "const": "launchd"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "platform": {
+                "const": "macos"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "live_agent_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "agent",
+        "agent_version",
+        "lifecycle_verified"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "agent": {
+          "enum": [
+            "generic_mcp",
+            "claude_code",
+            "codex",
+            "second_agent_transfer",
+            "hermes",
+            "openclaw"
+          ]
+        },
+        "agent_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "lifecycle_verified": {
+          "const": true
+        }
+      }
+    },
+    "container_security_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "runtime",
+        "runtime_version",
+        "rootless",
+        "image_digest"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "runtime": {
+          "enum": [
+            "docker",
+            "podman"
+          ]
+        },
+        "runtime_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "rootless": {
+          "const": true
+        },
+        "image_digest": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "recovery_drill_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "drill",
+        "rollback_or_restore_verified"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "drill": {
+          "enum": [
+            "interrupted_setup",
+            "failed_upgrade_restore",
+            "corrupted_database",
+            "full_disk_or_quota",
+            "killed_bridge",
+            "failed_uninstall",
+            "signing_compromise"
+          ]
+        },
+        "rollback_or_restore_verified": {
+          "const": true
+        }
+      }
+    },
+    "soak_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "platform",
+        "duration_seconds",
+        "probes_checked",
+        "failures"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "platform": {
+          "enum": [
+            "linux",
+            "macos"
+          ]
+        },
+        "duration_seconds": {
+          "type": "integer",
+          "minimum": 86400
+        },
+        "probes_checked": {
+          "const": true
+        },
+        "failures": {
+          "const": 0
+        }
+      }
+    },
+    "dependency_advisories_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "database_updated_at_utc",
+        "critical",
+        "high"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "database_updated_at_utc": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+        },
+        "critical": {
+          "const": 0
+        },
+        "high": {
+          "const": 0
+        }
+      }
+    },
+    "security_support_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "security_contact",
+        "support_contact",
+        "published"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "security_contact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "\\S"
+        },
+        "support_contact": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "\\S"
+        },
+        "published": {
+          "const": true
+        }
+      }
+    },
+    "compatibility_policy_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "policy_version",
+        "published"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "policy_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "\\S"
+        },
+        "published": {
+          "const": true
+        }
+      }
+    },
+    "bootstrap_interruption_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "shells",
+        "scenarios",
+        "recovered"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "shells": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "enum": [
+              "/bin/sh",
+              "/bin/dash"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "scenarios": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "enum": [
+              "fresh_install",
+              "upgrade",
+              "profile_mutation",
+              "uninstall"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "recovered": {
+          "const": true
+        }
+      }
+    },
+    "repository_release_immutability_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checks",
+        "source_release_tag",
+        "source_release_verified",
+        "verification_command"
+      ],
+      "properties": {
+        "checks": {
+          "$ref": "#/$defs/checks"
+        },
+        "source_release_tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+-rc\\.[1-9][0-9]*$"
+        },
+        "source_release_verified": {
+          "const": true
+        },
+        "verification_command": {
+          "const": "gh release verify"
+        }
+      }
+    },
+    "gate_repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "repository"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_release_controls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "release_controls"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_published_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "published_metadata"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_published_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "published_artifact"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_hosted_matrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "hosted_matrix"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_native_service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "native_service"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_live_agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "live_agent"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_container_security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "container_security"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_recovery_drill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "recovery_drill"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_soak": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "soak"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_dependency_advisories": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "dependency_advisories"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_security_support": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "security_support"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_compatibility_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "compatibility_policy"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_bootstrap_interruption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "bootstrap_interruption"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_repository_release_immutability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "pending",
+            "partial",
+            "unavailable"
+          ]
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/evidence_reference"
+              },
+              {
+                "properties": {
+                  "kind": {
+                    "const": "repository_release_immutability"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "const": "pass"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "gate_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "gate",
+        "kind",
+        "candidate",
+        "status",
+        "observed_at_utc",
+        "producer",
+        "details"
+      ],
+      "properties": {
+        "schema": {
+          "const": "hardknock-release-gate-receipt-v1"
+        },
+        "gate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^gates\\.[0-9A-Za-z_.-]+$"
+        },
+        "kind": {
+          "enum": [
+            "repository",
+            "release_controls",
+            "published_metadata",
+            "published_artifact",
+            "hosted_matrix",
+            "native_service",
+            "live_agent",
+            "container_security",
+            "recovery_drill",
+            "soak",
+            "dependency_advisories",
+            "security_support",
+            "compatibility_policy",
+            "bootstrap_interruption",
+            "repository_release_immutability"
+          ]
+        },
+        "candidate": {
+          "$ref": "#/$defs/receipt_candidate"
+        },
+        "status": {
+          "const": "pass"
+        },
+        "observed_at_utc": {
+          "description": "Must fall inclusively between candidate frozen_at_utc and evidence_completed_at_utc; enforced by the verifier.",
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?Z$"
+        },
+        "producer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        },
+        "details": {
+          "type": "object",
+          "minProperties": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "repository"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/repository_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "release_controls"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/release_controls_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "published_metadata"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/published_metadata_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "published_artifact"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/published_artifact_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "hosted_matrix"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/hosted_matrix_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "native_service"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/native_service_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "live_agent"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/live_agent_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "container_security"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/container_security_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "recovery_drill"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/recovery_drill_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "soak"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/soak_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "dependency_advisories"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/dependency_advisories_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "security_support"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/security_support_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "compatibility_policy"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/compatibility_policy_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "bootstrap_interruption"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/bootstrap_interruption_details"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "repository_release_immutability"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "$ref": "#/$defs/repository_release_immutability_details"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

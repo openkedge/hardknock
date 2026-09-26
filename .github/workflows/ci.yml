@@ -119,6 +119,29 @@ jobs:
           "${install_root}/bin/hardknock" --version
           "${install_root}/bin/hk-effect" --version
 
+  installer:
+    name: Installer (${{ matrix.os }}, ${{ matrix.shell }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            shell: /bin/sh
+          - os: ubuntu-24.04
+            shell: /bin/dash
+          - os: macos-15
+            shell: /bin/sh
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Test installer transactions
+        env:
+          HARDKNOCK_INSTALL_TEST_SHELL: ${{ matrix.shell }}
+        run: scripts/test_install.sh
+
   dependency-policy:
     name: Dependency policy
     runs-on: ubuntu-24.04
@@ -145,3 +168,11 @@ jobs:
         run: python3 scripts/test_release_metadata.py
       - name: Test deterministic release archive generation
         run: python3 scripts/test_package_release.py
+      - name: Test fail-closed release evidence verification
+        run: python3 scripts/test_release_evidence.py
+      - name: Test deterministic production harnesses
+        run: |
+          set -euo pipefail
+          python3 scripts/test_bridge_soak.py
+          python3 scripts/test_service_templates.py
+          sh scripts/test_integration_conformance.sh

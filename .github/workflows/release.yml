@@ -1,58 +1,385 @@
 # SPDX-License-Identifier: Apache-2.0
 
-name: Build release artifacts
+name: Build and publish release artifacts
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Signed annotated vX.Y.Z-rc.N candidate or vX.Y.Z stable tag
+        required: true
+        type: string
+      promotion_commit:
+        description: Exact protected default-branch commit that defines this run
+        required: true
+        type: string
+
+concurrency:
+  group: hardknock-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 env:
+  ATTESTATION_LIMIT: "100"
   CARGO_TERM_COLOR: always
+  GH_API_VERSION: "2026-03-10"
+  GH_MIN_VERSION: 2.97.0
   RELEASE_RUST: "1.98.1"
+  RELEASE_REPOSITORY: openkedge/hardknock
+  RELEASE_WORKFLOW: openkedge/hardknock/.github/workflows/release.yml
+  RELEASE_PREDICATE_TYPE: https://openkedge.dev/hardknock/release-publication/v1
+  SLSA_PREDICATE_TYPE: https://slsa.dev/provenance/v1
 
 jobs:
-  verify:
-    name: Verify release tag
+  resolve:
+    name: Resolve trusted workflow and signed tag
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 15
     permissions:
       contents: read
-      id-token: write
-      attestations: write
+    outputs:
+      channel: ${{ steps.release.outputs.channel }}
+      version: ${{ steps.release.outputs.version }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      stable_tag: ${{ steps.release.outputs.stable_tag }}
+      candidate_tag: ${{ steps.release.outputs.candidate_tag }}
+      tag_object: ${{ steps.release.outputs.tag_object }}
+      release_commit: ${{ steps.release.outputs.release_commit }}
+      release_tree: ${{ steps.release.outputs.release_tree }}
+      source_date_epoch: ${{ steps.release.outputs.source_date_epoch }}
+      default_branch: ${{ steps.release.outputs.default_branch }}
+      promotion_commit: ${{ steps.release.outputs.promotion_commit }}
+    steps:
+      - name: Validate trusted dispatch context and GitHub CLI
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_PROMOTION_COMMIT: ${{ inputs.promotion_commit }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          require_gh() {
+            actual="$(gh --version | sed -n '1s/^gh version \([^ ]*\).*/\1/p')"
+            python3 - "${actual}" "${GH_MIN_VERSION}" <<'PY'
+          import re
+          import sys
+
+          def version(value):
+              match = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-+].*)?", value)
+              if match is None:
+                  raise SystemExit(f"invalid gh version: {value!r}")
+              return tuple(map(int, match.groups()))
+
+          if version(sys.argv[1]) < version(sys.argv[2]):
+              raise SystemExit(f"gh {sys.argv[2]} or newer is required; found {sys.argv[1]}")
+          PY
+          }
+          require_gh
+          [[ "${INPUT_PROMOTION_COMMIT}" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "${INPUT_RELEASE_TAG}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-rc\.([1-9][0-9]*)$ ]]; then
+            channel=candidate
+            version="${BASH_REMATCH[1]}"
+          elif [[ "${INPUT_RELEASE_TAG}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            channel=stable
+            version="${BASH_REMATCH[1]}"
+          else
+            echo "release_tag must be exactly vX.Y.Z-rc.N or vX.Y.Z." >&2
+            exit 1
+          fi
+
+          default_branch="$(gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}" --jq '.default_branch')"
+          encoded_branch="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${default_branch}")"
+          branch_head="$(gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/branches/${encoded_branch}" --jq '.commit.sha')"
+          test "${GITHUB_REF}" = "refs/heads/${default_branch}"
+          test "${GITHUB_SHA}" = "${INPUT_PROMOTION_COMMIT}"
+          test "${GITHUB_WORKFLOW_REF}" = "${RELEASE_WORKFLOW}@refs/heads/${default_branch}"
+          test "${GITHUB_WORKFLOW_SHA}" = "${INPUT_PROMOTION_COMMIT}"
+          test "${branch_head}" = "${INPUT_PROMOTION_COMMIT}"
+          {
+            echo "channel=${channel}"
+            echo "version=${version}"
+            echo "default_branch=${default_branch}"
+          } >> "${GITHUB_OUTPUT}"
+      - name: Check out the exact trusted default-branch commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.promotion_commit }}
+          path: promotion
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve and verify the signed annotated tag
+        id: release
+        env:
+          CHANNEL: ${{ steps.dispatch.outputs.channel }}
+          DEFAULT_BRANCH: ${{ steps.dispatch.outputs.default_branch }}
+          INPUT_PROMOTION_COMMIT: ${{ inputs.promotion_commit }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_VERSION: ${{ steps.dispatch.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C promotion rev-parse 'HEAD^{commit}')" = "${INPUT_PROMOTION_COMMIT}"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/git/ref/tags/${INPUT_RELEASE_TAG}" > "${RUNNER_TEMP}/tag-ref.json"
+          tag_object="$(python3 - "${RUNNER_TEMP}/tag-ref.json" "${INPUT_RELEASE_TAG}" <<'PY'
+          import json
+          import sys
+
+          value = json.load(open(sys.argv[1]))
+          expected = f"refs/tags/{sys.argv[2]}"
+          if value.get("ref") != expected or value.get("object", {}).get("type") != "tag":
+              raise SystemExit("release tag must be an exact annotated tag reference")
+          print(value["object"]["sha"])
+          PY
+          )"
+          [[ "${tag_object}" =~ ^[0-9a-f]{40}$ ]]
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/git/tags/${tag_object}" > "${RUNNER_TEMP}/tag-object.json"
+          release_commit="$(python3 - "${RUNNER_TEMP}/tag-object.json" "${INPUT_RELEASE_TAG}" <<'PY'
+          import json
+          import sys
+
+          value = json.load(open(sys.argv[1]))
+          verification = value.get("verification") or {}
+          if value.get("tag") != sys.argv[2]:
+              raise SystemExit("annotated tag object names a different tag")
+          if verification.get("verified") is not True or verification.get("reason") != "valid":
+              raise SystemExit("annotated tag signature is not valid according to GitHub")
+          target = value.get("object") or {}
+          if target.get("type") != "commit":
+              raise SystemExit("annotated release tag must point directly to a commit")
+          print(target.get("sha", ""))
+          PY
+          )"
+          [[ "${release_commit}" =~ ^[0-9a-f]{40}$ ]]
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/git/commits/${release_commit}" > "${RUNNER_TEMP}/tag-commit.json"
+          read -r release_tree source_date_epoch <<EOF
+          $(python3 - "${RUNNER_TEMP}/tag-commit.json" "${release_commit}" <<'PY'
+          import datetime
+          import json
+          import sys
+
+          value = json.load(open(sys.argv[1]))
+          if value.get("sha") != sys.argv[2]:
+              raise SystemExit("Git commit API returned a different object")
+          tree = (value.get("tree") or {}).get("sha", "")
+          if len(tree) != 40:
+              raise SystemExit("release commit has no exact tree")
+          timestamp = datetime.datetime.fromisoformat(value["committer"]["date"].replace("Z", "+00:00"))
+          print(tree, int(timestamp.timestamp()))
+          PY
+          )
+          EOF
+          [[ "${release_tree}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${source_date_epoch}" =~ ^[1-9][0-9]*$ ]]
+
+          stable_tag="v${INPUT_VERSION}"
+          if [[ "${CHANNEL}" = candidate ]]; then
+            candidate_tag="${INPUT_RELEASE_TAG}"
+            test "${release_commit}" = "${INPUT_PROMOTION_COMMIT}"
+          else
+            record="promotion/release/evidence/${INPUT_VERSION}/record.json"
+            test -f "${record}"
+            candidate_tag="$(python3 - "${record}" "${INPUT_VERSION}" "${INPUT_RELEASE_TAG}" <<'PY'
+          import json
+          import re
+          import sys
+
+          value = json.load(open(sys.argv[1]))
+          candidate = value.get("candidate") or {}
+          source = candidate.get("source") or {}
+          expected_version, stable_tag = sys.argv[2:]
+          source_tag = source.get("tag", "")
+          if candidate.get("version") != expected_version or candidate.get("tag") != stable_tag:
+              raise SystemExit("promotion record version or stable tag does not match the dispatch")
+          if re.fullmatch(rf"v{re.escape(expected_version)}-rc\.[1-9][0-9]*", source_tag) is None:
+              raise SystemExit("promotion record does not name a strict candidate tag")
+          print(source_tag)
+          PY
+          )"
+          fi
+
+          {
+            echo "channel=${CHANNEL}"
+            echo "version=${INPUT_VERSION}"
+            echo "release_tag=${INPUT_RELEASE_TAG}"
+            echo "stable_tag=${stable_tag}"
+            echo "candidate_tag=${candidate_tag}"
+            echo "tag_object=${tag_object}"
+            echo "release_commit=${release_commit}"
+            echo "release_tree=${release_tree}"
+            echo "source_date_epoch=${source_date_epoch}"
+            echo "default_branch=${DEFAULT_BRANCH}"
+            echo "promotion_commit=${INPUT_PROMOTION_COMMIT}"
+          } >> "${GITHUB_OUTPUT}"
+      - name: Check out the exact release tag source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind checkout and package version to the API objects
+        env:
+          RELEASE_COMMIT: ${{ steps.release.outputs.release_commit }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+          RELEASE_TAG_OBJECT: ${{ steps.release.outputs.tag_object }}
+          RELEASE_TREE: ${{ steps.release.outputs.release_tree }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_DATE_EPOCH: ${{ steps.release.outputs.source_date_epoch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse 'HEAD^{commit}')" = "${RELEASE_COMMIT}"
+          test "$(git -C source rev-parse "refs/tags/${RELEASE_TAG}^{tag}")" = "${RELEASE_TAG_OBJECT}"
+          test "$(git -C source show -s --format=%T HEAD)" = "${RELEASE_TREE}"
+          test "$(git -C source show -s --format=%ct HEAD)" = "${SOURCE_DATE_EPOCH}"
+          package_version="$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["package"]["version"])' source/Cargo.toml)"
+          test "${package_version}" = "${RELEASE_VERSION}"
+      - name: Test trusted evidence verifier
+        run: python3 promotion/scripts/test_release_evidence.py
+      - name: Retain exact dispatch and source context
+        env:
+          ACTOR_ID: ${{ github.actor_id }}
+          ACTOR_LOGIN: ${{ github.actor }}
+          CANDIDATE_TAG: ${{ steps.release.outputs.candidate_tag }}
+          CHANNEL: ${{ steps.release.outputs.channel }}
+          DEFAULT_BRANCH: ${{ steps.release.outputs.default_branch }}
+          PROMOTION_COMMIT: ${{ steps.release.outputs.promotion_commit }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.release_commit }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+          RELEASE_TAG_OBJECT: ${{ steps.release.outputs.tag_object }}
+          RELEASE_TREE: ${{ steps.release.outputs.release_tree }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_DATE_EPOCH: ${{ steps.release.outputs.source_date_epoch }}
+          STABLE_TAG: ${{ steps.release.outputs.stable_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "${RUNNER_TEMP}/release-context.json" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          actor_id = int(os.environ["ACTOR_ID"])
+          actor_login = os.environ["ACTOR_LOGIN"].strip().casefold()
+          if actor_id < 1 or re.fullmatch(
+              r"[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?", actor_login
+          ) is None:
+              raise SystemExit("workflow actor is not a canonical direct GitHub user")
+          value = {
+              "schema": "hardknock-release-run-context-v1",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "workflow_ref": os.environ["GITHUB_WORKFLOW_REF"],
+              "workflow_sha": os.environ["GITHUB_WORKFLOW_SHA"],
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "run_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "actor": {
+                  "type": "User",
+                  "id": actor_id,
+                  "login": actor_login,
+              },
+              "channel": os.environ["CHANNEL"],
+              "version": os.environ["RELEASE_VERSION"],
+              "release_tag": os.environ["RELEASE_TAG"],
+              "stable_tag": os.environ["STABLE_TAG"],
+              "candidate_tag": os.environ["CANDIDATE_TAG"],
+              "default_branch": os.environ["DEFAULT_BRANCH"],
+              "promotion_commit": os.environ["PROMOTION_COMMIT"],
+              "tag_object": os.environ["RELEASE_TAG_OBJECT"],
+              "release_commit": os.environ["RELEASE_COMMIT"],
+              "release_tree": os.environ["RELEASE_TREE"],
+              "source_date_epoch": int(os.environ["SOURCE_DATE_EPOCH"]),
+          }
+          with open(sys.argv[1], "w") as output:
+              json.dump(value, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+      - name: Upload retained release context
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hardknock-release-context-${{ inputs.release_tag }}
+          path: ${{ runner.temp }}/release-context.json
+          if-no-files-found: error
+          retention-days: 90
+
+  verify-candidate:
+    name: Verify candidate source and metadata
+    needs: resolve
+    if: needs.resolve.outputs.channel == 'candidate'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: refs/tags/${{ needs.resolve.outputs.release_tag }}
+          fetch-depth: 0
           persist-credentials: false
+      - name: Bind candidate checkout
+        env:
+          RELEASE_COMMIT: ${{ needs.resolve.outputs.release_commit }}
+          RELEASE_TREE: ${{ needs.resolve.outputs.release_tree }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse 'HEAD^{commit}')" = "${RELEASE_COMMIT}"
+          test "$(git show -s --format=%T HEAD)" = "${RELEASE_TREE}"
       - name: Install release Rust
         run: >-
           rustup toolchain install "${RELEASE_RUST}"
           --profile minimal --component clippy --component rustfmt
-      - name: Match tag and package version
+      - name: Verify package metadata
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
           metadata="$(cargo +"${RELEASE_RUST}" metadata --locked --no-deps --format-version 1)"
           package_version="$(printf '%s' "${metadata}" | python3 -c 'import json, sys; print(json.load(sys.stdin)["packages"][0]["version"])')"
           publish="$(printf '%s' "${metadata}" | python3 -c 'import json, sys; print(json.load(sys.stdin)["packages"][0]["publish"])')"
-          test "${GITHUB_REF_NAME}" = "v${package_version}"
+          test "${package_version}" = "${RELEASE_VERSION}"
           test "${publish}" = "[]"
+      - name: Run release contract tests
+        run: |
+          set -euo pipefail
+          python3 scripts/test_release_metadata.py
+          python3 scripts/test_package_release.py
+          python3 scripts/test_release_evidence.py
+          python3 scripts/test_bridge_soak.py
+          python3 scripts/test_service_templates.py
+          sh scripts/test_integration_conformance.sh
       - name: Check formatting
         run: cargo +"${RELEASE_RUST}" fmt --all --check
       - name: Run strict Clippy
         run: >-
           cargo +"${RELEASE_RUST}" clippy --locked
           --all-targets --all-features -- -D warnings
-      - name: Run the full serial suite
+      - name: Run the full serial suite (pass 1)
+        run: >-
+          cargo +"${RELEASE_RUST}" test --locked --all-targets --all-features
+          -- --test-threads=1
+      - name: Run focused production regressions
+        run: |
+          set -euo pipefail
+          cargo +"${RELEASE_RUST}" test --locked --test setup -- --nocapture
+          cargo +"${RELEASE_RUST}" test --locked --test storage -- --nocapture
+          cargo +"${RELEASE_RUST}" test --locked --test bridge_capacity -- --nocapture
+          cargo +"${RELEASE_RUST}" test --locked --test integrations -- --nocapture
+          cargo +"${RELEASE_RUST}" test --locked --test security -- --nocapture
+      - name: Run the full serial suite (pass 2)
         run: >-
           cargo +"${RELEASE_RUST}" test --locked --all-targets --all-features
           -- --test-threads=1
       - name: Verify package contents
         run: cargo +"${RELEASE_RUST}" package --locked
-      - name: Generate release SBOM and license inventory
+      - name: Generate candidate metadata
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
@@ -65,24 +392,60 @@ jobs:
             --cargo-lock Cargo.lock \
             --output-dir "${output_dir}"
           mv "${output_dir}/sbom.cdx.json" \
-            "${output_dir}/hardknock-${GITHUB_REF_NAME#v}-sbom.cdx.json"
+            "${output_dir}/hardknock-${RELEASE_VERSION}-sbom.cdx.json"
           mv "${output_dir}/third-party-licenses.json" \
-            "${output_dir}/hardknock-${GITHUB_REF_NAME#v}-third-party-licenses.json"
-      - name: Upload release metadata
+            "${output_dir}/hardknock-${RELEASE_VERSION}-third-party-licenses.json"
+          cp scripts/install.sh "${output_dir}/install-hardknock"
+          chmod 0755 "${output_dir}/install-hardknock"
+          (
+            cd "${output_dir}"
+            sha256sum install-hardknock > install-hardknock.sha256
+          )
+      - name: Upload candidate metadata
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hardknock-${{ github.ref_name }}-metadata
+          name: hardknock-${{ needs.resolve.outputs.release_tag }}-metadata
           path: ${{ runner.temp }}/release-metadata/*
           if-no-files-found: error
           retention-days: 30
-      - name: Attest release metadata provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+
+  installer:
+    name: Installer (${{ matrix.os }}, ${{ matrix.shell }})
+    needs: resolve
+    if: needs.resolve.outputs.channel == 'candidate'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            shell: /bin/sh
+          - os: ubuntu-24.04
+            shell: /bin/dash
+          - os: macos-15
+            shell: /bin/sh
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          subject-path: ${{ runner.temp }}/release-metadata/*
+          ref: refs/tags/${{ needs.resolve.outputs.release_tag }}
+          persist-credentials: false
+      - name: Bind candidate checkout
+        env:
+          RELEASE_COMMIT: ${{ needs.resolve.outputs.release_commit }}
+        shell: bash
+        run: test "$(git rev-parse 'HEAD^{commit}')" = "${RELEASE_COMMIT}"
+      - name: Test installer transactions
+        env:
+          HARDKNOCK_INSTALL_TEST_SHELL: ${{ matrix.shell }}
+        run: scripts/test_install.sh
 
   build:
     name: Build ${{ matrix.target }}
-    needs: verify
+    needs: resolve
+    if: needs.resolve.outputs.channel == 'candidate'
     strategy:
       fail-fast: false
       matrix:
@@ -99,21 +462,31 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
-      id-token: write
-      attestations: write
     env:
-      RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=.
+      RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+      SOURCE_DATE_EPOCH: ${{ needs.resolve.outputs.source_date_epoch }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: refs/tags/${{ needs.resolve.outputs.release_tag }}
+          fetch-depth: 0
           persist-credentials: false
+      - name: Bind candidate checkout
+        env:
+          RELEASE_COMMIT: ${{ needs.resolve.outputs.release_commit }}
+          RELEASE_TREE: ${{ needs.resolve.outputs.release_tree }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse 'HEAD^{commit}')" = "${RELEASE_COMMIT}"
+          test "$(git show -s --format=%T HEAD)" = "${RELEASE_TREE}"
       - name: Install release Rust
         run: rustup toolchain install "${RELEASE_RUST}" --profile minimal
       - name: Install target
         run: rustup target add --toolchain "${RELEASE_RUST}" "${{ matrix.target }}"
-      - name: Set reproducible source timestamp
-        run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "${GITHUB_ENV}"
       - name: Build product binaries twice
+        env:
+          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=.
         shell: bash
         run: |
           set -euo pipefail
@@ -138,8 +511,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          archive_root="hardknock-${version}-${{ matrix.target }}"
+          archive_root="hardknock-${RELEASE_VERSION}-${{ matrix.target }}"
           dist_dir="${RUNNER_TEMP}/dist"
           package_dir="${dist_dir}/${archive_root}"
           mkdir -p "${package_dir}"
@@ -149,8 +521,8 @@ jobs:
           test -x "${package_dir}/hardknock"
           test -x "${package_dir}/hk-effect"
           test ! -e "${package_dir}/hardknock-test-adapter"
-          "${package_dir}/hardknock" --version
-          "${package_dir}/hk-effect" --version
+          test "$("${package_dir}/hardknock" --version)" = "hardknock ${RELEASE_VERSION}"
+          test "$("${package_dir}/hk-effect" --version)" = "hk-effect ${RELEASE_VERSION}"
           python3 scripts/package_release.py \
             --source-dir "${package_dir}" \
             --archive "${dist_dir}/${archive_root}.tar.gz" \
@@ -167,53 +539,1988 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: hardknock-${{ github.ref_name }}-${{ matrix.target }}
+          name: hardknock-${{ needs.resolve.outputs.release_tag }}-${{ matrix.target }}
           path: |
             ${{ steps.package.outputs.archive }}
             ${{ steps.package.outputs.checksum }}
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
-      - name: Attest archive provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: |
-            ${{ steps.package.outputs.archive }}
-            ${{ steps.package.outputs.checksum }}
 
-  publish:
-    name: Publish GitHub release
+  publish-candidate:
+    name: Publish immutable candidate release
     needs:
-      - verify
+      - resolve
+      - verify-candidate
+      - installer
       - build
+    if: needs.resolve.outputs.channel == 'candidate'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
+    environment:
+      name: hardknock-candidate-publication
     permissions:
-      contents: write
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
-      - name: Download verified release assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: hardknock-${{ github.ref_name }}-*
-          path: dist
-          merge-multiple: true
-      - name: Publish immutable tag assets
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Require supported GitHub CLI
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$(find dist -maxdepth 1 -type f -print -quit)"
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            echo "Release ${GITHUB_REF_NAME} already exists; refusing to replace immutable assets." >&2
+          actual="$(gh --version | sed -n '1s/^gh version \([^ ]*\).*/\1/p')"
+          python3 - "${actual}" "${GH_MIN_VERSION}" <<'PY'
+          import re
+          import sys
+
+          def version(value):
+              match = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-+].*)?", value)
+              if match is None:
+                  raise SystemExit(f"invalid gh version: {value!r}")
+              return tuple(map(int, match.groups()))
+
+          if version(sys.argv[1]) < version(sys.argv[2]):
+              raise SystemExit(f"gh {sys.argv[2]} or newer is required; found {sys.argv[1]}")
+          PY
+      - name: Download verified candidate artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: hardknock-${{ needs.resolve.outputs.release_tag }}-*
+          path: dist
+          merge-multiple: true
+      - name: Verify exact local asset set and checksums
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "${RUNNER_TEMP}/verify-release-assets.py" <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import stat
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          version = sys.argv[2]
+          names_path = Path(sys.argv[3])
+          digests_path = Path(sys.argv[4])
+          targets = (
+              "x86_64-unknown-linux-gnu",
+              "aarch64-unknown-linux-gnu",
+              "x86_64-apple-darwin",
+              "aarch64-apple-darwin",
+          )
+          names = [
+              "install-hardknock",
+              "install-hardknock.sha256",
+              f"hardknock-{version}-sbom.cdx.json",
+              f"hardknock-{version}-third-party-licenses.json",
+          ]
+          pairs = {"install-hardknock.sha256": "install-hardknock"}
+          for target in targets:
+              archive = f"hardknock-{version}-{target}.tar.gz"
+              checksum = f"{archive}.sha256"
+              names.extend((archive, checksum))
+              pairs[checksum] = archive
+          if not root.is_dir() or root.is_symlink():
+              raise SystemExit("asset root must be a regular directory")
+          actual = sorted(entry.name for entry in os.scandir(root))
+          if actual != sorted(names):
+              raise SystemExit(f"asset set mismatch: expected {sorted(names)!r}, got {actual!r}")
+          digests = {}
+          for name in names:
+              path = root / name
+              metadata = os.lstat(path)
+              if not stat.S_ISREG(metadata.st_mode) or not 0 < metadata.st_size <= 512 * 1024 * 1024:
+                  raise SystemExit(f"invalid release asset: {name}")
+              digests[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+          for checksum, subject in pairs.items():
+              path = root / checksum
+              if path.stat().st_size > 4096:
+                  raise SystemExit(f"checksum file is too large: {checksum}")
+              lines = path.read_text(encoding="utf-8").splitlines()
+              if len(lines) != 1:
+                  raise SystemExit(f"checksum file must contain one line: {checksum}")
+              match = re.fullmatch(r"([0-9a-f]{64})[ \t]+\*?([^/\x00-\x1f\x7f]+)", lines[0])
+              if match is None or match.group(2) != subject or match.group(1) != digests[subject]:
+                  raise SystemExit(f"checksum does not bind exact asset: {checksum}")
+          names_path.write_text("".join(f"{name}\n" for name in names))
+          digests_path.write_text(json.dumps(digests, indent=2, sort_keys=True) + "\n")
+          PY
+          python3 "${RUNNER_TEMP}/verify-release-assets.py" \
+            dist "${RELEASE_VERSION}" \
+            "${RUNNER_TEMP}/asset-names" \
+            "${RUNNER_TEMP}/asset-digests.json"
+      - name: Verify protected publication controls
+        env:
+          CANDIDATE_TAG: ${{ needs.resolve.outputs.candidate_tag }}
+          DEFAULT_BRANCH: ${{ needs.resolve.outputs.default_branch }}
+          GH_TOKEN: ${{ secrets.RELEASE_CONTROL_TOKEN }}
+          PROMOTION_COMMIT: ${{ needs.resolve.outputs.promotion_commit }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          STABLE_TAG: ${{ needs.resolve.outputs.stable_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN}"
+          control_dir="${RUNNER_TEMP}/release-controls"
+          mkdir -p "${control_dir}"
+          encoded_branch="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${DEFAULT_BRANCH}")"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/branches/${encoded_branch}" > "${control_dir}/branch.json"
+          branch_head="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["commit"]["sha"])' "${control_dir}/branch.json")"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/compare/${PROMOTION_COMMIT}...${branch_head}" > "${control_dir}/compare.json"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/branches/${encoded_branch}/protection" > "${control_dir}/protection.json"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/environments/hardknock-candidate-publication" > "${control_dir}/candidate-environment.json"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/environments/hardknock-candidate-publication/deployment-branch-policies?per_page=100" > "${control_dir}/candidate-environment-policies.json"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/environments/hardknock-stable-publication" > "${control_dir}/stable-environment.json"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/environments/hardknock-stable-publication/deployment-branch-policies?per_page=100" > "${control_dir}/stable-environment-policies.json"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" --paginate "repos/${RELEASE_REPOSITORY}/rulesets?includes_parents=true&per_page=100" \
+            --jq '.[].id' | sort -u > "${control_dir}/ruleset-ids"
+          : > "${control_dir}/rulesets.jsonl"
+          while IFS= read -r ruleset_id; do
+            [[ "${ruleset_id}" =~ ^[1-9][0-9]*$ ]]
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/rulesets/${ruleset_id}?includes_parents=true" \
+              >> "${control_dir}/rulesets.jsonl"
+            printf '\n' >> "${control_dir}/rulesets.jsonl"
+          done < "${control_dir}/ruleset-ids"
+          python3 - \
+            "${control_dir}" \
+            "${RUNNER_TEMP}/release-controls.json" \
+            "${DEFAULT_BRANCH}" \
+            "${PROMOTION_COMMIT}" \
+            "${CANDIDATE_TAG}" \
+            "${STABLE_TAG}" <<'PY'
+          import fnmatch
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          output = Path(sys.argv[2])
+          default_branch, promotion_commit, candidate_tag, stable_tag = sys.argv[3:]
+          branch = json.load(open(root / "branch.json"))
+          comparison = json.load(open(root / "compare.json"))
+          protection = json.load(open(root / "protection.json"))
+          if branch.get("name") != default_branch:
+              raise SystemExit("protected default branch name changed")
+          if comparison.get("status") not in ("ahead", "identical") or (comparison.get("merge_base_commit") or {}).get("sha") != promotion_commit:
+              raise SystemExit("promotion_commit is no longer in the protected default-branch history")
+          reviews = protection.get("required_pull_request_reviews") or {}
+          required_reviews = reviews.get("required_approving_review_count")
+          if not isinstance(required_reviews, int) or isinstance(required_reviews, bool) or required_reviews < 1:
+              raise SystemExit("default branch must require approving reviews")
+          if (protection.get("allow_force_pushes") or {}).get("enabled") is not False:
+              raise SystemExit("default branch must block force pushes")
+          if (protection.get("allow_deletions") or {}).get("enabled") is not False:
+              raise SystemExit("default branch must block deletion")
+          if (protection.get("enforce_admins") or {}).get("enabled") is not True:
+              raise SystemExit("default branch protection must enforce administrators")
+          allowances = reviews.get("bypass_pull_request_allowances") or {}
+          bypass_count = sum(len(allowances.get(kind) or []) for kind in ("users", "teams", "apps"))
+          if bypass_count != 0:
+              raise SystemExit("default branch review bypass allowances must be empty")
+
+          def environment(path, policies_path, expected_name):
+              value = json.load(open(path))
+              if value.get("name") != expected_name:
+                  raise SystemExit(f"missing protected environment {expected_name}")
+              policy = value.get("deployment_branch_policy") or {}
+              if policy.get("protected_branches") is not False or policy.get("custom_branch_policies") is not True:
+                  raise SystemExit(f"{expected_name} must use selected branch policies")
+              policies = json.load(open(policies_path))
+              policy_names = sorted(item.get("name") for item in policies.get("branch_policies") or [])
+              if policies.get("total_count") != 1 or policy_names != [default_branch]:
+                  raise SystemExit(f"{expected_name} must allow only the exact default branch")
+              reviewer_users = {}
+              reviewer_logins = {}
+              reviewer_rule = False
+              for rule in value.get("protection_rules") or []:
+                  if rule.get("type") != "required_reviewers":
+                      continue
+                  reviewer_rule = True
+                  if rule.get("prevent_self_review") is not True:
+                      raise SystemExit(f"{expected_name} must prevent self-review")
+                  for entry in rule.get("reviewers") or []:
+                      if entry.get("type") != "User":
+                          raise SystemExit(
+                              f"{expected_name} required reviewers must be direct user accounts; "
+                              "team reviewers are forbidden"
+                          )
+                      reviewer = entry.get("reviewer") or {}
+                      identity = reviewer.get("id")
+                      login = reviewer.get("login")
+                      if (
+                          not isinstance(identity, int)
+                          or isinstance(identity, bool)
+                          or identity < 1
+                          or not isinstance(login, str)
+                          or not login.strip()
+                      ):
+                          raise SystemExit(
+                              f"{expected_name} has an invalid direct user reviewer"
+                          )
+                      login = login.strip().casefold()
+                      if re.fullmatch(
+                          r"[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?", login
+                      ) is None:
+                          raise SystemExit(
+                              f"{expected_name} has a noncanonical GitHub reviewer login"
+                          )
+                      previous = reviewer_users.get(identity)
+                      if previous is not None and previous != login:
+                          raise SystemExit(
+                              f"{expected_name} maps one reviewer user ID to multiple logins"
+                          )
+                      previous_identity = reviewer_logins.get(login)
+                      if previous_identity is not None and previous_identity != identity:
+                          raise SystemExit(
+                              f"{expected_name} maps one normalized reviewer login to multiple user IDs"
+                          )
+                      reviewer_users[identity] = login
+                      reviewer_logins[login] = identity
+              if not reviewer_rule or not reviewer_users:
+                  raise SystemExit(
+                      f"{expected_name} must require at least one direct user reviewer"
+                  )
+              records = [
+                  {"type": "User", "id": identity, "login": login}
+                  for identity, login in sorted(reviewer_users.items())
+              ]
+              return set(reviewer_users), set(reviewer_logins), records
+
+          (
+              candidate_reviewer_ids,
+              candidate_reviewer_logins,
+              candidate_reviewer_records,
+          ) = environment(
+              root / "candidate-environment.json",
+              root / "candidate-environment-policies.json",
+              "hardknock-candidate-publication",
+          )
+          (
+              stable_reviewer_ids,
+              stable_reviewer_logins,
+              stable_reviewer_records,
+          ) = environment(
+              root / "stable-environment.json",
+              root / "stable-environment-policies.json",
+              "hardknock-stable-publication",
+          )
+          if candidate_reviewer_ids & stable_reviewer_ids:
+              raise SystemExit(
+                  "candidate and stable environments must use disjoint direct user reviewer IDs"
+              )
+          if candidate_reviewer_logins & stable_reviewer_logins:
+              raise SystemExit(
+                  "candidate and stable environments must use disjoint normalized reviewer logins"
+              )
+
+          rulesets = []
+          for line in (root / "rulesets.jsonl").read_text().splitlines():
+              if line.strip():
+                  rulesets.append(json.loads(line))
+
+          def pattern_matches(pattern, ref):
+              return pattern == "~ALL" or fnmatch.fnmatchcase(ref, pattern)
+
+          def effective_ruleset(tag):
+              ref = f"refs/tags/{tag}"
+              matches = []
+              for ruleset in rulesets:
+                  if ruleset.get("target") != "tag" or ruleset.get("enforcement") != "active":
+                      continue
+                  ref_names = ((ruleset.get("conditions") or {}).get("ref_name") or {})
+                  includes = ref_names.get("include") or ["~ALL"]
+                  excludes = ref_names.get("exclude") or []
+                  if not any(pattern_matches(pattern, ref) for pattern in includes):
+                      continue
+                  if any(pattern_matches(pattern, ref) for pattern in excludes):
+                      continue
+                  if "bypass_actors" not in ruleset:
+                      raise SystemExit(
+                          f"ruleset bypass actors are not visible for {tag}; "
+                          "the release-control token cannot prove no bypass"
+                      )
+                  if ruleset["bypass_actors"]:
+                      continue
+                  rule_types = {rule.get("type") for rule in ruleset.get("rules") or []}
+                  if {"update", "deletion"} <= rule_types:
+                      matches.append(ruleset)
+              if not matches:
+                  raise SystemExit(f"no active no-bypass tag ruleset blocks update and deletion for {tag}")
+              selected = sorted(matches, key=lambda item: item["id"])[0]
+              return {
+                  "id": selected["id"],
+                  "name": selected["name"],
+                  "update_blocked": True,
+                  "deletion_blocked": True,
+                  "bypass_actor_count": 0,
+              }
+
+          result = {
+              "schema": "hardknock-release-controls-v1",
+              "default_branch": {
+                  "name": default_branch,
+                  "promotion_commit": promotion_commit,
+                  "head_commit": (branch.get("commit") or {}).get("sha"),
+                  "protected": True,
+                  "required_approving_reviews": required_reviews,
+                  "force_push_blocked": True,
+                  "deletion_blocked": True,
+                  "admin_enforcement": True,
+                  "bypass_actor_count": bypass_count,
+              },
+              "environments": {
+                  "candidate": {
+                      "name": "hardknock-candidate-publication",
+                      "protected": True,
+                      "deployment_branch_protected": True,
+                      "default_branch_only": True,
+                      "prevent_self_review": True,
+                      "required_reviewers": candidate_reviewer_records,
+                  },
+                  "stable": {
+                      "name": "hardknock-stable-publication",
+                      "protected": True,
+                      "deployment_branch_protected": True,
+                      "default_branch_only": True,
+                      "prevent_self_review": True,
+                      "required_reviewers": stable_reviewer_records,
+                  },
+                  "reviewer_user_ids_disjoint": True,
+              },
+              "tag_rulesets": {
+                  "candidate": {"tag": candidate_tag, **effective_ruleset(candidate_tag)},
+                  "stable": {"tag": stable_tag, **effective_ruleset(stable_tag)},
+              },
+          }
+          output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+          PY
+      - name: Retain publication inputs and controls
+        env:
+          ACTOR_ID: ${{ github.actor_id }}
+          ACTOR_LOGIN: ${{ github.actor }}
+          CANDIDATE_TAG: ${{ needs.resolve.outputs.candidate_tag }}
+          CHANNEL: candidate
+          DEFAULT_BRANCH: ${{ needs.resolve.outputs.default_branch }}
+          PROMOTION_COMMIT: ${{ needs.resolve.outputs.promotion_commit }}
+          RELEASE_COMMIT: ${{ needs.resolve.outputs.release_commit }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          RELEASE_TREE: ${{ needs.resolve.outputs.release_tree }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          STABLE_TAG: ${{ needs.resolve.outputs.stable_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "${RUNNER_TEMP}/release-controls.json" "${RUNNER_TEMP}/asset-digests.json" "${RUNNER_TEMP}/release-run-metadata.json" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          controls = json.load(open(sys.argv[1]))
+          assets = json.load(open(sys.argv[2]))
+          actor_id = int(os.environ["ACTOR_ID"])
+          actor_login = os.environ["ACTOR_LOGIN"].strip().casefold()
+          if actor_id < 1 or re.fullmatch(
+              r"[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?", actor_login
+          ) is None:
+              raise SystemExit("workflow actor is not a canonical direct GitHub user")
+          value = {
+              "schema": "hardknock-release-publication-run-v1",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "workflow_ref": os.environ["GITHUB_WORKFLOW_REF"],
+              "workflow_sha": os.environ["GITHUB_WORKFLOW_SHA"],
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "run_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "actor": {
+                  "type": "User",
+                  "id": actor_id,
+                  "login": actor_login,
+              },
+              "environment": "hardknock-candidate-publication",
+              "channel": os.environ["CHANNEL"],
+              "version": os.environ["RELEASE_VERSION"],
+              "release_tag": os.environ["RELEASE_TAG"],
+              "stable_tag": os.environ["STABLE_TAG"],
+              "candidate_tag": os.environ["CANDIDATE_TAG"],
+              "default_branch": os.environ["DEFAULT_BRANCH"],
+              "promotion_commit": os.environ["PROMOTION_COMMIT"],
+              "artifact_source_commit": os.environ["RELEASE_COMMIT"],
+              "artifact_source_tree": os.environ["RELEASE_TREE"],
+              "asset_digests": assets,
+              "controls": controls,
+          }
+          with open(sys.argv[3], "w") as output:
+              json.dump(value, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+      - name: Create candidate publication predicate
+        env:
+          DEFAULT_BRANCH: ${{ needs.resolve.outputs.default_branch }}
+          PROMOTION_COMMIT: ${{ needs.resolve.outputs.promotion_commit }}
+          RELEASE_COMMIT: ${{ needs.resolve.outputs.release_commit }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          RELEASE_TREE: ${{ needs.resolve.outputs.release_tree }}
+          STABLE_TAG: ${{ needs.resolve.outputs.stable_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "${RUNNER_TEMP}/asset-digests.json" "${RUNNER_TEMP}/release-predicate.json" <<'PY'
+          import json
+          import os
+          import sys
+
+          predicate = {
+              "schema": "hardknock-release-publication-v1",
+              "channel": "candidate",
+              "release_tag": os.environ["RELEASE_TAG"],
+              "stable_tag": os.environ["STABLE_TAG"],
+              "artifact_source_commit": os.environ["RELEASE_COMMIT"],
+              "artifact_source_tree": os.environ["RELEASE_TREE"],
+              "workflow_source_ref": f"refs/heads/{os.environ['DEFAULT_BRANCH']}",
+              "workflow_source_commit": os.environ["PROMOTION_COMMIT"],
+              "asset_digests": json.load(open(sys.argv[1])),
+          }
+          with open(sys.argv[2], "w") as output:
+              json.dump(predicate, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+      - name: Inspect existing candidate release without mutation
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" --paginate "repos/${RELEASE_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | [.id, .tag_name] | @tsv' > "${RUNNER_TEMP}/release-index.tsv"
+          count="$(awk -F '\t' -v tag="${RELEASE_TAG}" '$2 == tag {count++} END {print count+0}' "${RUNNER_TEMP}/release-index.tsv")"
+          test "${count}" -le 1
+          if test "${count}" -eq 1; then
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: Attest candidate asset provenance
+        if: steps.existing.outputs.exists == 'false'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      - name: Attest exact candidate publication binding
+        if: steps.existing.outputs.exists == 'false'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/*
+          predicate-type: ${{ env.RELEASE_PREDICATE_TYPE }}
+          predicate-path: ${{ runner.temp }}/release-predicate.json
+      - name: Publish or verify exact immutable candidate
+        env:
+          DEFAULT_BRANCH: ${{ needs.resolve.outputs.default_branch }}
+          EXPECTED_TAG_OBJECT: ${{ needs.resolve.outputs.tag_object }}
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+          PROMOTION_COMMIT: ${{ needs.resolve.outputs.promotion_commit }}
+          RELEASE_COMMIT: ${{ needs.resolve.outputs.release_commit }}
+          RELEASE_EXISTS: ${{ steps.existing.outputs.exists }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          RELEASE_TREE: ${{ needs.resolve.outputs.release_tree }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          STABLE_TAG: ${{ needs.resolve.outputs.stable_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN}"
+          trap 'echo "Publication verification failed. Any created release is held unchanged for investigation." >&2' ERR
+
+          verify_tag_binding() {
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" > "${RUNNER_TEMP}/current-tag-ref.json"
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/git/tags/${EXPECTED_TAG_OBJECT}" > "${RUNNER_TEMP}/current-tag-object.json"
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/git/commits/${RELEASE_COMMIT}" > "${RUNNER_TEMP}/current-tag-commit.json"
+            python3 - \
+              "${RUNNER_TEMP}/current-tag-ref.json" \
+              "${RUNNER_TEMP}/current-tag-object.json" \
+              "${RUNNER_TEMP}/current-tag-commit.json" \
+              "${RELEASE_TAG}" \
+              "${EXPECTED_TAG_OBJECT}" \
+              "${RELEASE_COMMIT}" \
+              "${RELEASE_TREE}" <<'PY'
+          import json
+          import sys
+
+          ref, tag, commit = (json.load(open(path)) for path in sys.argv[1:4])
+          release_tag, tag_object, commit_sha, tree_sha = sys.argv[4:]
+          ref_object = ref.get("object") or {}
+          if ref.get("ref") != f"refs/tags/{release_tag}" or ref_object.get("type") != "tag" or ref_object.get("sha") != tag_object:
+              raise SystemExit("release tag reference drifted")
+          verification = tag.get("verification") or {}
+          if tag.get("tag") != release_tag or verification.get("verified") is not True or verification.get("reason") != "valid":
+              raise SystemExit("release tag signature is no longer valid")
+          if tag.get("object", {}).get("type") != "commit" or tag.get("object", {}).get("sha") != commit_sha:
+              raise SystemExit("release tag target drifted")
+          if commit.get("sha") != commit_sha or commit.get("tree", {}).get("sha") != tree_sha:
+              raise SystemExit("release commit or tree drifted")
+          PY
+          }
+
+          verify_branch_binding() {
+            encoded_branch="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${DEFAULT_BRANCH}")"
+            branch_head="$(gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/branches/${encoded_branch}" --jq '.commit.sha')"
+            comparison="$(gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/compare/${PROMOTION_COMMIT}...${branch_head}" --jq '.status + " " + .merge_base_commit.sha')"
+            case "${comparison}" in
+              "identical ${PROMOTION_COMMIT}"|"ahead ${PROMOTION_COMMIT}") ;;
+              *) echo "promotion commit is not in default-branch history" >&2; exit 1 ;;
+            esac
+          }
+
+          wait_for_immutable_release() {
+            verified=0
+            for attempt in 1 2 3 4 5 6; do
+              if gh release verify "${RELEASE_TAG}" --repo "${RELEASE_REPOSITORY}"; then
+                verified=1
+                break
+              fi
+              sleep 5
+            done
+            test "${verified}" -eq 1
+          }
+
+          verify_release_contract() {
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/releases/tags/${RELEASE_TAG}" > "${RUNNER_TEMP}/release.json"
+            python3 - "${RUNNER_TEMP}/release.json" "${RUNNER_TEMP}/asset-names" "${RELEASE_TAG}" <<'PY'
+          import json
+          import sys
+
+          release = json.load(open(sys.argv[1]))
+          expected_names = [line for line in open(sys.argv[2]).read().splitlines() if line]
+          actual_names = [asset.get("name") for asset in release.get("assets") or []]
+          if release.get("tag_name") != sys.argv[3]:
+              raise SystemExit("release tag does not match")
+          if release.get("draft") is not False or release.get("prerelease") is not True:
+              raise SystemExit("candidate release flags do not match")
+          if release.get("immutable") is not True:
+              raise SystemExit("candidate release is not immutable")
+          if sorted(actual_names) != sorted(expected_names) or len(actual_names) != len(set(actual_names)):
+              raise SystemExit("candidate release asset set does not match")
+          PY
+          }
+
+          verify_attestation_result_set() {
+            result_path="$1"
+            result_label="$2"
+            python3 - "${result_path}" "${result_label}" "${ATTESTATION_LIMIT}" <<'PY'
+          import json
+          import sys
+
+          results = json.load(open(sys.argv[1]))
+          label = sys.argv[2]
+          limit = int(sys.argv[3])
+          if not isinstance(results, list) or not results:
+              raise SystemExit(f"{label} returned no verified attestations")
+          if len(results) >= limit:
+              raise SystemExit(
+                  f"{label} reached the {limit}-attestation lookup limit; "
+                  "the result may be truncated"
+              )
+          PY
+          }
+
+          verify_custom_attestation_result_set() {
+            result_path="$1"
+            result_label="$2"
+            python3 - \
+              "${result_path}" \
+              "${RUNNER_TEMP}/release-predicate.json" \
+              "${result_label}" \
+              "${ATTESTATION_LIMIT}" <<'PY'
+          import json
+          import sys
+
+          results = json.load(open(sys.argv[1]))
+          expected = json.load(open(sys.argv[2]))
+          label = sys.argv[3]
+          limit = int(sys.argv[4])
+          if not isinstance(results, list) or not results:
+              raise SystemExit(f"{label} returned no verified attestations")
+          if len(results) >= limit:
+              raise SystemExit(
+                  f"{label} reached the {limit}-attestation lookup limit; "
+                  "the result may be truncated"
+              )
+          bindings = []
+          for result in results:
+              verification = result.get("verificationResult") or {}
+              predicate = (verification.get("statement") or {}).get("predicate")
+              if not isinstance(predicate, dict):
+                  continue
+              if (
+                  predicate.get("channel") != expected["channel"]
+                  or predicate.get("release_tag") != expected["release_tag"]
+              ):
+                  continue
+              certificate = (
+                  (verification.get("signature") or {}).get("certificate") or {}
+              )
+              bindings.append({
+                  "predicate": predicate,
+                  "source_ref": certificate.get("sourceRepositoryRef"),
+                  "source_digest": certificate.get("sourceRepositoryDigest"),
+                  "signer_digest": certificate.get("buildSignerDigest"),
+              })
+          unique = {
+              json.dumps(binding, sort_keys=True, separators=(",", ":"))
+              for binding in bindings
+          }
+          expected_binding = {
+              "predicate": expected,
+              "source_ref": expected["workflow_source_ref"],
+              "source_digest": expected["workflow_source_commit"],
+              "signer_digest": expected["workflow_source_commit"],
+          }
+          expected_key = json.dumps(
+              expected_binding, sort_keys=True, separators=(",", ":")
+          )
+          if unique != {expected_key}:
+              raise SystemExit(
+                  f"{label} contains zero exact predicate/source bindings "
+                  "or a conflicting binding"
+              )
+          PY
+          }
+
+          verify_custom_attestation() {
+            asset="$1"
+            gh attestation verify "${asset}" \
+              --repo "${RELEASE_REPOSITORY}" \
+              --limit "${ATTESTATION_LIMIT}" \
+              --signer-workflow "${RELEASE_WORKFLOW}" \
+              --deny-self-hosted-runners \
+              --predicate-type "${RELEASE_PREDICATE_TYPE}" \
+              --format json > "${RUNNER_TEMP}/custom-attestation-discovery.json"
+            verify_custom_attestation_result_set \
+              "${RUNNER_TEMP}/custom-attestation-discovery.json" \
+              "candidate custom attestation discovery"
+            gh attestation verify "${asset}" \
+              --repo "${RELEASE_REPOSITORY}" \
+              --limit "${ATTESTATION_LIMIT}" \
+              --signer-workflow "${RELEASE_WORKFLOW}" \
+              --deny-self-hosted-runners \
+              --source-ref "refs/heads/${DEFAULT_BRANCH}" \
+              --source-digest "${PROMOTION_COMMIT}" \
+              --signer-digest "${PROMOTION_COMMIT}" \
+              --predicate-type "${RELEASE_PREDICATE_TYPE}" \
+              --format json > "${RUNNER_TEMP}/custom-attestation-strict.json"
+            verify_custom_attestation_result_set \
+              "${RUNNER_TEMP}/custom-attestation-strict.json" \
+              "candidate custom attestation strict verification"
+          }
+
+          verify_attestations() {
+            asset="$1"
+            gh attestation verify "${asset}" \
+              --repo "${RELEASE_REPOSITORY}" \
+              --limit "${ATTESTATION_LIMIT}" \
+              --signer-workflow "${RELEASE_WORKFLOW}" \
+              --deny-self-hosted-runners \
+              --source-ref "refs/heads/${DEFAULT_BRANCH}" \
+              --source-digest "${PROMOTION_COMMIT}" \
+              --signer-digest "${PROMOTION_COMMIT}" \
+              --predicate-type "${SLSA_PREDICATE_TYPE}" \
+              --format json > "${RUNNER_TEMP}/slsa-attestation.json"
+            verify_attestation_result_set \
+              "${RUNNER_TEMP}/slsa-attestation.json" \
+              "candidate SLSA attestation lookup"
+            verify_custom_attestation "${asset}"
+          }
+
+          verify_asset_directory() {
+            directory="$1"
+            python3 "${RUNNER_TEMP}/verify-release-assets.py" \
+              "${directory}" "${RELEASE_VERSION}" \
+              "${RUNNER_TEMP}/published-asset-names" \
+              "${RUNNER_TEMP}/published-asset-digests.json"
+            cmp "${RUNNER_TEMP}/asset-names" "${RUNNER_TEMP}/published-asset-names"
+            cmp "${RUNNER_TEMP}/asset-digests.json" "${RUNNER_TEMP}/published-asset-digests.json"
+            while IFS= read -r asset; do
+              cmp "dist/${asset}" "${directory}/${asset}"
+              gh release verify-asset "${RELEASE_TAG}" "${directory}/${asset}" \
+                --repo "${RELEASE_REPOSITORY}"
+              verify_attestations "${directory}/${asset}"
+            done < "${RUNNER_TEMP}/asset-names"
+          }
+
+          verify_tag_binding
+          verify_branch_binding
+          if [[ "${RELEASE_EXISTS}" = false ]]; then
+            while IFS= read -r asset; do
+              verify_attestations "dist/${asset}"
+            done < "${RUNNER_TEMP}/asset-names"
+            verify_branch_binding
+            verify_tag_binding
+            mapfile -t assets < <(sed 's#^#dist/#' "${RUNNER_TEMP}/asset-names")
+            gh release create "${RELEASE_TAG}" "${assets[@]}" \
+              --repo "${RELEASE_REPOSITORY}" \
+              --verify-tag \
+              --prerelease \
+              --title "${RELEASE_TAG}" \
+              --generate-notes
+          elif [[ "${RELEASE_EXISTS}" != true ]]; then
+            echo "invalid existing-release state" >&2
             exit 1
           fi
-          release_flags=()
-          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
-            release_flags+=(--prerelease)
+
+          wait_for_immutable_release
+          verify_release_contract
+          rm -rf "${RUNNER_TEMP}/published-dist"
+          mkdir "${RUNNER_TEMP}/published-dist"
+          gh release download "${RELEASE_TAG}" \
+            --repo "${RELEASE_REPOSITORY}" \
+            --dir "${RUNNER_TEMP}/published-dist"
+          verify_asset_directory "${RUNNER_TEMP}/published-dist"
+          verify_branch_binding
+          verify_tag_binding
+
+          python3 - "${RUNNER_TEMP}/release-run-metadata.json" "${RUNNER_TEMP}/release.json" <<'PY'
+          import json
+          import sys
+
+          metadata = json.load(open(sys.argv[1]))
+          release = json.load(open(sys.argv[2]))
+          metadata["publication"] = {
+              "release_id": release["id"],
+              "immutable": release["immutable"],
+              "prerelease": release["prerelease"],
+              "asset_count": len(release["assets"]),
+              "html_url": release["html_url"],
+          }
+          with open(sys.argv[1], "w") as output:
+              json.dump(metadata, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+      - name: Upload retained candidate publication evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hardknock-candidate-publication-${{ needs.resolve.outputs.release_tag }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/asset-digests.json
+            ${{ runner.temp }}/release-controls.json
+            ${{ runner.temp }}/release-predicate.json
+            ${{ runner.temp }}/release-run-metadata.json
+          if-no-files-found: error
+          retention-days: 90
+
+  publish-stable:
+    name: Publish byte-identical stable release
+    needs: resolve
+    if: needs.resolve.outputs.channel == 'stable'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment:
+      name: hardknock-stable-publication
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - name: Require supported GitHub CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(gh --version | sed -n '1s/^gh version \([^ ]*\).*/\1/p')"
+          python3 - "${actual}" "${GH_MIN_VERSION}" <<'PY'
+          import re
+          import sys
+
+          def version(value):
+              match = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-+].*)?", value)
+              if match is None:
+                  raise SystemExit(f"invalid gh version: {value!r}")
+              return tuple(map(int, match.groups()))
+
+          if version(sys.argv[1]) < version(sys.argv[2]):
+              raise SystemExit(f"gh {sys.argv[2]} or newer is required; found {sys.argv[1]}")
+          PY
+      - name: Check out exact promotion commit from the default branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ needs.resolve.outputs.promotion_commit }}
+          path: promotion-record
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bind signed stable and candidate tags to committed evidence
+        id: promotion
+        env:
+          CANDIDATE_TAG: ${{ needs.resolve.outputs.candidate_tag }}
+          DEFAULT_BRANCH: ${{ needs.resolve.outputs.default_branch }}
+          EXPECTED_STABLE_COMMIT: ${{ needs.resolve.outputs.release_commit }}
+          EXPECTED_STABLE_TAG_OBJECT: ${{ needs.resolve.outputs.tag_object }}
+          EXPECTED_STABLE_TREE: ${{ needs.resolve.outputs.release_tree }}
+          GH_TOKEN: ${{ github.token }}
+          PROMOTION_COMMIT: ${{ needs.resolve.outputs.promotion_commit }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C promotion-record rev-parse 'HEAD^{commit}')" = "${PROMOTION_COMMIT}"
+          encoded_branch="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${DEFAULT_BRANCH}")"
+          branch_head="$(gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/branches/${encoded_branch}" --jq '.commit.sha')"
+          comparison="$(gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/compare/${PROMOTION_COMMIT}...${branch_head}" --jq '.status + " " + .merge_base_commit.sha')"
+          case "${comparison}" in
+            "identical ${PROMOTION_COMMIT}"|"ahead ${PROMOTION_COMMIT}") ;;
+            *) echo "promotion commit is not in default-branch history" >&2; exit 1 ;;
+          esac
+          record="promotion-record/release/evidence/${RELEASE_VERSION}/record.json"
+          evidence_root="promotion-record/release/evidence/${RELEASE_VERSION}"
+          test -f "${record}"
+          read -r source_tag expected_commit expected_tree expected_epoch <<EOF
+          $(python3 - "${record}" "${RELEASE_VERSION}" "${RELEASE_TAG}" <<'PY'
+          import json
+          import re
+          import sys
+
+          candidate = json.load(open(sys.argv[1]))["candidate"]
+          source = candidate["source"]
+          if candidate["version"] != sys.argv[2] or candidate["tag"] != sys.argv[3]:
+              raise SystemExit("promotion record does not match stable dispatch")
+          if re.fullmatch(rf"v{re.escape(sys.argv[2])}-rc\.[1-9][0-9]*", source["tag"]) is None:
+              raise SystemExit("promotion record candidate tag is invalid")
+          print(source["tag"], source["commit"], source["tree"], source["source_date_epoch"])
+          PY
+          )
+          EOF
+          test "${source_tag}" = "${CANDIDATE_TAG}"
+
+          verify_tag() {
+            tag="$1"
+            expected_tag_object="$2"
+            expected_commit="$3"
+            expected_tree="$4"
+            prefix="$5"
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/git/ref/tags/${tag}" > "${RUNNER_TEMP}/${prefix}-ref.json"
+            tag_object="$(python3 - "${RUNNER_TEMP}/${prefix}-ref.json" "${tag}" <<'PY'
+          import json
+          import sys
+
+          value = json.load(open(sys.argv[1]))
+          if value.get("ref") != f"refs/tags/{sys.argv[2]}" or value.get("object", {}).get("type") != "tag":
+              raise SystemExit("release reference is not an annotated tag")
+          print(value["object"]["sha"])
+          PY
+          )"
+            if test -n "${expected_tag_object}"; then
+              test "${tag_object}" = "${expected_tag_object}"
+            fi
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/git/tags/${tag_object}" > "${RUNNER_TEMP}/${prefix}-tag.json"
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/git/commits/${expected_commit}" > "${RUNNER_TEMP}/${prefix}-commit.json"
+            python3 - \
+              "${RUNNER_TEMP}/${prefix}-tag.json" \
+              "${RUNNER_TEMP}/${prefix}-commit.json" \
+              "${tag}" \
+              "${expected_commit}" \
+              "${expected_tree}" <<'PY'
+          import json
+          import sys
+
+          tag = json.load(open(sys.argv[1]))
+          commit = json.load(open(sys.argv[2]))
+          verification = tag.get("verification") or {}
+          if tag.get("tag") != sys.argv[3] or verification.get("verified") is not True or verification.get("reason") != "valid":
+              raise SystemExit("annotated tag signature is not valid")
+          if tag.get("object", {}).get("type") != "commit" or tag.get("object", {}).get("sha") != sys.argv[4]:
+              raise SystemExit("annotated tag target does not match")
+          if commit.get("sha") != sys.argv[4] or commit.get("tree", {}).get("sha") != sys.argv[5]:
+              raise SystemExit("tag commit or tree does not match")
+          PY
+            printf '%s\n' "${tag_object}"
+          }
+
+          stable_tag_object="$(verify_tag "${RELEASE_TAG}" "${EXPECTED_STABLE_TAG_OBJECT}" "${EXPECTED_STABLE_COMMIT}" "${EXPECTED_STABLE_TREE}" stable)"
+          source_tag_object="$(verify_tag "${source_tag}" "" "${expected_commit}" "${expected_tree}" candidate)"
+          test "${EXPECTED_STABLE_COMMIT}" = "${expected_commit}"
+          test "${EXPECTED_STABLE_TREE}" = "${expected_tree}"
+          actual_epoch="$(python3 - "${RUNNER_TEMP}/candidate-commit.json" <<'PY'
+          import datetime
+          import json
+          import sys
+          value = json.load(open(sys.argv[1]))
+          timestamp = datetime.datetime.fromisoformat(value["committer"]["date"].replace("Z", "+00:00"))
+          print(int(timestamp.timestamp()))
+          PY
+          )"
+          test "${actual_epoch}" = "${expected_epoch}"
+
+          python3 promotion-record/scripts/verify_release_evidence.py \
+            "${record}" \
+            --evidence-root "${evidence_root}" \
+            --expected-version "${RELEASE_VERSION}" \
+            --expected-tag "${RELEASE_TAG}" \
+            --expected-source-repository "${RELEASE_REPOSITORY}" \
+            --expected-source-tag "${source_tag}" \
+            --expected-source-commit "${expected_commit}" \
+            --expected-source-tree "${expected_tree}" \
+            --expected-source-date-epoch "${expected_epoch}"
+
+          python3 - "${record}" "${RUNNER_TEMP}/evidence-identities.tsv" <<'PY'
+          import json
+          import re
+          import sys
+
+          candidate = json.load(open(sys.argv[1]))["candidate"]
+          rows = []
+          for role in ("operator", "independent_reviewer"):
+              identity = candidate[role]
+              login = identity["login"]
+              if (
+                  identity.get("type") != "User"
+                  or not isinstance(identity.get("id"), int)
+                  or isinstance(identity.get("id"), bool)
+                  or identity["id"] < 1
+                  or login != login.casefold()
+                  or re.fullmatch(
+                      r"[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?", login
+                  ) is None
+              ):
+                  raise SystemExit(f"invalid typed evidence identity for {role}")
+              rows.append((role, identity["id"], login))
+          if rows[0][1] == rows[1][1] or rows[0][2] == rows[1][2]:
+              raise SystemExit("evidence operator and reviewer are not independent")
+          with open(sys.argv[2], "w") as output:
+              for role, identity, login in rows:
+                  print(role, identity, login, sep="\t", file=output)
+          PY
+          : > "${RUNNER_TEMP}/evidence-user-api.jsonl"
+          while IFS=$'\t' read -r role identity login; do
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" \
+              "users/${login}" > "${RUNNER_TEMP}/evidence-user-${role}.json"
+            python3 - \
+              "${RUNNER_TEMP}/evidence-user-${role}.json" \
+              "${role}" "${identity}" "${login}" \
+              >> "${RUNNER_TEMP}/evidence-user-api.jsonl" <<'PY'
+          import json
+          import sys
+
+          value = json.load(open(sys.argv[1]))
+          role, identity, login = sys.argv[2], int(sys.argv[3]), sys.argv[4]
+          if (
+              value.get("type") != "User"
+              or value.get("id") != identity
+              or str(value.get("login", "")).casefold() != login
+          ):
+              raise SystemExit(f"GitHub identity mapping changed for {role}")
+          print(json.dumps({
+              "role": role,
+              "type": "User",
+              "id": identity,
+              "login": login,
+          }, sort_keys=True))
+          PY
+          done < "${RUNNER_TEMP}/evidence-identities.tsv"
+          python3 - \
+            "${RUNNER_TEMP}/evidence-user-api.jsonl" \
+            "${RUNNER_TEMP}/verified-evidence-identities.json" <<'PY'
+          import json
+          import sys
+
+          identities = [
+              json.loads(line)
+              for line in open(sys.argv[1])
+              if line.strip()
+          ]
+          if [item["role"] for item in identities] != [
+              "operator",
+              "independent_reviewer",
+          ]:
+              raise SystemExit("verified evidence identities are incomplete")
+          with open(sys.argv[2], "w") as output:
+              json.dump(identities, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+          {
+            echo "source_tag=${source_tag}"
+            echo "source_tag_object=${source_tag_object}"
+            echo "source_commit=${expected_commit}"
+            echo "source_tree=${expected_tree}"
+            echo "source_date_epoch=${expected_epoch}"
+            echo "stable_tag_object=${stable_tag_object}"
+          } >> "${GITHUB_OUTPUT}"
+      - name: Download exact immutable candidate assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_TAG: ${{ steps.promotion.outputs.source_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release verify "${SOURCE_TAG}" --repo "${RELEASE_REPOSITORY}"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/releases/tags/${SOURCE_TAG}" > "${RUNNER_TEMP}/candidate-release.json"
+          python3 - "${RUNNER_TEMP}/candidate-release.json" "${SOURCE_TAG}" <<'PY'
+          import json
+          import sys
+
+          release = json.load(open(sys.argv[1]))
+          if release.get("tag_name") != sys.argv[2]:
+              raise SystemExit("candidate release tag does not match")
+          if release.get("draft") is not False or release.get("prerelease") is not True:
+              raise SystemExit("candidate release flags do not match")
+          if release.get("immutable") is not True:
+              raise SystemExit("candidate release is not immutable")
+          PY
+          mkdir candidate-dist
+          gh release download "${SOURCE_TAG}" \
+            --repo "${RELEASE_REPOSITORY}" \
+            --dir candidate-dist
+      - name: Verify candidate evidence, asset set, checksums, and attestations
+        env:
+          DEFAULT_BRANCH: ${{ needs.resolve.outputs.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.promotion.outputs.source_commit }}
+          SOURCE_TAG: ${{ steps.promotion.outputs.source_tag }}
+          SOURCE_TREE: ${{ steps.promotion.outputs.source_tree }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_root="promotion-record/release/evidence/${RELEASE_VERSION}"
+          python3 promotion-record/scripts/verify_release_evidence.py \
+            "${evidence_root}/record.json" \
+            --evidence-root "${evidence_root}" \
+            --asset-root candidate-dist \
+            --expected-version "${RELEASE_VERSION}" \
+            --expected-tag "${RELEASE_TAG}" \
+            --expected-source-repository "${RELEASE_REPOSITORY}" \
+            --expected-source-tag "${SOURCE_TAG}" \
+            --expected-source-commit "${SOURCE_COMMIT}" \
+            --expected-source-tree "${SOURCE_TREE}" \
+            --expected-source-date-epoch "${{ steps.promotion.outputs.source_date_epoch }}"
+
+          cat > "${RUNNER_TEMP}/verify-release-assets.py" <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import stat
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          version = sys.argv[2]
+          names_path = Path(sys.argv[3])
+          digests_path = Path(sys.argv[4])
+          targets = (
+              "x86_64-unknown-linux-gnu",
+              "aarch64-unknown-linux-gnu",
+              "x86_64-apple-darwin",
+              "aarch64-apple-darwin",
+          )
+          names = [
+              "install-hardknock",
+              "install-hardknock.sha256",
+              f"hardknock-{version}-sbom.cdx.json",
+              f"hardknock-{version}-third-party-licenses.json",
+          ]
+          pairs = {"install-hardknock.sha256": "install-hardknock"}
+          for target in targets:
+              archive = f"hardknock-{version}-{target}.tar.gz"
+              checksum = f"{archive}.sha256"
+              names.extend((archive, checksum))
+              pairs[checksum] = archive
+          if not root.is_dir() or root.is_symlink():
+              raise SystemExit("asset root must be a regular directory")
+          actual = sorted(entry.name for entry in os.scandir(root))
+          if actual != sorted(names):
+              raise SystemExit(f"asset set mismatch: expected {sorted(names)!r}, got {actual!r}")
+          digests = {}
+          for name in names:
+              path = root / name
+              metadata = os.lstat(path)
+              if not stat.S_ISREG(metadata.st_mode) or not 0 < metadata.st_size <= 512 * 1024 * 1024:
+                  raise SystemExit(f"invalid release asset: {name}")
+              digests[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+          for checksum, subject in pairs.items():
+              path = root / checksum
+              if path.stat().st_size > 4096:
+                  raise SystemExit(f"checksum file is too large: {checksum}")
+              lines = path.read_text(encoding="utf-8").splitlines()
+              if len(lines) != 1:
+                  raise SystemExit(f"checksum file must contain one line: {checksum}")
+              match = re.fullmatch(r"([0-9a-f]{64})[ \t]+\*?([^/\x00-\x1f\x7f]+)", lines[0])
+              if match is None or match.group(2) != subject or match.group(1) != digests[subject]:
+                  raise SystemExit(f"checksum does not bind exact asset: {checksum}")
+          names_path.write_text("".join(f"{name}\n" for name in names))
+          digests_path.write_text(json.dumps(digests, indent=2, sort_keys=True) + "\n")
+          PY
+          python3 "${RUNNER_TEMP}/verify-release-assets.py" \
+            candidate-dist "${RELEASE_VERSION}" \
+            "${RUNNER_TEMP}/asset-names" \
+            "${RUNNER_TEMP}/asset-digests.json"
+
+          python3 - "${RUNNER_TEMP}/candidate-release.json" "${RUNNER_TEMP}/asset-names" <<'PY'
+          import json
+          import sys
+          release = json.load(open(sys.argv[1]))
+          expected = sorted(line for line in open(sys.argv[2]).read().splitlines() if line)
+          actual = [asset.get("name") for asset in release.get("assets") or []]
+          if sorted(actual) != expected or len(actual) != len(set(actual)):
+              raise SystemExit("candidate release asset set is incomplete or duplicated")
+          PY
+
+          python3 - "${RUNNER_TEMP}/asset-digests.json" "${RUNNER_TEMP}/candidate-predicate.json" <<'PY'
+          import json
+          import os
+          import sys
+          predicate = {
+              "schema": "hardknock-release-publication-v1",
+              "channel": "candidate",
+              "release_tag": os.environ["SOURCE_TAG"],
+              "stable_tag": os.environ["RELEASE_TAG"],
+              "artifact_source_commit": os.environ["SOURCE_COMMIT"],
+              "artifact_source_tree": os.environ["SOURCE_TREE"],
+              "workflow_source_ref": f"refs/heads/{os.environ['DEFAULT_BRANCH']}",
+              "workflow_source_commit": os.environ["SOURCE_COMMIT"],
+              "asset_digests": json.load(open(sys.argv[1])),
+          }
+          with open(sys.argv[2], "w") as output:
+              json.dump(predicate, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+
+          verify_attestation_result_set() {
+            result_path="$1"
+            result_label="$2"
+            python3 - "${result_path}" "${result_label}" "${ATTESTATION_LIMIT}" <<'PY'
+          import json
+          import sys
+
+          results = json.load(open(sys.argv[1]))
+          label = sys.argv[2]
+          limit = int(sys.argv[3])
+          if not isinstance(results, list) or not results:
+              raise SystemExit(f"{label} returned no verified attestations")
+          if len(results) >= limit:
+              raise SystemExit(
+                  f"{label} reached the {limit}-attestation lookup limit; "
+                  "the result may be truncated"
+              )
+          PY
+          }
+
+          verify_candidate_custom_attestation_result_set() {
+            result_path="$1"
+            result_label="$2"
+            python3 - \
+              "${result_path}" \
+              "${RUNNER_TEMP}/candidate-predicate.json" \
+              "${result_label}" \
+              "${ATTESTATION_LIMIT}" <<'PY'
+          import json
+          import sys
+
+          results = json.load(open(sys.argv[1]))
+          expected = json.load(open(sys.argv[2]))
+          label = sys.argv[3]
+          limit = int(sys.argv[4])
+          if not isinstance(results, list) or not results:
+              raise SystemExit(f"{label} returned no verified attestations")
+          if len(results) >= limit:
+              raise SystemExit(
+                  f"{label} reached the {limit}-attestation lookup limit; "
+                  "the result may be truncated"
+              )
+          bindings = []
+          for result in results:
+              verification = result.get("verificationResult") or {}
+              predicate = (verification.get("statement") or {}).get("predicate")
+              if not isinstance(predicate, dict):
+                  continue
+              if (
+                  predicate.get("channel") != expected["channel"]
+                  or predicate.get("release_tag") != expected["release_tag"]
+              ):
+                  continue
+              certificate = (
+                  (verification.get("signature") or {}).get("certificate") or {}
+              )
+              bindings.append({
+                  "predicate": predicate,
+                  "source_ref": certificate.get("sourceRepositoryRef"),
+                  "source_digest": certificate.get("sourceRepositoryDigest"),
+                  "signer_digest": certificate.get("buildSignerDigest"),
+              })
+          unique = {
+              json.dumps(binding, sort_keys=True, separators=(",", ":"))
+              for binding in bindings
+          }
+          expected_binding = {
+              "predicate": expected,
+              "source_ref": expected["workflow_source_ref"],
+              "source_digest": expected["workflow_source_commit"],
+              "signer_digest": expected["workflow_source_commit"],
+          }
+          expected_key = json.dumps(
+              expected_binding, sort_keys=True, separators=(",", ":")
+          )
+          if unique != {expected_key}:
+              raise SystemExit(
+                  f"{label} contains zero exact predicate/source bindings "
+                  "or a conflicting binding"
+              )
+          PY
+          }
+
+          while IFS= read -r asset; do
+            gh release verify-asset "${SOURCE_TAG}" "candidate-dist/${asset}" \
+              --repo "${RELEASE_REPOSITORY}"
+            gh attestation verify "candidate-dist/${asset}" \
+              --repo "${RELEASE_REPOSITORY}" \
+              --limit "${ATTESTATION_LIMIT}" \
+              --signer-workflow "${RELEASE_WORKFLOW}" \
+              --deny-self-hosted-runners \
+              --source-ref "refs/heads/${DEFAULT_BRANCH}" \
+              --source-digest "${SOURCE_COMMIT}" \
+              --signer-digest "${SOURCE_COMMIT}" \
+              --predicate-type "${SLSA_PREDICATE_TYPE}" \
+              --format json > "${RUNNER_TEMP}/candidate-slsa-attestation.json"
+            verify_attestation_result_set \
+              "${RUNNER_TEMP}/candidate-slsa-attestation.json" \
+              "candidate SLSA attestation lookup"
+            gh attestation verify "candidate-dist/${asset}" \
+              --repo "${RELEASE_REPOSITORY}" \
+              --limit "${ATTESTATION_LIMIT}" \
+              --signer-workflow "${RELEASE_WORKFLOW}" \
+              --deny-self-hosted-runners \
+              --predicate-type "${RELEASE_PREDICATE_TYPE}" \
+              --format json > "${RUNNER_TEMP}/candidate-custom-attestation-discovery.json"
+            verify_candidate_custom_attestation_result_set \
+              "${RUNNER_TEMP}/candidate-custom-attestation-discovery.json" \
+              "candidate custom attestation discovery"
+            gh attestation verify "candidate-dist/${asset}" \
+              --repo "${RELEASE_REPOSITORY}" \
+              --limit "${ATTESTATION_LIMIT}" \
+              --signer-workflow "${RELEASE_WORKFLOW}" \
+              --deny-self-hosted-runners \
+              --source-ref "refs/heads/${DEFAULT_BRANCH}" \
+              --source-digest "${SOURCE_COMMIT}" \
+              --signer-digest "${SOURCE_COMMIT}" \
+              --predicate-type "${RELEASE_PREDICATE_TYPE}" \
+              --format json > "${RUNNER_TEMP}/candidate-custom-attestation-strict.json"
+            verify_candidate_custom_attestation_result_set \
+              "${RUNNER_TEMP}/candidate-custom-attestation-strict.json" \
+              "candidate custom attestation strict verification"
+          done < "${RUNNER_TEMP}/asset-names"
+      - name: Verify protected stable publication controls
+        env:
+          CANDIDATE_TAG: ${{ steps.promotion.outputs.source_tag }}
+          DEFAULT_BRANCH: ${{ needs.resolve.outputs.default_branch }}
+          GH_TOKEN: ${{ secrets.RELEASE_CONTROL_TOKEN }}
+          PROMOTION_COMMIT: ${{ needs.resolve.outputs.promotion_commit }}
+          STABLE_TAG: ${{ needs.resolve.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN}"
+          control_dir="${RUNNER_TEMP}/release-controls"
+          mkdir -p "${control_dir}"
+          encoded_branch="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${DEFAULT_BRANCH}")"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/branches/${encoded_branch}" > "${control_dir}/branch.json"
+          branch_head="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["commit"]["sha"])' "${control_dir}/branch.json")"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/compare/${PROMOTION_COMMIT}...${branch_head}" > "${control_dir}/compare.json"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/branches/${encoded_branch}/protection" > "${control_dir}/protection.json"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/environments/hardknock-candidate-publication" > "${control_dir}/candidate-environment.json"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/environments/hardknock-candidate-publication/deployment-branch-policies?per_page=100" > "${control_dir}/candidate-environment-policies.json"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/environments/hardknock-stable-publication" > "${control_dir}/stable-environment.json"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/environments/hardknock-stable-publication/deployment-branch-policies?per_page=100" > "${control_dir}/stable-environment-policies.json"
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" --paginate "repos/${RELEASE_REPOSITORY}/rulesets?includes_parents=true&per_page=100" \
+            --jq '.[].id' | sort -u > "${control_dir}/ruleset-ids"
+          : > "${control_dir}/rulesets.jsonl"
+          while IFS= read -r ruleset_id; do
+            [[ "${ruleset_id}" =~ ^[1-9][0-9]*$ ]]
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/rulesets/${ruleset_id}?includes_parents=true" \
+              >> "${control_dir}/rulesets.jsonl"
+            printf '\n' >> "${control_dir}/rulesets.jsonl"
+          done < "${control_dir}/ruleset-ids"
+          python3 - \
+            "${control_dir}" \
+            "${RUNNER_TEMP}/release-controls.json" \
+            "${DEFAULT_BRANCH}" \
+            "${PROMOTION_COMMIT}" \
+            "${CANDIDATE_TAG}" \
+            "${STABLE_TAG}" <<'PY'
+          import fnmatch
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          output = Path(sys.argv[2])
+          default_branch, promotion_commit, candidate_tag, stable_tag = sys.argv[3:]
+          branch = json.load(open(root / "branch.json"))
+          comparison = json.load(open(root / "compare.json"))
+          protection = json.load(open(root / "protection.json"))
+          if branch.get("name") != default_branch:
+              raise SystemExit("protected default branch name changed")
+          if comparison.get("status") not in ("ahead", "identical") or (comparison.get("merge_base_commit") or {}).get("sha") != promotion_commit:
+              raise SystemExit("promotion_commit is no longer in the protected default-branch history")
+          reviews = protection.get("required_pull_request_reviews") or {}
+          required_reviews = reviews.get("required_approving_review_count")
+          if not isinstance(required_reviews, int) or isinstance(required_reviews, bool) or required_reviews < 1:
+              raise SystemExit("default branch must require approving reviews")
+          if (protection.get("allow_force_pushes") or {}).get("enabled") is not False:
+              raise SystemExit("default branch must block force pushes")
+          if (protection.get("allow_deletions") or {}).get("enabled") is not False:
+              raise SystemExit("default branch must block deletion")
+          if (protection.get("enforce_admins") or {}).get("enabled") is not True:
+              raise SystemExit("default branch protection must enforce administrators")
+          allowances = reviews.get("bypass_pull_request_allowances") or {}
+          bypass_count = sum(len(allowances.get(kind) or []) for kind in ("users", "teams", "apps"))
+          if bypass_count != 0:
+              raise SystemExit("default branch review bypass allowances must be empty")
+
+          def environment(path, policies_path, expected_name):
+              value = json.load(open(path))
+              if value.get("name") != expected_name:
+                  raise SystemExit(f"missing protected environment {expected_name}")
+              policy = value.get("deployment_branch_policy") or {}
+              if policy.get("protected_branches") is not False or policy.get("custom_branch_policies") is not True:
+                  raise SystemExit(f"{expected_name} must use selected branch policies")
+              policies = json.load(open(policies_path))
+              policy_names = sorted(item.get("name") for item in policies.get("branch_policies") or [])
+              if policies.get("total_count") != 1 or policy_names != [default_branch]:
+                  raise SystemExit(f"{expected_name} must allow only the exact default branch")
+              reviewer_users = {}
+              reviewer_logins = {}
+              reviewer_rule = False
+              for rule in value.get("protection_rules") or []:
+                  if rule.get("type") != "required_reviewers":
+                      continue
+                  reviewer_rule = True
+                  if rule.get("prevent_self_review") is not True:
+                      raise SystemExit(f"{expected_name} must prevent self-review")
+                  for entry in rule.get("reviewers") or []:
+                      if entry.get("type") != "User":
+                          raise SystemExit(
+                              f"{expected_name} required reviewers must be direct user accounts; "
+                              "team reviewers are forbidden"
+                          )
+                      reviewer = entry.get("reviewer") or {}
+                      identity = reviewer.get("id")
+                      login = reviewer.get("login")
+                      if (
+                          not isinstance(identity, int)
+                          or isinstance(identity, bool)
+                          or identity < 1
+                          or not isinstance(login, str)
+                          or not login.strip()
+                      ):
+                          raise SystemExit(
+                              f"{expected_name} has an invalid direct user reviewer"
+                          )
+                      login = login.strip().casefold()
+                      if re.fullmatch(
+                          r"[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?", login
+                      ) is None:
+                          raise SystemExit(
+                              f"{expected_name} has a noncanonical GitHub reviewer login"
+                          )
+                      previous = reviewer_users.get(identity)
+                      if previous is not None and previous != login:
+                          raise SystemExit(
+                              f"{expected_name} maps one reviewer user ID to multiple logins"
+                          )
+                      previous_identity = reviewer_logins.get(login)
+                      if previous_identity is not None and previous_identity != identity:
+                          raise SystemExit(
+                              f"{expected_name} maps one normalized reviewer login to multiple user IDs"
+                          )
+                      reviewer_users[identity] = login
+                      reviewer_logins[login] = identity
+              if not reviewer_rule or not reviewer_users:
+                  raise SystemExit(
+                      f"{expected_name} must require at least one direct user reviewer"
+                  )
+              records = [
+                  {"type": "User", "id": identity, "login": login}
+                  for identity, login in sorted(reviewer_users.items())
+              ]
+              return set(reviewer_users), set(reviewer_logins), records
+
+          (
+              candidate_reviewer_ids,
+              candidate_reviewer_logins,
+              candidate_reviewer_records,
+          ) = environment(
+              root / "candidate-environment.json",
+              root / "candidate-environment-policies.json",
+              "hardknock-candidate-publication",
+          )
+          (
+              stable_reviewer_ids,
+              stable_reviewer_logins,
+              stable_reviewer_records,
+          ) = environment(
+              root / "stable-environment.json",
+              root / "stable-environment-policies.json",
+              "hardknock-stable-publication",
+          )
+          if candidate_reviewer_ids & stable_reviewer_ids:
+              raise SystemExit(
+                  "candidate and stable environments must use disjoint direct user reviewer IDs"
+              )
+          if candidate_reviewer_logins & stable_reviewer_logins:
+              raise SystemExit(
+                  "candidate and stable environments must use disjoint normalized reviewer logins"
+              )
+
+          rulesets = []
+          for line in (root / "rulesets.jsonl").read_text().splitlines():
+              if line.strip():
+                  rulesets.append(json.loads(line))
+
+          def pattern_matches(pattern, ref):
+              return pattern == "~ALL" or fnmatch.fnmatchcase(ref, pattern)
+
+          def effective_ruleset(tag):
+              ref = f"refs/tags/{tag}"
+              matches = []
+              for ruleset in rulesets:
+                  if ruleset.get("target") != "tag" or ruleset.get("enforcement") != "active":
+                      continue
+                  ref_names = ((ruleset.get("conditions") or {}).get("ref_name") or {})
+                  includes = ref_names.get("include") or ["~ALL"]
+                  excludes = ref_names.get("exclude") or []
+                  if not any(pattern_matches(pattern, ref) for pattern in includes):
+                      continue
+                  if any(pattern_matches(pattern, ref) for pattern in excludes):
+                      continue
+                  if "bypass_actors" not in ruleset:
+                      raise SystemExit(
+                          f"ruleset bypass actors are not visible for {tag}; "
+                          "the release-control token cannot prove no bypass"
+                      )
+                  if ruleset["bypass_actors"]:
+                      continue
+                  rule_types = {rule.get("type") for rule in ruleset.get("rules") or []}
+                  if {"update", "deletion"} <= rule_types:
+                      matches.append(ruleset)
+              if not matches:
+                  raise SystemExit(f"no active no-bypass tag ruleset blocks update and deletion for {tag}")
+              selected = sorted(matches, key=lambda item: item["id"])[0]
+              return {
+                  "id": selected["id"],
+                  "name": selected["name"],
+                  "update_blocked": True,
+                  "deletion_blocked": True,
+                  "bypass_actor_count": 0,
+              }
+
+          result = {
+              "schema": "hardknock-release-controls-v1",
+              "default_branch": {
+                  "name": default_branch,
+                  "promotion_commit": promotion_commit,
+                  "head_commit": (branch.get("commit") or {}).get("sha"),
+                  "protected": True,
+                  "required_approving_reviews": required_reviews,
+                  "force_push_blocked": True,
+                  "deletion_blocked": True,
+                  "admin_enforcement": True,
+                  "bypass_actor_count": bypass_count,
+              },
+              "environments": {
+                  "candidate": {
+                      "name": "hardknock-candidate-publication",
+                      "protected": True,
+                      "deployment_branch_protected": True,
+                      "default_branch_only": True,
+                      "prevent_self_review": True,
+                      "required_reviewers": candidate_reviewer_records,
+                  },
+                  "stable": {
+                      "name": "hardknock-stable-publication",
+                      "protected": True,
+                      "deployment_branch_protected": True,
+                      "default_branch_only": True,
+                      "prevent_self_review": True,
+                      "required_reviewers": stable_reviewer_records,
+                  },
+                  "reviewer_user_ids_disjoint": True,
+              },
+              "tag_rulesets": {
+                  "candidate": {"tag": candidate_tag, **effective_ruleset(candidate_tag)},
+                  "stable": {"tag": stable_tag, **effective_ruleset(stable_tag)},
+              },
+          }
+          output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+          PY
+      - name: Retain stable publication inputs and controls
+        env:
+          ACTOR_ID: ${{ github.actor_id }}
+          ACTOR_LOGIN: ${{ github.actor }}
+          DEFAULT_BRANCH: ${{ needs.resolve.outputs.default_branch }}
+          PROMOTION_COMMIT: ${{ needs.resolve.outputs.promotion_commit }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.promotion.outputs.source_commit }}
+          SOURCE_TAG: ${{ steps.promotion.outputs.source_tag }}
+          SOURCE_TREE: ${{ steps.promotion.outputs.source_tree }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_record="promotion-record/release/evidence/${RELEASE_VERSION}/record.json"
+          evidence_digest="$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "${evidence_record}")"
+          export EVIDENCE_DIGEST="${evidence_digest}"
+          python3 - \
+            "${RUNNER_TEMP}/release-controls.json" \
+            "${RUNNER_TEMP}/asset-digests.json" \
+            "${RUNNER_TEMP}/release-run-metadata.json" \
+            "${evidence_record}" \
+            "${RUNNER_TEMP}/verified-evidence-identities.json" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          evidence_candidate = (json.load(open(sys.argv[4])).get("candidate") or {})
+          actor_id = int(os.environ["ACTOR_ID"])
+          actor_login = os.environ["ACTOR_LOGIN"].strip().casefold()
+          if actor_id < 1 or re.fullmatch(
+              r"[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?", actor_login
+          ) is None:
+              raise SystemExit("workflow actor is not a canonical direct GitHub user")
+          value = {
+              "schema": "hardknock-release-publication-run-v1",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "workflow_ref": os.environ["GITHUB_WORKFLOW_REF"],
+              "workflow_sha": os.environ["GITHUB_WORKFLOW_SHA"],
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "run_url": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              "actor": {
+                  "type": "User",
+                  "id": actor_id,
+                  "login": actor_login,
+              },
+              "environment": "hardknock-stable-publication",
+              "channel": "stable",
+              "version": os.environ["RELEASE_VERSION"],
+              "release_tag": os.environ["RELEASE_TAG"],
+              "candidate_tag": os.environ["SOURCE_TAG"],
+              "default_branch": os.environ["DEFAULT_BRANCH"],
+              "promotion_commit": os.environ["PROMOTION_COMMIT"],
+              "evidence_record_sha256": os.environ["EVIDENCE_DIGEST"],
+              "evidence_review": {
+                  "operator": evidence_candidate.get("operator"),
+                  "independent_reviewer": evidence_candidate.get(
+                      "independent_reviewer"
+                  ),
+                  "frozen_at_utc": evidence_candidate.get("frozen_at_utc"),
+                  "evidence_completed_at_utc": evidence_candidate.get(
+                      "evidence_completed_at_utc"
+                  ),
+              },
+              "verified_evidence_identities": json.load(open(sys.argv[5])),
+              "artifact_source_commit": os.environ["SOURCE_COMMIT"],
+              "artifact_source_tree": os.environ["SOURCE_TREE"],
+              "asset_digests": json.load(open(sys.argv[2])),
+              "controls": json.load(open(sys.argv[1])),
+          }
+          with open(sys.argv[3], "w") as output:
+              json.dump(value, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+      - name: Create stable publication predicate
+        env:
+          DEFAULT_BRANCH: ${{ needs.resolve.outputs.default_branch }}
+          PROMOTION_COMMIT: ${{ needs.resolve.outputs.promotion_commit }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.promotion.outputs.source_commit }}
+          SOURCE_TAG: ${{ steps.promotion.outputs.source_tag }}
+          SOURCE_TREE: ${{ steps.promotion.outputs.source_tree }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_record="promotion-record/release/evidence/${RELEASE_VERSION}/record.json"
+          evidence_digest="$(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "${evidence_record}")"
+          export EVIDENCE_DIGEST="${evidence_digest}"
+          python3 - "${RUNNER_TEMP}/asset-digests.json" "${RUNNER_TEMP}/release-predicate.json" <<'PY'
+          import json
+          import os
+          import sys
+
+          predicate = {
+              "schema": "hardknock-release-publication-v1",
+              "channel": "stable",
+              "release_tag": os.environ["RELEASE_TAG"],
+              "candidate_tag": os.environ["SOURCE_TAG"],
+              "artifact_source_commit": os.environ["SOURCE_COMMIT"],
+              "artifact_source_tree": os.environ["SOURCE_TREE"],
+              "workflow_source_ref": f"refs/heads/{os.environ['DEFAULT_BRANCH']}",
+              "workflow_source_commit": os.environ["PROMOTION_COMMIT"],
+              "promotion_record_sha256": os.environ["EVIDENCE_DIGEST"],
+              "asset_digests": json.load(open(sys.argv[1])),
+          }
+          with open(sys.argv[2], "w") as output:
+              json.dump(predicate, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+      - name: Inspect existing stable release without mutation
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" --paginate "repos/${RELEASE_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | [.id, .tag_name] | @tsv' > "${RUNNER_TEMP}/release-index.tsv"
+          count="$(awk -F '\t' -v tag="${RELEASE_TAG}" '$2 == tag {count++} END {print count+0}' "${RUNNER_TEMP}/release-index.tsv")"
+          test "${count}" -le 1
+          if test "${count}" -eq 1; then
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
           fi
-          gh release create "${GITHUB_REF_NAME}" dist/* \
-            --verify-tag \
-            --title "${GITHUB_REF_NAME}" \
-            --generate-notes \
-            "${release_flags[@]}"
+      - name: Attest unchanged bytes for stable publication
+        if: steps.existing.outputs.exists == 'false'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: candidate-dist/*
+      - name: Attest exact stable-tag publication binding
+        if: steps.existing.outputs.exists == 'false'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: candidate-dist/*
+          predicate-type: ${{ env.RELEASE_PREDICATE_TYPE }}
+          predicate-path: ${{ runner.temp }}/release-predicate.json
+      - name: Publish or verify exact immutable stable release
+        env:
+          DEFAULT_BRANCH: ${{ needs.resolve.outputs.default_branch }}
+          GH_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
+          PROMOTION_COMMIT: ${{ needs.resolve.outputs.promotion_commit }}
+          RELEASE_EXISTS: ${{ steps.existing.outputs.exists }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.release_tag }}
+          RELEASE_TAG_OBJECT: ${{ needs.resolve.outputs.tag_object }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.promotion.outputs.source_commit }}
+          SOURCE_TAG: ${{ steps.promotion.outputs.source_tag }}
+          SOURCE_TAG_OBJECT: ${{ steps.promotion.outputs.source_tag_object }}
+          SOURCE_TREE: ${{ steps.promotion.outputs.source_tree }}
+          STABLE_COMMIT: ${{ needs.resolve.outputs.release_commit }}
+          STABLE_TREE: ${{ needs.resolve.outputs.release_tree }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GH_TOKEN}"
+          trap 'echo "Stable publication verification failed. Any created release is held unchanged for investigation." >&2' ERR
+
+          verify_tag_binding() {
+            tag="$1"
+            expected_tag_object="$2"
+            expected_commit="$3"
+            expected_tree="$4"
+            prefix="$5"
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/git/ref/tags/${tag}" > "${RUNNER_TEMP}/${prefix}-current-ref.json"
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/git/tags/${expected_tag_object}" > "${RUNNER_TEMP}/${prefix}-current-tag.json"
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/git/commits/${expected_commit}" > "${RUNNER_TEMP}/${prefix}-current-commit.json"
+            python3 - \
+              "${RUNNER_TEMP}/${prefix}-current-ref.json" \
+              "${RUNNER_TEMP}/${prefix}-current-tag.json" \
+              "${RUNNER_TEMP}/${prefix}-current-commit.json" \
+              "${tag}" \
+              "${expected_tag_object}" \
+              "${expected_commit}" \
+              "${expected_tree}" <<'PY'
+          import json
+          import sys
+
+          ref, tag, commit = (json.load(open(path)) for path in sys.argv[1:4])
+          tag_name, tag_object, commit_sha, tree_sha = sys.argv[4:]
+          ref_object = ref.get("object") or {}
+          if ref.get("ref") != f"refs/tags/{tag_name}" or ref_object.get("type") != "tag" or ref_object.get("sha") != tag_object:
+              raise SystemExit("release tag reference drifted")
+          verification = tag.get("verification") or {}
+          if tag.get("tag") != tag_name or verification.get("verified") is not True or verification.get("reason") != "valid":
+              raise SystemExit("release tag signature is no longer valid")
+          if tag.get("object", {}).get("type") != "commit" or tag.get("object", {}).get("sha") != commit_sha:
+              raise SystemExit("release tag target drifted")
+          if commit.get("sha") != commit_sha or commit.get("tree", {}).get("sha") != tree_sha:
+              raise SystemExit("release commit or tree drifted")
+          PY
+          }
+
+          verify_branch_binding() {
+            encoded_branch="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${DEFAULT_BRANCH}")"
+            branch_head="$(gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/branches/${encoded_branch}" --jq '.commit.sha')"
+            comparison="$(gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/compare/${PROMOTION_COMMIT}...${branch_head}" --jq '.status + " " + .merge_base_commit.sha')"
+            case "${comparison}" in
+              "identical ${PROMOTION_COMMIT}"|"ahead ${PROMOTION_COMMIT}") ;;
+              *) echo "promotion commit is not in default-branch history" >&2; exit 1 ;;
+            esac
+            test "$(git -C promotion-record rev-parse 'HEAD^{commit}')" = "${PROMOTION_COMMIT}"
+          }
+
+          wait_for_immutable_release() {
+            verified=0
+            for attempt in 1 2 3 4 5 6; do
+              if gh release verify "${RELEASE_TAG}" --repo "${RELEASE_REPOSITORY}"; then
+                verified=1
+                break
+              fi
+              sleep 5
+            done
+            test "${verified}" -eq 1
+          }
+
+          verify_release_contract() {
+            gh api -H "X-GitHub-Api-Version: ${GH_API_VERSION}" "repos/${RELEASE_REPOSITORY}/releases/tags/${RELEASE_TAG}" > "${RUNNER_TEMP}/stable-release.json"
+            python3 - "${RUNNER_TEMP}/stable-release.json" "${RUNNER_TEMP}/asset-names" "${RELEASE_TAG}" <<'PY'
+          import json
+          import sys
+
+          release = json.load(open(sys.argv[1]))
+          expected_names = [line for line in open(sys.argv[2]).read().splitlines() if line]
+          actual_names = [asset.get("name") for asset in release.get("assets") or []]
+          if release.get("tag_name") != sys.argv[3]:
+              raise SystemExit("stable release tag does not match")
+          if release.get("draft") is not False or release.get("prerelease") is not False:
+              raise SystemExit("stable release flags do not match")
+          if release.get("immutable") is not True:
+              raise SystemExit("stable release is not immutable")
+          if sorted(actual_names) != sorted(expected_names) or len(actual_names) != len(set(actual_names)):
+              raise SystemExit("stable release asset set does not match")
+          PY
+          }
+
+          verify_attestation_result_set() {
+            result_path="$1"
+            result_label="$2"
+            python3 - "${result_path}" "${result_label}" "${ATTESTATION_LIMIT}" <<'PY'
+          import json
+          import sys
+
+          results = json.load(open(sys.argv[1]))
+          label = sys.argv[2]
+          limit = int(sys.argv[3])
+          if not isinstance(results, list) or not results:
+              raise SystemExit(f"{label} returned no verified attestations")
+          if len(results) >= limit:
+              raise SystemExit(
+                  f"{label} reached the {limit}-attestation lookup limit; "
+                  "the result may be truncated"
+              )
+          PY
+          }
+
+          verify_custom_attestation_result_set() {
+            result_path="$1"
+            result_label="$2"
+            python3 - \
+              "${result_path}" \
+              "${RUNNER_TEMP}/release-predicate.json" \
+              "${result_label}" \
+              "${ATTESTATION_LIMIT}" <<'PY'
+          import json
+          import sys
+
+          results = json.load(open(sys.argv[1]))
+          expected = json.load(open(sys.argv[2]))
+          label = sys.argv[3]
+          limit = int(sys.argv[4])
+          if not isinstance(results, list) or not results:
+              raise SystemExit(f"{label} returned no verified attestations")
+          if len(results) >= limit:
+              raise SystemExit(
+                  f"{label} reached the {limit}-attestation lookup limit; "
+                  "the result may be truncated"
+              )
+          bindings = []
+          for result in results:
+              verification = result.get("verificationResult") or {}
+              predicate = (verification.get("statement") or {}).get("predicate")
+              if not isinstance(predicate, dict):
+                  continue
+              if (
+                  predicate.get("channel") != expected["channel"]
+                  or predicate.get("release_tag") != expected["release_tag"]
+              ):
+                  continue
+              certificate = (
+                  (verification.get("signature") or {}).get("certificate") or {}
+              )
+              bindings.append({
+                  "predicate": predicate,
+                  "source_ref": certificate.get("sourceRepositoryRef"),
+                  "source_digest": certificate.get("sourceRepositoryDigest"),
+                  "signer_digest": certificate.get("buildSignerDigest"),
+              })
+          unique = {
+              json.dumps(binding, sort_keys=True, separators=(",", ":"))
+              for binding in bindings
+          }
+          expected_binding = {
+              "predicate": expected,
+              "source_ref": expected["workflow_source_ref"],
+              "source_digest": expected["workflow_source_commit"],
+              "signer_digest": expected["workflow_source_commit"],
+          }
+          expected_key = json.dumps(
+              expected_binding, sort_keys=True, separators=(",", ":")
+          )
+          if unique != {expected_key}:
+              raise SystemExit(
+                  f"{label} contains zero exact predicate/source bindings "
+                  "or a conflicting binding"
+              )
+          PY
+          }
+
+          verify_custom_attestation() {
+            asset="$1"
+            gh attestation verify "${asset}" \
+              --repo "${RELEASE_REPOSITORY}" \
+              --limit "${ATTESTATION_LIMIT}" \
+              --signer-workflow "${RELEASE_WORKFLOW}" \
+              --deny-self-hosted-runners \
+              --predicate-type "${RELEASE_PREDICATE_TYPE}" \
+              --format json > "${RUNNER_TEMP}/stable-custom-attestation-discovery.json"
+            verify_custom_attestation_result_set \
+              "${RUNNER_TEMP}/stable-custom-attestation-discovery.json" \
+              "stable custom attestation discovery"
+            gh attestation verify "${asset}" \
+              --repo "${RELEASE_REPOSITORY}" \
+              --limit "${ATTESTATION_LIMIT}" \
+              --signer-workflow "${RELEASE_WORKFLOW}" \
+              --deny-self-hosted-runners \
+              --source-ref "refs/heads/${DEFAULT_BRANCH}" \
+              --source-digest "${PROMOTION_COMMIT}" \
+              --signer-digest "${PROMOTION_COMMIT}" \
+              --predicate-type "${RELEASE_PREDICATE_TYPE}" \
+              --format json > "${RUNNER_TEMP}/stable-custom-attestation-strict.json"
+            verify_custom_attestation_result_set \
+              "${RUNNER_TEMP}/stable-custom-attestation-strict.json" \
+              "stable custom attestation strict verification"
+          }
+
+          verify_stable_attestations() {
+            asset="$1"
+            gh attestation verify "${asset}" \
+              --repo "${RELEASE_REPOSITORY}" \
+              --limit "${ATTESTATION_LIMIT}" \
+              --signer-workflow "${RELEASE_WORKFLOW}" \
+              --deny-self-hosted-runners \
+              --source-ref "refs/heads/${DEFAULT_BRANCH}" \
+              --source-digest "${PROMOTION_COMMIT}" \
+              --signer-digest "${PROMOTION_COMMIT}" \
+              --predicate-type "${SLSA_PREDICATE_TYPE}" \
+              --format json > "${RUNNER_TEMP}/stable-slsa-attestation.json"
+            verify_attestation_result_set \
+              "${RUNNER_TEMP}/stable-slsa-attestation.json" \
+              "stable SLSA attestation lookup"
+            verify_custom_attestation "${asset}"
+          }
+
+          verify_stable_directory() {
+            directory="$1"
+            evidence_root="promotion-record/release/evidence/${RELEASE_VERSION}"
+            python3 promotion-record/scripts/verify_release_evidence.py \
+              "${evidence_root}/record.json" \
+              --evidence-root "${evidence_root}" \
+              --asset-root "${directory}" \
+              --expected-version "${RELEASE_VERSION}" \
+              --expected-tag "${RELEASE_TAG}" \
+              --expected-source-repository "${RELEASE_REPOSITORY}" \
+              --expected-source-tag "${SOURCE_TAG}" \
+              --expected-source-commit "${SOURCE_COMMIT}" \
+              --expected-source-tree "${SOURCE_TREE}" \
+              --expected-source-date-epoch "${{ steps.promotion.outputs.source_date_epoch }}"
+            python3 "${RUNNER_TEMP}/verify-release-assets.py" \
+              "${directory}" "${RELEASE_VERSION}" \
+              "${RUNNER_TEMP}/stable-asset-names" \
+              "${RUNNER_TEMP}/stable-asset-digests.json"
+            cmp "${RUNNER_TEMP}/asset-names" "${RUNNER_TEMP}/stable-asset-names"
+            cmp "${RUNNER_TEMP}/asset-digests.json" "${RUNNER_TEMP}/stable-asset-digests.json"
+            while IFS= read -r asset; do
+              cmp "candidate-dist/${asset}" "${directory}/${asset}"
+              gh release verify-asset "${RELEASE_TAG}" "${directory}/${asset}" \
+                --repo "${RELEASE_REPOSITORY}"
+              verify_stable_attestations "${directory}/${asset}"
+            done < "${RUNNER_TEMP}/asset-names"
+          }
+
+          test "${STABLE_COMMIT}" = "${SOURCE_COMMIT}"
+          test "${STABLE_TREE}" = "${SOURCE_TREE}"
+          verify_branch_binding
+          verify_tag_binding "${SOURCE_TAG}" "${SOURCE_TAG_OBJECT}" "${SOURCE_COMMIT}" "${SOURCE_TREE}" candidate
+          verify_tag_binding "${RELEASE_TAG}" "${RELEASE_TAG_OBJECT}" "${STABLE_COMMIT}" "${STABLE_TREE}" stable
+
+          if [[ "${RELEASE_EXISTS}" = false ]]; then
+            while IFS= read -r asset; do
+              verify_stable_attestations "candidate-dist/${asset}"
+            done < "${RUNNER_TEMP}/asset-names"
+            verify_branch_binding
+            verify_tag_binding "${SOURCE_TAG}" "${SOURCE_TAG_OBJECT}" "${SOURCE_COMMIT}" "${SOURCE_TREE}" candidate
+            verify_tag_binding "${RELEASE_TAG}" "${RELEASE_TAG_OBJECT}" "${STABLE_COMMIT}" "${STABLE_TREE}" stable
+            mapfile -t assets < <(sed 's#^#candidate-dist/#' "${RUNNER_TEMP}/asset-names")
+            gh release create "${RELEASE_TAG}" "${assets[@]}" \
+              --repo "${RELEASE_REPOSITORY}" \
+              --verify-tag \
+              --latest \
+              --title "${RELEASE_TAG}" \
+              --generate-notes
+          elif [[ "${RELEASE_EXISTS}" != true ]]; then
+            echo "invalid existing-release state" >&2
+            exit 1
+          fi
+
+          wait_for_immutable_release
+          verify_release_contract
+          rm -rf "${RUNNER_TEMP}/stable-dist"
+          mkdir "${RUNNER_TEMP}/stable-dist"
+          gh release download "${RELEASE_TAG}" \
+            --repo "${RELEASE_REPOSITORY}" \
+            --dir "${RUNNER_TEMP}/stable-dist"
+          verify_stable_directory "${RUNNER_TEMP}/stable-dist"
+          verify_branch_binding
+          verify_tag_binding "${SOURCE_TAG}" "${SOURCE_TAG_OBJECT}" "${SOURCE_COMMIT}" "${SOURCE_TREE}" candidate
+          verify_tag_binding "${RELEASE_TAG}" "${RELEASE_TAG_OBJECT}" "${STABLE_COMMIT}" "${STABLE_TREE}" stable
+
+          python3 - "${RUNNER_TEMP}/release-run-metadata.json" "${RUNNER_TEMP}/stable-release.json" <<'PY'
+          import json
+          import sys
+
+          metadata = json.load(open(sys.argv[1]))
+          release = json.load(open(sys.argv[2]))
+          metadata["publication"] = {
+              "release_id": release["id"],
+              "immutable": release["immutable"],
+              "prerelease": release["prerelease"],
+              "asset_count": len(release["assets"]),
+              "html_url": release["html_url"],
+          }
+          with open(sys.argv[1], "w") as output:
+              json.dump(metadata, output, indent=2, sort_keys=True)
+              output.write("\n")
+          PY
+      - name: Upload retained stable publication evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hardknock-stable-publication-${{ needs.resolve.outputs.release_tag }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/asset-digests.json
+            ${{ runner.temp }}/release-controls.json
+            ${{ runner.temp }}/release-predicate.json
+            ${{ runner.temp }}/release-run-metadata.json
+            ${{ runner.temp }}/verified-evidence-identities.json
+          if-no-files-found: error
+          retention-days: 90
