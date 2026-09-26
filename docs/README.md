@@ -9,9 +9,13 @@ Start with the [root README](../README.md) for a runnable example and current st
 - [Controlled experiments](experiments.md) and [agent experiments](agent-experiments.md): paired trials and explicit strategy comparisons.
 - [Generic agent contract](agent-integration.md) and [native integrations](integrations.md): connect an agent to the runner or Bridge.
 - [Roadmap](roadmap.md): milestone goals and longer-term direction.
-- [Production readiness plan](production-readiness-plan.md): current verdict, supported 1.0 boundary, installation design, and release gates.
+- [Production readiness plan](production-readiness-plan.md): current
+  release-candidate verdict, supported 1.0 boundary, installation design, and
+  remaining external release gates.
 - [Production implementation progress](production-progress.md): milestone status, commits, validation, and remaining gates.
 - [Production operations](operations.md): strict health checks, backup and restore, storage retention, Bridge services, and soak procedure.
+- [Production validation](production-validation.md): deterministic repository gates, enforced limits, recovery drills, and external evidence.
+- [Release-candidate runbook](release-candidate-runbook.md): immutable artifact, host, live-agent, soak, and promotion procedure.
 - [Support and compatibility policy](support-policy.md): maturity, release, upgrade, and agent compatibility commitments.
 - [Compatibility matrix](compatibility-matrix.md): generic MCP protocol, tools, declared release targets, adapter evidence, and pending live gates.
 

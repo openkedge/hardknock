@@ -133,7 +133,8 @@ The learning suite covers evaluator/process separation, all four paired outcomes
 
 ## Exact next implementation plan
 
-The next phase is scoped and ordered in [the roadmap](roadmap.md#exact-next-phase-plan):
+The next phase is scoped and ordered in the
+[revised immediate roadmap](roadmap.md#11-revised-immediate-roadmap):
 
 1. Deterministic applicability-based Lesson retrieval with explanations and provenance.
 2. Explicit budgeted retry in a fresh Reality, preserving the original Experience.

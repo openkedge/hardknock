@@ -2,11 +2,25 @@
 
 _Audit date: September 25, 2026_
 
-The verdict and evidence table below are the Milestone 0 baseline. Completed
-work and current validation are recorded in
-[production implementation progress](production-progress.md).
+## Current verdict
 
-## Overall verdict
+As of September 26, 2026, repository-side productionization is complete for
+the scoped single-user Linux/macOS and dedicated-CI boundary. The source tree
+is usable as controlled release-candidate input: reproducible build and
+package gates, storage and Bridge recovery, transactional installation,
+portable agent integration, production validation, and fail-closed promotion
+tooling are implemented and tested locally.
+
+General-production and 1.0 promotion still require evidence that cannot be
+created from this checkout: published immutable assets, the hosted
+Linux/macOS architecture matrix, native `systemd --user` and launchd runs,
+current live-agent acceptance, rootless Docker and Podman validation, the
+required 24-hour Linux and macOS soaks, and verified protected repository,
+environment, ruleset, and immutable-release controls. See
+[production implementation progress](production-progress.md) and the
+[release-candidate runbook](release-candidate-runbook.md).
+
+## Milestone 0 baseline verdict
 
 Hardknock is a strong research-grade implementation and a credible controlled
 pilot. It is not ready for general production installation.
@@ -41,7 +55,7 @@ supportable.
 Hardknock 1.0 should support:
 
 - one operating-system user on a developer workstation or dedicated CI runner;
-- Linux and macOS on x86-64 and ARM64;
+- glibc-based Linux and macOS on x86-64 and ARM64;
 - local SQLite state with verified backup, restore, migration, and retention;
 - trusted-host execution and an explicitly selected container provider for
   unattended or higher-risk agent commands;
@@ -102,7 +116,8 @@ hardknock setup \
   --non-interactive \
   --json
 
-hardknock integrate doctor --strict --json
+hardknock --json integrate doctor
+hardknock --json doctor --strict
 hardknock integration manifest --json
 ```
 

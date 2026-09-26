@@ -2,6 +2,8 @@
 
 _Started: September 25, 2026_
 
+_Repository implementation completed: September 26, 2026_
+
 This record tracks implementation of the
 [production-readiness plan](production-readiness-plan.md). Each milestone ends
 with its own reviewed commit and validation summary.
@@ -27,8 +29,8 @@ with its own reviewed commit and validation summary.
 | 2. Storage and Bridge operations | Complete locally | `1f6c077` | Local implementation and sandbox-compatible gates pass; 24-hour and host-facility runs remain release evidence |
 | 3. Binary installer and transactional setup | Complete locally | `f415a5b` | Hermetic installer and lifecycle fixtures pass; published-release and native-manager runs remain release evidence |
 | 4. Portable agent integration | Complete locally | `635a070` | Generic MCP, versioned manifest, bounded conformance fixtures, and compatibility matrix pass locally; external live-host acceptance remains release evidence |
-| 5. Production validation | Complete locally | `086dc2e` | Atomic Bridge durability, transactional recovery, and sandbox-compatible security, parser, load, and recovery validation pass; hosted and long-running evidence remains external |
-| 6. Beta and 1.0 release | Pending | — | Published compatibility policy and all 1.0 release gates complete |
+| 5. Production validation | Complete locally | `086dc2e`, `55eadc2` | Atomic Bridge durability, transactional recovery, and sandbox-compatible security, parser, load, and recovery validation pass; hosted and long-running evidence remains external |
+| 6. Beta and 1.0 release | Implementation complete; promotion pending | `6b064b7`, `6b9c715` | Trusted release promotion, hardened installer recovery, evidence schema, and deterministic local gates pass; published and supported-host evidence remains external |
 
 ## Milestone 1 checklist
 
@@ -323,7 +325,7 @@ live-agent runs remain Milestone 5 release evidence.
 
 ## Milestone 5 completion evidence
 
-Implementation commit: `086dc2e`.
+Implementation commits: `086dc2e`, `55eadc2`.
 
 - Bridge action persistence now commits the session compare-and-swap,
   predictive trajectory and forecast changes, runtime decision, role knowledge
@@ -351,12 +353,93 @@ Implementation commit: `086dc2e`.
   20 runtime-knowledge tests with one explicitly ignored manual case, and 17
   team tests. The durable action latency regression measured a debug-build
   P95 of 39.2 ms.
+- The follow-up commit preserves the clean-start snapshot used to record the
+  first Bridge Experience while independently marking the durable session
+  dirty before queued execution. The complete sandbox-compatible Bridge file
+  then passed 15/15.
 
 This milestone completes the repository-side, sandbox-compatible production
 validation work. Unix-socket and process-inspection fixtures denied by this
 managed sandbox, hosted operating-system and architecture jobs, native service
 managers, live agents, rootless container hosts, and the 24-hour soak remain
 release evidence. They are not claimed by this commit.
+
+## Milestone 6 checklist
+
+- [x] Run publication only through an exact protected-default-branch
+      `workflow_dispatch`, never from tag-controlled workflow code.
+- [x] Require strict signed annotated candidate and stable tags and bind every
+      checkout, package, asset, and attestation to exact commits and trees.
+- [x] Build the four declared Linux/macOS architecture targets twice, compare
+      binaries, and publish only the two product binaries plus bounded release
+      metadata.
+- [x] Separate candidate and stable publication environments, reviewers, and
+      write tokens while keeping the workflow token read-only.
+- [x] Add a versioned release-evidence schema, fail-closed verifier, bounded
+      typed receipts, deterministic freshness windows, and a promotion
+      template.
+- [x] Publish and verify the standalone installer bootstrap with custom release
+      binding and SLSA provenance.
+- [x] Make installer transactions recover interrupted install, upgrade, and
+      uninstall operations without overwriting concurrent user changes.
+- [x] Add deterministic installer, release-evidence, release-metadata,
+      packaging, soak, service-template, and integration-conformance CI gates.
+- [x] Document the release-candidate, host, live-agent, recovery, soak, and
+      stable-promotion procedure.
+- [ ] Record immutable published candidate assets and all four hosted target
+      runs.
+- [ ] Record native service-manager, current live-agent, rootless-container,
+      and 24-hour Linux/macOS soak evidence.
+- [ ] Verify the live protected branch, publication environments, tag
+      rulesets, reviewer separation, and immutable-release controls.
+
+## Milestone 6 completion evidence
+
+Implementation commits: `6b064b7`, `6b9c715`.
+
+- The POSIX installer passed all 79 hermetic transaction, archive, provenance,
+  race, recovery, and no-clobber cases under both `/bin/sh` and `/bin/dash`.
+- Release-evidence verifier tests, metadata tests, package tests, 23 soak
+  harness tests, seven service-template tests, and four integration-manifest
+  conformance tests passed.
+- The candidate workflow requires two sequential full serial passes on both
+  Ubuntu and macOS, and publication depends on both matrix legs. The repository
+  receipt records exact Linux and macOS run URLs and rejects missing, extra, or
+  single-pass families.
+- Dependency-advisory receipts now prove that the database refresh happened
+  after candidate freeze, no later than receipt observation, and no more than
+  24 hours before that observation.
+- Managed transient inventory retries only exact `NotFound` races below
+  `artifacts/transient/hk-transient-*`, remains bounded to the supported
+  32-reality ceiling, and passed deterministic single- and multi-teardown
+  regressions.
+- Process capture now distinguishes normal stream closure from an actual
+  output-limit signal. A 128-iteration normal-exit regression, the
+  100-iteration descendant-cleanup stress test, and all 17 agent-experiment
+  tests passed.
+- The complete sandbox-compatible serial suite passed 682 tests with zero
+  failures. Five explicit manual or live-agent tests remained ignored, and 15
+  Unix-socket, process-inspection, or live-adapter cases denied by this managed
+  sandbox were explicitly filtered. The release workflow filters none of
+  these tests and performs the complete suite twice on both Linux and macOS.
+- Workflow and documentation validation parsed 80 embedded Bash programs and
+  38 embedded Python programs. Release-policy assertions and custom
+  attestation conflict, retry-collapse, and lookup-saturation fixtures passed
+  with the bounded result limit of 100.
+- All 309 local Markdown links across 108 tracked documentation files resolve,
+  including their local heading anchors.
+- Rust 1.98.1 passed formatting, locked offline all-target/all-feature
+  compilation, strict Clippy, and rustdoc with warnings denied. Rust 1.88.0
+  passed the locked offline all-target/all-feature compiler check without
+  warnings.
+
+Milestone 6 completes the implementation and deterministic repository gates.
+It does not claim a stable release. Published release assets, hosted
+Linux/macOS targets, native service managers, live Claude Code and Codex
+acceptance, Hermes and OpenClaw promotion, rootless Docker and Podman hosts,
+the first 24-hour Linux and macOS soaks, and effective GitHub release controls
+remain mandatory external evidence before general-production or 1.0
+promotion.
 
 ## Baseline evidence
 

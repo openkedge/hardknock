@@ -24,7 +24,7 @@ promise. External live agent-host acceptance has not yet been completed.
 Stable support is limited to:
 
 - single-user developer workstations and dedicated CI runners;
-- Linux and macOS on supported x86-64 and ARM64 targets;
+- glibc-based Linux and macOS on supported x86-64 and ARM64 targets;
 - the bundled local SQLite store;
 - local Unix-socket Bridge operation;
 - published binary installation and managed user-level service operation;

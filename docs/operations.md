@@ -1,8 +1,8 @@
 # Production Operations
 
-Hardknock supports a single local user on Linux and macOS. Keep
-`HARDKNOCK_HOME` outside source repositories and use one dedicated data home
-per installation. The examples below use:
+The implemented controlled-candidate boundary is one local user on glibc-based
+Linux or macOS. Keep `HARDKNOCK_HOME` outside source repositories and use one
+dedicated data home per installation. The examples below use:
 
 ```bash
 export HARDKNOCK_HOME="$HOME/.hardknock"
@@ -10,18 +10,33 @@ export HARDKNOCK_HOME="$HOME/.hardknock"
 
 ## Binary installation and managed setup
 
-Install a pinned archive without a Rust toolchain:
+Follow the canonical
+[fail-closed binary-release verification](../README.md#install-a-binary-release)
+before executing the downloaded `install-hardknock` bootstrap. That procedure
+keeps the signed stable tag that identifies the candidate artifact separate
+from the protected default-branch commit that signed the release attestations.
+GitHub CLI 2.97.0 or newer is required for the official provenance path.
+
+The canonical block leaves a verified executable in the current directory.
+Preview and apply the installation and managed setup:
 
 ```bash
-./scripts/install.sh --version <version> --dry-run --json
-./scripts/install.sh --version <version>
-hardknock setup \
+set -euo pipefail
+
+VERSION='<version>'
+./install-hardknock --version "$VERSION" --dry-run --json
+./install-hardknock --version "$VERSION"
+"$HOME/.local/bin/hardknock" setup \
   --agent auto \
   --mode workstation \
   --non-interactive \
   --start \
   --json
 ```
+
+For an autonomous CI installer, use `--no-modify-path --json` and invoke the
+installed binary by its explicit prefix path. The same setup command and
+machine-readable result are used by interactive and agentic systems.
 
 The installer accepts the official HTTPS release base, an absolute local
 mirror, or a `file://` mirror. Official downloads fail closed unless GitHub CLI
@@ -32,9 +47,11 @@ source requires the explicit `--no-verify-provenance` bypass. Local mirrors
 remain available for offline agents and report checksum-only provenance. The
 installer rejects insecure HTTP, archive traversal, links, oversized members,
 checksum ambiguity, changed same-version payloads, unsafe prefixes, concurrent
-transactions, and unmanaged destination collisions. It installs two binaries
-plus license, notice, and an integrity manifest. PATH changes use one bounded
-managed block and can be disabled with `--no-modify-path`.
+transactions, and unmanaged destination collisions. Interrupted installer
+transactions are recovered under the installation lock before a new mutation.
+It installs two binaries plus license, notice, and an integrity manifest. PATH
+changes use one bounded managed block in the selected login profile and can be
+disabled with `--no-modify-path`.
 
 Setup emits its full plan before applying it. Applied steps are recorded in
 owner-private JSONL under `$HARDKNOCK_HOME/setup/transactions/`. Mutations take
@@ -70,7 +87,10 @@ files are restored and a Bridge that was running before the attempt is
 restarted. An absent managed installation is a true no-op. Successful removal
 retains the database, artifacts, backups, and transaction history.
 `--remove-data` additionally removes the exact owner-private home only when its
-setup manifest matches that path.
+setup manifest matches that path. The home first moves atomically to a private
+sibling quarantine. If deletion is interrupted after that commit point,
+ordinary setup remains fail-closed and `hardknock repair --non-interactive`
+resumes the deletion before applying a new managed state.
 
 ## Readiness checks
 

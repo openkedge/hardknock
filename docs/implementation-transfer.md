@@ -115,4 +115,4 @@ Local checks:
 
 **Active resilience building in trusted local fixtures:** validated explicit Skills → bounded local perturbations → failure-boundary discovery → evidence-backed operating envelopes → disabled advisory Reflex candidates → bounded Recovery trials.
 
-Start with deterministic file/environment changes and matched controls. Record budgets, seeds, tested conditions and restoration checks; measure recovery and total experiment cost. Keep authorization separate from advice. Do not start with external API faults or automatic enforcement. The detailed sequence is in [the roadmap](roadmap.md#exact-next-phase-plan). This phase has not been started.
+Start with deterministic file/environment changes and matched controls. Record budgets, seeds, tested conditions and restoration checks; measure recovery and total experiment cost. Keep authorization separate from advice. Do not start with external API faults or automatic enforcement. The detailed sequence is in the [revised immediate roadmap](roadmap.md#11-revised-immediate-roadmap). This phase has not been started.
