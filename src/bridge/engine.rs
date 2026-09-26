@@ -181,6 +181,7 @@ enum JobKind {
     Complete {
         snapshot: Box<Session>,
         expected_revision: u64,
+        recording_clean_start: bool,
         run: RunRecord,
         acknowledgement: PersistenceAck,
     },
@@ -1041,6 +1042,7 @@ impl Bridge {
                     JobKind::Complete {
                         snapshot,
                         expected_revision,
+                        recording_clean_start,
                         mut run,
                         acknowledgement,
                     } => {
@@ -1057,9 +1059,11 @@ impl Bridge {
                             reconcile_weak_session(&weak, &store.home, &id);
                         }
                         let queued_run = run.clone();
+                        let mut recording_snapshot = (*snapshot).clone();
+                        recording_snapshot.clean_start = recording_clean_start;
                         let completed = super::recording::record(
                             &store,
-                            &snapshot,
+                            &recording_snapshot,
                             &run,
                             &config_for(&weak),
                             &learning_cancel,
@@ -1399,6 +1403,7 @@ impl Bridge {
         &self,
         snapshot: Session,
         expected_revision: u64,
+        recording_clean_start: bool,
         run: RunRecord,
     ) -> Result<()> {
         let (acknowledgement, received) = mpsc::sync_channel(1);
@@ -1406,6 +1411,7 @@ impl Bridge {
             JobKind::Complete {
                 snapshot: Box::new(snapshot),
                 expected_revision,
+                recording_clean_start,
                 run,
                 acknowledgement,
             },
@@ -2152,6 +2158,7 @@ impl Bridge {
                         termination: run.termination,
                     };
                     let expected_revision = s.revision;
+                    let recording_clean_start = s.clean_start;
                     let mut snapshot = s.clone();
                     snapshot.runs.insert(record.run_id.clone(), record.clone());
                     snapshot.next_action_start = s.actions.len();
@@ -2160,6 +2167,7 @@ impl Bridge {
                     self.enqueue_run_completion(
                         snapshot.clone(),
                         expected_revision,
+                        recording_clean_start,
                         record.clone(),
                     )?;
                     *s = snapshot;
