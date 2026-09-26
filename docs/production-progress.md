@@ -26,7 +26,7 @@ with its own reviewed commit and validation summary.
 | 1. Build, package, version, schema, and lifecycle truth | Complete locally | `1998244` | Local release gates pass; hosted Linux/macOS workflows await their first remote run |
 | 2. Storage and Bridge operations | Complete locally | `1f6c077` | Local implementation and sandbox-compatible gates pass; 24-hour and host-facility runs remain release evidence |
 | 3. Binary installer and transactional setup | Complete locally | `f415a5b` | Hermetic installer and lifecycle fixtures pass; published-release and native-manager runs remain release evidence |
-| 4. Portable agent integration | Pending | — | MCP stdio, integration manifest, conformance harness, and live adapter matrix |
+| 4. Portable agent integration | Complete locally | `635a070` | Generic MCP, versioned manifest, bounded conformance fixtures, and compatibility matrix pass locally; external live-host acceptance remains release evidence |
 | 5. Production validation | Pending | — | Cross-platform security, parser, load, soak, and recovery evidence |
 | 6. Beta and 1.0 release | Pending | — | Published compatibility policy and all 1.0 release gates complete |
 
@@ -229,6 +229,74 @@ Published release assets do not yet exist for this development version, so the
 real HTTPS release and build-attestation run remains release evidence. Native
 systemd and launchd mutation is covered by hermetic manager fixtures locally
 and still needs supported-host runs.
+
+## Milestone 4 checklist
+
+- [x] Add a generic MCP stdio command that does not require native agent
+      integration.
+- [x] Expose only bounded context retrieval, outcome recording, and
+      experiment-status tools.
+- [x] Keep approvals, external Effect commits, agent execution, generic
+      experiment creation, and command/filesystem execution outside the MCP
+      surface.
+- [x] Bind reused session handles to an active `mcp` session and canonical
+      workspace.
+- [x] Bound request framing, response framing, concurrency, cancellation, EOF
+      drain, and stdio shutdown.
+- [x] Add a versioned machine-readable integration manifest and committed JSON
+      schema.
+- [x] Derive manifest tools and capabilities from the same descriptors as the
+      MCP server.
+- [x] Add model-free manifest and MCP conformance tests.
+- [x] Replace exact Codex-version rejection with generated core-schema and
+      initialization checks while retaining tested-version warnings and
+      fail-closed approval handling.
+- [x] Publish the repository-backed compatibility and authority boundary.
+- [ ] Complete live disposable acceptance with current Claude Code and Codex.
+- [ ] Complete live acceptance before promoting Hermes or OpenClaw support.
+
+## Milestone 4 completion evidence
+
+Implementation commit: `635a070`.
+
+- `hardknock mcp serve --stdio --workspace PATH` implements MCP protocol
+  `2026-07-28` with exactly three tools:
+  `hardknock_query_context`, `hardknock_record_outcome`, and
+  `hardknock_experiment_status`.
+- Modern requests are stateless. Context creation returns an explicit
+  `hardknock_session_id`; later stateful calls verify that the handle remains
+  active, belongs to the `mcp` adapter, and matches the canonical workspace.
+- The stdio server limits requests and responses to Bridge protocol bounds,
+  accepts at most 32 concurrent requests, rejects duplicate in-flight IDs,
+  aborts and suppresses cancelled requests, drains EOF for at most five
+  seconds, and exits cleanly on process interruption without waiting for stdin
+  EOF.
+- `hardknock integration manifest` emits preview stability, the launch and
+  healthcheck commands, declared Linux/macOS `x86_64`/`aarch64` support, the
+  exact tool capabilities, and explicit security exclusions. The committed
+  JSON schema and runtime validator reject forbidden or unbounded surfaces.
+- Codex compatibility now bounds subprocess and pending-event output, verifies
+  the generated core App Server schemas used by Hardknock, and performs an
+  initialization handshake. The fixture-tested `codex-cli 0.149.1` reports
+  `tested`; another conforming version reports
+  `core-schema-compatible-untested` with a warning and no approval-schema
+  claim. Missing or unsafe fields fail even with `--allow-untested`.
+- Formatting, locked offline all-target/all-feature compiler checks, strict
+  Clippy, and documentation with warnings denied passed. All ten MCP unit
+  tests, all three MCP process tests, all four manifest tests, and the
+  standalone conformance script passed. The sandbox-compatible native
+  integration selection passed eight tests with two explicit live Codex tests
+  ignored and three local-socket fixtures filtered.
+- Python fixture compilation, JSON schema parsing, diff checks, and 293 local
+  Markdown links passed. An independent review confirmed that session binding,
+  authority exclusions, manifest drift prevention, response cancellation, and
+  bounded EOF shutdown have no remaining high-priority blocker.
+
+This managed sandbox prohibits Unix-domain socket creation, so the
+cross-process Bridge fixture reports a capability-based skip and three native
+adapter transport fixtures were not rerun here. Current external agent
+versions and model-backed tasks were not invoked. Those supported-host and
+live-agent runs remain Milestone 5 release evidence.
 
 ## Baseline evidence
 
