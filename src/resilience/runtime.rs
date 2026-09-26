@@ -32,6 +32,30 @@ pub struct RunResilienceOptions {
     pub recovery: Option<Recovery>,
     pub baseline: Option<TrialMetrics>,
 }
+
+impl RunResilienceOptions {
+    pub(crate) fn maximum_process_actions(&self) -> u64 {
+        if self.fixture.is_none() {
+            return 1;
+        }
+        let recovery_actions = self.recovery.as_ref().map_or(0_u64, |recovery| {
+            1_u64.saturating_add(
+                recovery
+                    .steps
+                    .iter()
+                    .filter(|step| {
+                        matches!(
+                            step,
+                            RecoveryStep::ShellCommand { .. } | RecoveryStep::Replan
+                        )
+                    })
+                    .count() as u64,
+            )
+        });
+        6_u64.saturating_add(recovery_actions)
+    }
+}
+
 pub struct RuntimeResult {
     pub status: ProcessStatus,
     pub actions: Vec<ActionRecord>,

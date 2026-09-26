@@ -160,7 +160,11 @@ impl CapabilityStore for Store {
         runtime: &T,
     ) -> Result<()> {
         self.connection.execute(
-            "INSERT INTO reality_provider_runtime(reality_id,provider,created_at,data) VALUES(?1,?2,?3,?4)",
+            "INSERT INTO reality_provider_runtime(reality_id,provider,created_at,data)
+             VALUES(?1,?2,?3,?4)
+             ON CONFLICT(reality_id) DO UPDATE SET
+               provider=excluded.provider,
+               data=excluded.data",
             params![
                 reality_id.to_string(),
                 provider,

@@ -16,10 +16,9 @@ use crate::{
     workflow::{PreparedTrial, RunRequest, run_prepared_trial},
 };
 use chrono::Utc;
-use fs2::FileExt;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
-    fs::{self, File, OpenOptions},
+    fs,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -61,23 +60,6 @@ fn hash(value: &impl serde::Serialize) -> Result<String> {
         .to_hex()
         .to_string())
 }
-fn lock(home: &Path, name: &str) -> Result<File> {
-    let file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(home.join("locks").join(name))?;
-    FileExt::try_lock_exclusive(&file).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::WouldBlock {
-            Error::Intervention("Experiment or provider capacity is already in use".into())
-        } else {
-            Error::Io(e)
-        }
-    })?;
-    Ok(file)
-}
-
 impl ExperimentOrchestrator<'_> {
     pub fn submit(&self, request: ExperimentRequest) -> Result<StrategyExperiment> {
         self.config
@@ -132,7 +114,7 @@ impl ExperimentOrchestrator<'_> {
         id: &ExperimentId,
         external: &Cancellation,
     ) -> Result<StrategyExperiment> {
-        let _lease = lock(&self.store.home, &format!("{id}.lock"))?;
+        let _lease = self.store.lock_experiment(id)?;
         let mut experiment = self.store.strategy_experiment(id)?;
         if experiment.status.terminal() {
             return Ok(experiment);
@@ -705,7 +687,7 @@ impl ExperimentOrchestrator<'_> {
         }
         let mut capacity = Vec::new();
         for n in 0..self.config.experiments.provider_capacity {
-            match lock(&self.store.home, &format!("experiment-capacity-{n}.lock")) {
+            match self.store.lock_experiment_capacity(n) {
                 Ok(lease) => capacity.push(lease),
                 Err(Error::Intervention(_)) => {}
                 Err(error) => return Err(error),

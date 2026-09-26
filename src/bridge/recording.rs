@@ -17,6 +17,8 @@ use crate::{
     evaluation::{CommandEvaluator, EvaluationSpec, Evaluator},
     experience::{EvidenceBundle, Experience, ExperienceContext, Outcome},
     lesson::ActionPattern,
+    process::MAX_CAPTURE_BYTES_PER_STREAM,
+    storage_policy::LeasedTransientDir,
     store::{ExperienceStore, Store, artifact},
 };
 use chrono::Utc;
@@ -28,6 +30,9 @@ use std::{
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
+
+const MIB: u64 = 1024 * 1024;
+const SANITIZED_COPY_RESERVATION_BYTES: u64 = MIB;
 
 fn git(cwd: &Path, args: &[&str]) -> Option<String> {
     let mut command = Command::new("git");
@@ -154,13 +159,28 @@ pub fn record(
     if let Some(exp) = ExperienceStore::get(store, &id)? {
         return Ok(exp);
     }
+    let actions = &session.actions[run.action_start..run.action_end];
+    let actions_json = serde_json::to_string(actions)?;
+    let evaluator_checks = config
+        .evaluators
+        .get(&session.cwd.to_string_lossy().to_string())
+        .cloned()
+        .unwrap_or_default();
+    let evaluator_count = evaluator_checks.len() as u64;
+    let evaluator_bytes = evaluator_count.saturating_mul(2).saturating_mul(
+        MAX_CAPTURE_BYTES_PER_STREAM.saturating_add(SANITIZED_COPY_RESERVATION_BYTES),
+    );
+    let reserved_bytes = (actions_json.len() as u64)
+        .saturating_add(MIB)
+        .saturating_add(evaluator_bytes);
+    let reserved_files = 4_u64.saturating_add(evaluator_count.saturating_mul(4));
+    let _artifact_capacity = store.reserve_artifact_capacity(reserved_bytes, reserved_files)?;
     // A deterministic output directory identifies incomplete recording after a crash.
     let directory = store.home.join("artifacts").join(&run.experience_id);
     fs::create_dir(&directory)?;
-    let actions = &session.actions[run.action_start..run.action_end];
     let trace = save(
         &directory.join("actions.json"),
-        &serde_json::to_string(actions)?,
+        &actions_json,
         ArtifactKind::Metadata,
     )?;
     let empty = save(&directory.join("empty.txt"), "", ArtifactKind::Stdout)?;
@@ -250,14 +270,10 @@ pub fn record(
         action: aggregate.clone(),
         diff: diff.clone(),
     };
-    let temporary = tempfile::tempdir()?;
+    let temporary = LeasedTransientDir::create(store.home.join("artifacts/transient"))?;
     let evaluator = CommandEvaluator {
         spec: EvaluationSpec {
-            checks: config
-                .evaluators
-                .get(&session.cwd.to_string_lossy().to_string())
-                .cloned()
-                .unwrap_or_default(),
+            checks: evaluator_checks,
         },
         timeout: Duration::from_secs(config.evaluator_timeout_secs),
         environment: EnvironmentMode::Inherited,

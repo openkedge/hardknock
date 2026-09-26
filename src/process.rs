@@ -3,8 +3,9 @@
 use std::{
     fs::{self, OpenOptions},
     future::Future,
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     os::unix::process::ExitStatusExt,
-    path::Path,
+    path::{Path, PathBuf},
     process::Stdio,
     time::{Duration, Instant},
 };
@@ -16,6 +17,10 @@ use nix::{
     unistd::Pid,
 };
 use tokio::process::Command;
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
+    sync::mpsc,
+};
 
 use crate::{
     Error, Result,
@@ -28,8 +33,53 @@ pub struct ProcessRunner;
 
 struct ProcessGroup(Option<Pid>);
 
+pub const MAX_CAPTURE_BYTES_PER_STREAM: u64 = 8 * 1024 * 1024;
 const PROCESS_GROUP_SWEEP_WINDOW: Duration = Duration::from_millis(100);
 const PROCESS_GROUP_SWEEP_INTERVAL: Duration = Duration::from_millis(5);
+const OUTPUT_LIMIT_MARKER: &[u8] = b"\n[hardknock: output capture limit exceeded]\n";
+
+async fn capture_bounded<R>(
+    mut input: R,
+    output: std::fs::File,
+    path: PathBuf,
+    stream: &'static str,
+    limit_signal: mpsc::Sender<&'static str>,
+) -> Result<bool>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut output = tokio::fs::File::from_std(output);
+    let data_limit = MAX_CAPTURE_BYTES_PER_STREAM.saturating_sub(OUTPUT_LIMIT_MARKER.len() as u64);
+    let mut captured = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = input.read(&mut buffer).await?;
+        if read == 0 {
+            output.flush().await?;
+            output.sync_all().await?;
+            return Ok(false);
+        }
+        let available = data_limit.saturating_sub(captured) as usize;
+        let retained = read.min(available);
+        if retained > 0 {
+            output.write_all(&buffer[..retained]).await?;
+            captured = captured.saturating_add(retained as u64);
+        }
+        if retained < read {
+            output.write_all(OUTPUT_LIMIT_MARKER).await?;
+            output.flush().await?;
+            output.sync_all().await?;
+            let _ = limit_signal.send(stream).await;
+            tracing::warn!(
+                stream,
+                path = %path.display(),
+                limit = MAX_CAPTURE_BYTES_PER_STREAM,
+                "Process output capture limit exceeded"
+            );
+            return Ok(true);
+        }
+    }
+}
 
 impl ProcessGroup {
     fn signal(&self, leader_reaped: bool) -> Result<bool> {
@@ -82,15 +132,18 @@ impl ProcessRunner {
         cancel: F,
     ) -> Result<(ProcessStatus, ActionRecord)> {
         fs::create_dir(artifacts)?;
+        fs::set_permissions(artifacts, fs::Permissions::from_mode(0o700))?;
         let stdout_path = artifacts.join("stdout.log");
         let stderr_path = artifacts.join("stderr.log");
         let stdout = OpenOptions::new()
             .write(true)
             .create_new(true)
+            .mode(0o600)
             .open(&stdout_path)?;
         let stderr = OpenOptions::new()
             .write(true)
             .create_new(true)
+            .mode(0o600)
             .open(&stderr_path)?;
         let started_at = Utc::now();
         let start = Instant::now();
@@ -103,8 +156,8 @@ impl ProcessRunner {
             .args(&spec.args)
             .current_dir(cwd)
             .stdin(Stdio::null())
-            .stdout(stdout)
-            .stderr(stderr)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .process_group(0)
             .kill_on_drop(true)
             .spawn()
@@ -115,11 +168,35 @@ impl ProcessRunner {
         let pid = child
             .id()
             .ok_or_else(|| Error::InvalidInput("Spawned process has no PID".into()))?;
+        let child_stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| Error::InvalidInput("Spawned process has no stdout pipe".into()))?;
+        let child_stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| Error::InvalidInput("Spawned process has no stderr pipe".into()))?;
+        let (limit_tx, mut limit_rx) = mpsc::channel(2);
+        let stdout_capture = tokio::spawn(capture_bounded(
+            child_stdout,
+            stdout,
+            stdout_path.clone(),
+            "stdout",
+            limit_tx.clone(),
+        ));
+        let stderr_capture = tokio::spawn(capture_bounded(
+            child_stderr,
+            stderr,
+            stderr_path.clone(),
+            "stderr",
+            limit_tx,
+        ));
         let mut group = ProcessGroup(Some(Pid::from_raw(pid as i32)));
         tracing::debug!(
             pid,
             "Started agent process (arguments and environment omitted)"
         );
+        let mut exceeded_stream = None;
         let (status, exit) = tokio::select! {
             biased;
             _ = cancel => {
@@ -129,6 +206,11 @@ impl ProcessRunner {
             _ = tokio::time::sleep(timeout) => {
                 group.kill()?;
                 (ProcessStatus::TimedOut, child.wait().await?)
+            }
+            stream = limit_rx.recv() => {
+                exceeded_stream = stream;
+                group.kill()?;
+                (ProcessStatus::Failed, child.wait().await?)
             }
             exit = child.wait() => {
                 let exit = exit?;
@@ -144,6 +226,24 @@ impl ProcessRunner {
         group.terminate_remaining().await?;
         group.0 = None;
         drop(group);
+        let stdout_exceeded = stdout_capture
+            .await
+            .map_err(|_| Error::InvalidInput("stdout capture task failed".into()))??;
+        let stderr_exceeded = stderr_capture
+            .await
+            .map_err(|_| Error::InvalidInput("stderr capture task failed".into()))??;
+        exceeded_stream = exceeded_stream.or_else(|| {
+            stdout_exceeded
+                .then_some("stdout")
+                .or_else(|| stderr_exceeded.then_some("stderr"))
+        });
+        if let Some(stream) = exceeded_stream {
+            return Err(Error::Intervention(format!(
+                "Process {stream} exceeded the {} byte capture limit; the process tree was stopped and bounded output remains at {}",
+                MAX_CAPTURE_BYTES_PER_STREAM,
+                artifacts.display()
+            )));
+        }
         let action = ActionRecord {
             command: spec.clone(),
             cwd: cwd.into(),
@@ -164,12 +264,12 @@ mod tests {
 
     use tokio::sync::oneshot;
 
-    use super::ProcessRunner;
+    use super::{MAX_CAPTURE_BYTES_PER_STREAM, ProcessRunner};
     use crate::core::{CommandSpec, EnvironmentMode, ProcessStatus};
 
     #[tokio::test]
     async fn cancellation_sweeps_process_group_during_bounded_fork_bursts() {
-        const ITERATIONS: usize = 32;
+        const ITERATIONS: usize = 100;
         const DESCENDANTS_PER_ITERATION: usize = 8;
 
         let temp = tempfile::tempdir().unwrap();
@@ -237,5 +337,40 @@ mod tests {
                 sentinel.display()
             );
         }
+    }
+
+    #[tokio::test]
+    async fn output_capture_is_bounded_and_stops_the_process_tree() {
+        let temp = tempfile::tempdir().unwrap();
+        let cwd = temp.path().join("cwd");
+        let artifacts = temp.path().join("artifacts");
+        fs::create_dir(&cwd).unwrap();
+        let command = CommandSpec::shell(
+            &format!(
+                "yes x | head -c {}",
+                MAX_CAPTURE_BYTES_PER_STREAM + 1024 * 1024
+            ),
+            EnvironmentMode::Inherited,
+        );
+
+        let error = ProcessRunner
+            .run(
+                &command,
+                &cwd,
+                &artifacts,
+                Duration::from_secs(10),
+                std::future::pending(),
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("capture limit"), "{error}");
+        assert!(
+            fs::metadata(artifacts.join("stdout.log")).unwrap().len()
+                <= MAX_CAPTURE_BYTES_PER_STREAM
+        );
+        assert!(
+            fs::metadata(artifacts.join("stderr.log")).unwrap().len()
+                <= MAX_CAPTURE_BYTES_PER_STREAM
+        );
     }
 }

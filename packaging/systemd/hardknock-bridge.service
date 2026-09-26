@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[Unit]
+Description=Hardknock local agent lifecycle Bridge
+Documentation=https://github.com/openkedge/hardknock/blob/main/docs/integrations.md
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/hardknock --home %h/.hardknock bridge start --foreground
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hardknock-bridge
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=1000
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=30s
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

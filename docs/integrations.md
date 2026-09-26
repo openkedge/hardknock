@@ -35,7 +35,16 @@ hardknock bridge inspect hk-s-<id>
 hardknock bridge stop
 ```
 
-For foreground diagnostics use `hardknock bridge start --foreground`. Use `--home`/`HARDKNOCK_HOME` for a dedicated data directory outside the workspace. Starting an adapter session can autostart the daemon; pre-tool hooks never spawn it. The CLI currently returns structured JSON for integration diagnostics even without `--json`. `doctor` verifies configuration, managed files, Bridge reachability, and Codex version/schema/initialization when installed; native plugin enablement is reported as unverified.
+For foreground diagnostics use `hardknock bridge start --foreground`. Detached
+startup retains bounded structured diagnostics under
+`$HARDKNOCK_HOME/logs/bridge.jsonl`; platform service templates and the soak
+procedure are documented in [production operations](operations.md). Use
+`--home`/`HARDKNOCK_HOME` for a dedicated data directory outside the
+workspace. Starting an adapter session can autostart the daemon; pre-tool hooks
+never spawn it. The CLI currently returns structured JSON for integration
+diagnostics even without `--json`. `doctor --strict` adds schema, filesystem,
+disk, stale-resource, backup, release-integrity, Bridge, adapter, and storage
+checks. Native plugin enablement is reported as unverified.
 
 ## Capability matrix
 

@@ -10,7 +10,7 @@ use crate::{
 use chrono::Utc;
 use nix::unistd::{getegid, geteuid};
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
+use std::{collections::BTreeSet, fs, path::Path, process::Command};
 
 pub const DEFAULT_CONTAINER_IMAGE: &str = "debian:bookworm-slim";
 
@@ -33,7 +33,17 @@ pub struct ContainerRuntimeMetadata {
     pub network_name: Option<String>,
     #[serde(default)]
     pub attached_fixture_containers: Vec<String>,
+    #[serde(default)]
+    pub lifecycle: ContainerRuntimeLifecycle,
     pub created_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContainerRuntimeLifecycle {
+    Pending,
+    #[default]
+    Ready,
 }
 
 #[derive(Clone, Debug)]
@@ -267,25 +277,25 @@ impl<'a> ContainerRealityProvider<'a> {
         let remove =
             self.runtime
                 .output(&["rm".into(), "--force".into(), metadata.container_id.clone()]);
-        if let Err(error) = remove {
+        if let Err(error) = remove
+            && !missing_runtime_resource(&error, "container")
+        {
             errors.push(error.to_string());
         }
         if let Some(network) = &metadata.network_name {
             for fixture in &metadata.attached_fixture_containers {
-                let result = self.runtime.output(&[
+                let _ = self.runtime.output(&[
                     "network".into(),
                     "disconnect".into(),
                     "--force".into(),
                     network.clone(),
                     fixture.clone(),
                 ]);
-                if let Err(error) = result {
-                    errors.push(error.to_string());
-                }
             }
             if let Err(error) =
                 self.runtime
                     .output(&["network".into(), "rm".into(), network.clone()])
+                && !missing_runtime_resource(&error, "network")
             {
                 errors.push(error.to_string());
             }
@@ -297,6 +307,48 @@ impl<'a> ContainerRealityProvider<'a> {
                 "Container cleanup incomplete: {}",
                 errors.join("; ")
             )))
+        }
+    }
+
+    fn creation_failed(
+        &self,
+        reality: &mut Reality,
+        metadata: &ContainerRuntimeMetadata,
+        control: &Path,
+        primary: Error,
+    ) -> Error {
+        let git = GitRealityProvider::new(self.store);
+        match self.cleanup_runtime(metadata) {
+            Ok(()) => {
+                let _ = fs::remove_dir_all(control);
+                match git.discard(reality) {
+                    Ok(()) => primary,
+                    Err(cleanup) => Error::Cleanup {
+                        primary: Box::new(primary),
+                        cleanup: Box::new(cleanup),
+                    },
+                }
+            }
+            Err(cleanup) => {
+                reality.status = crate::core::RealityStatus::Failed;
+                let persistence = self.store.update_reality(reality).err();
+                let cleanup = if let Some(persistence) = persistence {
+                    Error::Cleanup {
+                        primary: Box::new(cleanup),
+                        cleanup: Box::new(persistence),
+                    }
+                } else {
+                    cleanup
+                };
+                Error::RealityPreserved {
+                    id: reality.id.to_string(),
+                    path: reality.root.display().to_string(),
+                    source: Box::new(Error::Cleanup {
+                        primary: Box::new(primary),
+                        cleanup: Box::new(cleanup),
+                    }),
+                }
+            }
         }
     }
 
@@ -383,49 +435,112 @@ impl IsolatedRealityProvider for ContainerRealityProvider<'_> {
         manifest.validate()?;
         let git = GitRealityProvider::new(self.store);
         let mut reality = git.create(state)?;
-        let control = self
-            .store
-            .home
-            .join("run")
-            .join("realities")
-            .join(reality.id.to_string());
-        if let Err(primary) = fs::create_dir_all(&control)
-            .and_then(|()| fs::set_permissions(&control, fs::Permissions::from_mode(0o755)))
-        {
-            let _ = fs::remove_dir_all(&control);
-            let _ = git.discard(&mut reality);
-            return Err(primary.into());
-        }
-        let (network_name, attached) = match self.setup_network(&reality, manifest) {
-            Ok(value) => value,
+        let _lease = match self.store.lock_reality(&reality.id) {
+            Ok(lease) => lease,
             Err(primary) => {
-                let _ = fs::remove_dir_all(&control);
                 let _ = git.discard(&mut reality);
                 return Err(primary);
             }
         };
+        let manifest_hash = match manifest.hash() {
+            Ok(hash) => hash,
+            Err(primary) => {
+                let _ = git.discard(&mut reality);
+                return Err(primary);
+            }
+        };
+        reality.execution_boundary = ExecutionBoundary {
+            provider: "container".into(),
+            capabilities: self.capabilities(manifest),
+            manifest_id: Some(manifest.id.clone()),
+            manifest_hash: Some(manifest_hash),
+            manifest_revision: manifest.revision,
+            image_digest: None,
+            frozen: false,
+        };
+        // Persist the provider marker before any container runtime intent. A
+        // process loss from this point onward is therefore discoverable even
+        // if runtime metadata has not been written yet.
+        if let Err(primary) = self.store.update_reality(&reality) {
+            let _ = git.discard(&mut reality);
+            return Err(primary);
+        }
+        let control = match crate::reconciliation::ensure_reality_control_directory(
+            &self.store.home,
+            &reality.id,
+        ) {
+            Ok(control) => control,
+            Err(primary) => {
+                let _ = git.discard(&mut reality);
+                return Err(primary);
+            }
+        };
+        let network_name = (manifest.network.mode == NetworkMode::AllowList)
+            .then(|| format!("hk-net-{}", short_id(&reality.id.to_string())));
+        let attached_fixture_containers = manifest
+            .network
+            .allow
+            .iter()
+            .map(|endpoint| endpoint.host.clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let mut metadata = ContainerRuntimeMetadata {
+            runtime: self.runtime.executable.clone(),
+            container_id: container_name(&reality.id.to_string()),
+            container_name: container_name(&reality.id.to_string()),
+            image: self.image.clone(),
+            image_digest: "unresolved".into(),
+            network_name,
+            attached_fixture_containers,
+            lifecycle: ContainerRuntimeLifecycle::Pending,
+            created_at: Utc::now(),
+        };
+        if let Err(primary) = self
+            .store
+            .insert_capability_manifest(&reality.id, manifest)
+            .and_then(|()| {
+                self.store
+                    .put_provider_runtime(&reality.id, "container", &metadata)
+            })
+        {
+            let _ = fs::remove_dir_all(&control);
+            let _ = git.discard(&mut reality);
+            return Err(primary);
+        }
+        let (network_name, attached) = match self.setup_network(&reality, manifest) {
+            Ok(value) => value,
+            Err(primary) => {
+                return Err(self.creation_failed(&mut reality, &metadata, &control, primary));
+            }
+        };
+        metadata.network_name = network_name.clone();
+        metadata.attached_fixture_containers = attached.clone();
+        if let Err(primary) = self
+            .store
+            .put_provider_runtime(&reality.id, "container", &metadata)
+        {
+            return Err(self.creation_failed(&mut reality, &metadata, &control, primary));
+        }
         let arguments = match self.create_arguments(&reality, manifest, network_name.as_deref()) {
             Ok(arguments) => arguments,
             Err(primary) => {
-                if let Some(network) = &network_name {
-                    self.cleanup_network(network, &attached);
-                }
-                let _ = fs::remove_dir_all(&control);
-                let _ = git.discard(&mut reality);
-                return Err(primary);
+                return Err(self.creation_failed(&mut reality, &metadata, &control, primary));
             }
         };
         let container_id = match self.runtime.output(&arguments) {
             Ok(id) => id,
             Err(primary) => {
-                if let Some(network) = &network_name {
-                    self.cleanup_network(network, &attached);
-                }
-                let _ = fs::remove_dir_all(&control);
-                let _ = git.discard(&mut reality);
-                return Err(primary);
+                return Err(self.creation_failed(&mut reality, &metadata, &control, primary));
             }
         };
+        metadata.container_id = container_id.clone();
+        if let Err(primary) = self
+            .store
+            .put_provider_runtime(&reality.id, "container", &metadata)
+        {
+            return Err(self.creation_failed(&mut reality, &metadata, &control, primary));
+        }
         let digest = match self.runtime.output(&[
             "inspect".into(),
             "--format".into(),
@@ -434,62 +549,51 @@ impl IsolatedRealityProvider for ContainerRealityProvider<'_> {
         ]) {
             Ok(digest) => digest,
             Err(primary) => {
-                let metadata = ContainerRuntimeMetadata {
-                    runtime: self.runtime.executable.clone(),
-                    container_id,
-                    container_name: container_name(&reality.id.to_string()),
-                    image: self.image.clone(),
-                    image_digest: "unresolved".into(),
-                    network_name,
-                    attached_fixture_containers: attached,
-                    created_at: Utc::now(),
-                };
-                let _ = self.cleanup_runtime(&metadata);
-                let _ = fs::remove_dir_all(&control);
-                let _ = git.discard(&mut reality);
-                return Err(primary);
+                return Err(self.creation_failed(&mut reality, &metadata, &control, primary));
             }
         };
-        let metadata = ContainerRuntimeMetadata {
-            runtime: self.runtime.executable.clone(),
-            container_id: container_id.clone(),
-            container_name: container_name(&reality.id.to_string()),
-            image: self.image.clone(),
-            image_digest: digest.clone(),
-            network_name,
-            attached_fixture_containers: attached,
-            created_at: Utc::now(),
-        };
-        if let Err(primary) = self.runtime.status(&["start".into(), container_id]) {
-            let _ = self.cleanup_runtime(&metadata);
-            let _ = fs::remove_dir_all(&control);
-            let _ = git.discard(&mut reality);
-            return Err(primary);
+        metadata.image_digest = digest.clone();
+        if let Err(primary) = self
+            .store
+            .put_provider_runtime(&reality.id, "container", &metadata)
+        {
+            return Err(self.creation_failed(&mut reality, &metadata, &control, primary));
         }
-        let persist = (|| -> Result<()> {
-            reality.execution_boundary = ExecutionBoundary {
-                provider: "container".into(),
-                capabilities: self.capabilities(manifest),
-                manifest_id: Some(manifest.id.clone()),
-                manifest_hash: Some(manifest.hash()?),
-                manifest_revision: manifest.revision,
-                image_digest: Some(digest),
-                frozen: false,
-            };
-            self.store.update_reality(&reality)?;
-            self.store
-                .insert_capability_manifest(&reality.id, manifest)?;
-            self.store
-                .put_provider_runtime(&reality.id, "container", &metadata)?;
-            Ok(())
-        })();
-        if let Err(primary) = persist {
-            let _ = self.cleanup_runtime(&metadata);
-            let _ = fs::remove_dir_all(&control);
-            let _ = git.discard(&mut reality);
-            return Err(primary);
+        if let Err(primary) = self.runtime.status(&["start".into(), container_id]) {
+            return Err(self.creation_failed(&mut reality, &metadata, &control, primary));
+        }
+        reality.execution_boundary.image_digest = Some(digest);
+        if let Err(primary) = self.store.update_reality(&reality) {
+            return Err(self.creation_failed(&mut reality, &metadata, &control, primary));
+        }
+        metadata.lifecycle = ContainerRuntimeLifecycle::Ready;
+        if let Err(primary) = self
+            .store
+            .put_provider_runtime(&reality.id, "container", &metadata)
+        {
+            return Err(self.creation_failed(&mut reality, &metadata, &control, primary));
         }
         Ok(reality)
+    }
+}
+
+fn missing_runtime_resource(error: &Error, kind: &str) -> bool {
+    let Error::Intervention(message) = error else {
+        return false;
+    };
+    let message = message.to_ascii_lowercase();
+    match kind {
+        "container" => {
+            message.contains("no such container")
+                || message.contains("no container with name or id")
+                || message.contains("container does not exist")
+        }
+        "network" => {
+            message.contains("no such network")
+                || message.contains("network not found")
+                || message.contains("network does not exist")
+        }
+        _ => false,
     }
 }
 

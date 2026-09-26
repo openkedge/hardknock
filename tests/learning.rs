@@ -6,7 +6,7 @@ use hardknock::{
     store::{ExperienceQuery, ExperienceStore, LATEST_SCHEMA_VERSION, Store, artifact},
 };
 use std::fs;
-use support::Fixture;
+use support::{Fixture, copy_experience_artifacts};
 
 fn propose(f: &Fixture, source: &serde_json::Value, avoid: &str, prefer: &str) -> String {
     f.cli(
@@ -262,11 +262,7 @@ fn v3_migration_preserves_raw_experience_json_and_defaults_new_provenance() {
         .unwrap();
     }
     db.execute("INSERT INTO experiences SELECT id,created_at,reality_id,execution_id,evaluation_id,outcome,json_remove(data,'$.lesson_applications','$.relations','$.repeated_mistakes','$.observed_actions','$.application_report_errors') FROM source.experiences", []).unwrap();
-    db.execute(
-        "INSERT INTO experience_artifacts SELECT * FROM source.experience_artifacts",
-        [],
-    )
-    .unwrap();
+    copy_experience_artifacts(&db, "source", &legacy.home);
     db.execute("DETACH DATABASE source", []).unwrap();
     let raw: String = db
         .query_row("SELECT data FROM experiences", [], |r| r.get(0))

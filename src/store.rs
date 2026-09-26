@@ -1,20 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    ffi::OsString,
     fs::{self, File, OpenOptions},
     io::Read,
-    os::unix::fs::PermissionsExt,
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use fs2::FileExt;
+use nix::unistd::geteuid;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::de::DeserializeOwned;
 
 use crate::{
     Error, Result,
-    core::{ArtifactRef, ExecutionId, ExecutionRecord, Reality, RealityId},
+    core::{ArtifactRef, ExecutionId, ExecutionRecord, ExperimentId, Reality, RealityId},
 };
 
 mod abstraction;
@@ -60,9 +62,79 @@ pub use tools::ToolStore;
 /// Schema version produced by all migrations compiled into this binary.
 pub const LATEST_SCHEMA_VERSION: i64 = 30;
 
+pub(crate) const HOME_ENTRIES: &[&str] = &[
+    "hardknock.db",
+    "hardknock.db-shm",
+    "hardknock.db-wal",
+    "artifacts",
+    "backups",
+    "realities",
+    "logs",
+    "locks",
+    "config.toml",
+    "fixtures",
+    "run",
+    "integrations",
+    "identity",
+    "federation",
+    "effects",
+    "tools",
+];
+
+const HOME_DIRECTORIES: &[&str] = &[
+    "artifacts",
+    "backups",
+    "realities",
+    "logs",
+    "locks",
+    "fixtures",
+    "run",
+    "integrations",
+    "identity",
+    "federation",
+    "effects",
+    "tools",
+];
+
 pub struct Store {
     pub home: PathBuf,
     connection: Connection,
+}
+
+#[derive(Debug)]
+pub struct ArtifactCapacityReservation {
+    report: crate::storage_policy::CapacityReport,
+    home: PathBuf,
+    name: OsString,
+    lease: File,
+}
+
+impl ArtifactCapacityReservation {
+    pub fn report(&self) -> &crate::storage_policy::CapacityReport {
+        &self.report
+    }
+}
+
+impl Drop for ArtifactCapacityReservation {
+    fn drop(&mut self) {
+        if let Err(error) =
+            crate::storage::release_artifact_reservation(&self.home, &self.name, &self.lease)
+        {
+            tracing::error!(%error, "Could not release artifact capacity reservation");
+        }
+    }
+}
+
+pub(crate) fn validate_dedicated_home(home: &Path) -> Result<()> {
+    if home.exists() {
+        for entry in fs::read_dir(home)? {
+            let name = entry?.file_name();
+            if !HOME_ENTRIES.iter().any(|allowed| name == *allowed) {
+                return Err(Error::Intervention("HARDKNOCK_HOME must be a dedicated empty directory or an existing Hardknock data directory.".into()));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn query_applied_schema_version(connection: &Connection) -> Result<i64> {
@@ -75,56 +147,27 @@ fn query_applied_schema_version(connection: &Connection) -> Result<i64> {
 
 impl Store {
     pub fn open(home: &Path) -> Result<Self> {
-        if home.exists() {
-            for entry in fs::read_dir(home)? {
-                let name = entry?.file_name();
-                if ![
-                    "hardknock.db",
-                    "hardknock.db-shm",
-                    "hardknock.db-wal",
-                    "artifacts",
-                    "realities",
-                    "logs",
-                    "locks",
-                    "config.toml",
-                    "fixtures",
-                    "run",
-                    "integrations",
-                    "identity",
-                    "federation",
-                    "effects",
-                    "tools",
-                ]
-                .iter()
-                .any(|allowed| name == *allowed)
-                {
-                    return Err(Error::Intervention("HARDKNOCK_HOME must be a dedicated empty directory or an existing Hardknock data directory.".into()));
-                }
-            }
-        }
+        validate_dedicated_home(home)?;
         fs::create_dir_all(home)?;
         let home = home.canonicalize()?;
         fs::set_permissions(&home, fs::Permissions::from_mode(0o700))?;
-        for child in [
-            "artifacts",
-            "realities",
-            "logs",
-            "locks",
-            "fixtures",
-            "run",
-            "integrations",
-            "identity",
-            "federation",
-            "effects",
-            "tools",
-        ] {
+        for child in HOME_DIRECTORIES {
             if fs::symlink_metadata(home.join(child)).is_ok_and(|m| m.file_type().is_symlink()) {
                 return Err(Error::Intervention(
                     "Hardknock data subdirectories must not be symlinks.".into(),
                 ));
             }
             fs::create_dir_all(home.join(child))?;
+            fs::set_permissions(home.join(child), fs::Permissions::from_mode(0o700))?;
         }
+        let transient_artifacts = home.join("artifacts/transient");
+        if fs::symlink_metadata(&transient_artifacts).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err(Error::Intervention(
+                "Hardknock transient artifact directory must not be a symlink.".into(),
+            ));
+        }
+        fs::create_dir_all(&transient_artifacts)?;
+        fs::set_permissions(&transient_artifacts, fs::Permissions::from_mode(0o700))?;
         let db = home.join("hardknock.db");
         if fs::symlink_metadata(&db).is_ok_and(|m| m.file_type().is_symlink()) {
             return Err(Error::Intervention(
@@ -135,6 +178,30 @@ impl Store {
         fs::set_permissions(db, fs::Permissions::from_mode(0o600))?;
         connection.busy_timeout(Duration::from_secs(5))?;
         connection.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;")?;
+        let observed_version = crate::storage::current_schema_version(&connection)?;
+        if observed_version > LATEST_SCHEMA_VERSION {
+            return Err(Error::Intervention(format!(
+                "Database schema {observed_version} is newer than the latest supported schema {LATEST_SCHEMA_VERSION}; upgrade the CLI."
+            )));
+        }
+        let _maintenance_lock = if observed_version > 0 && observed_version < LATEST_SCHEMA_VERSION
+        {
+            Some(crate::storage::acquire_home_maintenance_lock(&home)?)
+        } else {
+            None
+        };
+        let _artifact_capacity_lock =
+            if observed_version > 0 && observed_version < LATEST_SCHEMA_VERSION {
+                Some(crate::storage::acquire_artifact_capacity_lock(&home)?)
+            } else {
+                None
+            };
+        if _artifact_capacity_lock.is_some() {
+            crate::storage::require_no_active_artifact_reservations_locked(
+                &home,
+                "Database migration",
+            )?;
+        }
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute_batch("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);")?;
         let version = query_applied_schema_version(&tx)?;
@@ -142,6 +209,24 @@ impl Store {
             return Err(Error::Intervention(format!(
                 "Database schema {version} is newer than the latest supported schema {LATEST_SCHEMA_VERSION}; upgrade the CLI."
             )));
+        }
+        if version > 0 && version < LATEST_SCHEMA_VERSION {
+            if _maintenance_lock.is_none() || _artifact_capacity_lock.is_none() {
+                return Err(Error::Intervention(
+                    "Database became migration-eligible while opening; retry so Hardknock can acquire the maintenance and artifact locks before upgrade.".into(),
+                ));
+            }
+            let backup = crate::storage::backup_before_migration_locked(
+                &home,
+                version,
+                LATEST_SCHEMA_VERSION,
+            )?;
+            tracing::info!(
+                current_schema = version,
+                target_schema = LATEST_SCHEMA_VERSION,
+                backup = %backup.display(),
+                "Created and verified pre-migration backup"
+            );
         }
         if version < 1 {
             tx.execute_batch(include_str!("../migrations/001_substrate.sql"))?;
@@ -288,6 +373,53 @@ impl Store {
         query_applied_schema_version(&self.connection)
     }
 
+    /// Refuse a new artifact-producing operation when configured quotas or
+    /// minimum free space cannot accommodate its bounded reservation.
+    pub fn ensure_artifact_capacity(
+        &self,
+        requested_bytes: u64,
+        requested_files: u64,
+    ) -> Result<crate::storage_policy::CapacityReport> {
+        Ok(self
+            .reserve_artifact_capacity(requested_bytes, requested_files)?
+            .report()
+            .clone())
+    }
+
+    /// Hold the capacity lock for the complete artifact-producing operation so
+    /// concurrent producers and retention cannot all consume the same
+    /// observed headroom.
+    pub fn reserve_artifact_capacity(
+        &self,
+        requested_bytes: u64,
+        requested_files: u64,
+    ) -> Result<ArtifactCapacityReservation> {
+        let _capacity = crate::storage::acquire_artifact_capacity_lock(&self.home)?;
+        let active = crate::storage::active_artifact_reservations_locked(&self.home)?;
+        let report = crate::bridge::config::Config::load(&self.home)?
+            .storage
+            .ensure_capacity_with_reservations(
+                self.home.join("artifacts"),
+                requested_bytes,
+                requested_files,
+                active.usage,
+            )
+            .map_err(|error| Error::Intervention(error.to_string()))?;
+        let (lease, name) = crate::storage::create_artifact_reservation_locked(
+            &self.home,
+            crate::storage_policy::StorageUsage {
+                bytes: requested_bytes,
+                files: requested_files,
+            },
+        )?;
+        Ok(ArtifactCapacityReservation {
+            report,
+            home: self.home.clone(),
+            name,
+            lease,
+        })
+    }
+
     pub fn insert_reality(&self, reality: &Reality) -> Result<()> {
         self.connection.execute(
             "INSERT INTO realities(id, created_at, data) VALUES (?1, ?2, ?3)",
@@ -360,17 +492,71 @@ impl Store {
 
     /// An advisory lock prevents cleanup/discard racing a live Hardknock run.
     pub fn lock_reality(&self, id: &RealityId) -> Result<File> {
+        let path = self.home.join("locks").join(format!("{id}.lock"));
+        self.lock_owned_record(
+            &path,
+            "Reality lock",
+            format!("Reality {id} is in use by another Hardknock process"),
+        )
+    }
+
+    /// An advisory lock distinguishes an active strategy experiment from a
+    /// non-resumable record left Running after process loss.
+    pub fn lock_experiment(&self, id: &ExperimentId) -> Result<File> {
+        let path = self.home.join("locks").join(format!("{id}.lock"));
+        self.lock_owned_record(
+            &path,
+            "Experiment lock",
+            format!("Experiment {id} is in use by another Hardknock process"),
+        )
+    }
+
+    pub fn lock_experiment_capacity(&self, slot: usize) -> Result<File> {
+        let path = self
+            .home
+            .join("locks")
+            .join(format!("experiment-capacity-{slot}.lock"));
+        self.lock_owned_record(
+            &path,
+            "Experiment capacity lock",
+            format!("Experiment capacity slot {slot} is already in use"),
+        )
+    }
+
+    fn lock_owned_record(&self, path: &Path, label: &str, busy: String) -> Result<File> {
         let file = OpenOptions::new()
             .create(true)
             .truncate(false)
             .read(true)
             .write(true)
-            .open(self.home.join("locks").join(format!("{id}.lock")))?;
+            .mode(0o600)
+            .custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK)
+            .open(path)?;
+        let opened = file.metadata()?;
+        if !opened.is_file() || opened.uid() != geteuid().as_raw() || opened.nlink() != 1 {
+            return Err(Error::Intervention(format!(
+                "{label} must be an owned regular file with one link: {}",
+                path.display()
+            )));
+        }
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+        let current = fs::symlink_metadata(path)?;
+        if current.file_type().is_symlink()
+            || !current.is_file()
+            || current.uid() != opened.uid()
+            || current.nlink() != 1
+            || current.dev() != opened.dev()
+            || current.ino() != opened.ino()
+            || current.permissions().mode() & 0o777 != 0o600
+        {
+            return Err(Error::Intervention(format!(
+                "{label} changed or is unsafe: {}",
+                path.display()
+            )));
+        }
         FileExt::try_lock_exclusive(&file).map_err(|e| {
             if e.kind() == std::io::ErrorKind::WouldBlock {
-                Error::Intervention(format!(
-                    "Reality {id} is in use by another Hardknock process"
-                ))
+                Error::Intervention(busy)
             } else {
                 Error::Io(e)
             }

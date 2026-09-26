@@ -67,6 +67,7 @@ impl Default for IntegrationConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub bridge: BridgeConfig,
+    pub storage: crate::storage_policy::StoragePolicy,
     pub integrations: BTreeMap<String, IntegrationConfig>,
     pub experiments: crate::experimentation::ExperimentsConfig,
     pub experience_budget: crate::experimentation::ExperienceBudgetConfig,
@@ -144,6 +145,10 @@ impl Config {
         config.federation.validate()?;
         config.effects.validate()?;
         config.runtime.policy_config().validate()?;
+        config
+            .storage
+            .validate()
+            .map_err(|error| Error::InvalidInput(error.to_string()))?;
         if !(1024..=32768).contains(&b.max_context_bytes)
             || !(1..=5).contains(&b.max_context_lessons)
             || !(1..=10000).contains(&b.max_actions)

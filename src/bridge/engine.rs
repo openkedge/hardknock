@@ -142,10 +142,24 @@ impl Bridge {
                 session.runs.insert(run.run_id.clone(), run);
             }
             // An unacknowledged in-flight run is never silently presented as success after a crash.
+            let mut interrupted = Vec::new();
             for run in session.runs.values_mut().filter(|r| r.status == "queued") {
                 run.status = "interrupted".into();
                 run.error =
                     Some("Bridge restarted before completion; inspect retained evidence".into());
+                interrupted.push(run.clone());
+            }
+            if !interrupted.is_empty() {
+                for run in &interrupted {
+                    store.save_bridge_run(&session.id, run)?;
+                    store.bridge_event(
+                        &session.id,
+                        "run_interrupted",
+                        &json!({"run_id":run.run_id,"reason":run.error}),
+                    )?;
+                }
+                session.revision = session.revision.saturating_add(1);
+                store.save_bridge_session(&session)?;
             }
             sessions.insert(session.id.clone(), session);
         }

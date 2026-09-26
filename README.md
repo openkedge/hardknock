@@ -67,6 +67,8 @@ the checkpoint boundary.
 
 The [production-readiness and installation plan](docs/production-readiness-plan.md) gives the current overall verdict and the gated path to a supported 1.0 release for general local and CI agent use.
 Implementation status and validation evidence are tracked in the [production progress record](docs/production-progress.md).
+The [production operations guide](docs/operations.md) documents strict health
+checks, backup and restore, retention, Bridge services, and soak validation.
 
 Git worktrees are disposable working states, **not security sandboxes**. They share access to host files, credentials, network, and Git state. Use trusted commands and disposable tasks; choose a documented container or tool capability boundary where isolation matters. Supported external Effects require a separate explicit commit, and Hardknock does not intercept arbitrary external calls. Read the [execution boundary](docs/execution-boundary.md) and [effect security guide](docs/effect-security.md) before using those features.
 

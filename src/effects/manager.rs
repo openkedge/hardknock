@@ -38,6 +38,7 @@ impl EffectManager<'_> {
         success: bool,
         evidence: Value,
     ) -> Result<ExperienceId> {
+        let _artifact_capacity = self.store.reserve_artifact_capacity(1024 * 1024, 8)?;
         let directory = self.store.home.join("artifacts").join(format!(
             "effect-{}-{}",
             effect.id,

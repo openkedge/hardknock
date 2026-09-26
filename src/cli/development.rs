@@ -174,7 +174,7 @@ pub fn handles(c: &Commands) -> bool {
             | Commands::Revalidation { .. }
             | Commands::Episode { .. }
             | Commands::Benchmark { .. }
-            | Commands::Doctor
+            | Commands::Doctor { .. }
             | Commands::Experience {
                 command: ExperienceCommand::Health(_) | ExperienceCommand::Maintain(_)
             }
@@ -486,7 +486,7 @@ pub async fn execute(cli: &Cli, store: &Store, cancel: &Cancellation) -> Result<
             }
             json!({"kind":"transactional_effects_benchmark","benchmark":result})
         }
-        Commands::Doctor => {
+        Commands::Doctor { .. } => {
             let p = build(
                 store,
                 &cfg,

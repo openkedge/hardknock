@@ -8,7 +8,7 @@ use crate::{
         AgentIdentity, ArtifactKind, CommandSpec, ExecutionId, ExecutionRecord, ExperienceId,
         Reality, RealityStatus, StateRef,
     },
-    dojo::{GitRealityProvider, RealityProvider},
+    dojo::{GitRealityProvider, MAX_GIT_DIFF_BYTES, RealityProvider},
     evaluation::{CommandEvaluator, EvaluationSpec, Evaluator},
     experience::{
         EvidenceBundle, Experience, ExperienceContext, Outcome, Perturbation, ReplaySpec,
@@ -19,6 +19,22 @@ use crate::{
 };
 use chrono::Utc;
 use std::{fs, time::Duration};
+
+const MAX_RUN_METADATA_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_RUN_METADATA_FILES: u64 = 16;
+
+fn artifact_reservation(process_count: u64) -> (u64, u64) {
+    (
+        process_count
+            .saturating_mul(crate::process::MAX_CAPTURE_BYTES_PER_STREAM)
+            .saturating_mul(2)
+            .saturating_add((MAX_GIT_DIFF_BYTES as u64).saturating_mul(2))
+            .saturating_add(MAX_RUN_METADATA_BYTES),
+        process_count
+            .saturating_mul(2)
+            .saturating_add(MAX_RUN_METADATA_FILES),
+    )
+}
 
 /// A leased Reality, verified at the orchestration barrier before any trial runs.
 pub struct PreparedTrial {
@@ -216,6 +232,15 @@ async fn execute_prepared(
     let keep = request.keep;
     let mut perturbation_handles = crate::perturbation::AppliedPerturbations::default();
     let result = async {
+        let execution_process_count = resilience.map_or_else(
+            || commands.as_ref().map_or(1_u64, |items| items.len() as u64),
+            crate::resilience::runtime::RunResilienceOptions::maximum_process_actions,
+        );
+        let process_count =
+            execution_process_count.saturating_add(request.evaluation.checks.len() as u64);
+        let (reserved_bytes, reserved_files) = artifact_reservation(process_count);
+        let _artifact_capacity =
+            store.reserve_artifact_capacity(reserved_bytes, reserved_files)?;
         if !experimental {
             if resilience.is_some() { reality.fork_reason = Some(crate::core::ForkReason::Chaos); }
             for relation in &learning.relations {
@@ -417,5 +442,35 @@ async fn run_reality_process(
         _ => Err(Error::InvalidInput(
             "Container shell proxy returned a non-process result".into(),
         )),
+    }
+}
+
+#[cfg(test)]
+mod reservation_tests {
+    use super::*;
+
+    #[test]
+    fn reservations_cover_both_diffs_and_every_bounded_process_stream() {
+        let (bytes, files) = artifact_reservation(25);
+        assert_eq!(
+            bytes,
+            25 * 2 * crate::process::MAX_CAPTURE_BYTES_PER_STREAM
+                + 2 * MAX_GIT_DIFF_BYTES as u64
+                + MAX_RUN_METADATA_BYTES
+        );
+        assert_eq!(files, 25 * 2 + MAX_RUN_METADATA_FILES);
+    }
+
+    #[test]
+    fn resilience_process_bound_includes_retries() {
+        let options = crate::resilience::runtime::RunResilienceOptions {
+            fixture: Some(crate::resilience::FixtureKind::RetryResilience),
+            ..Default::default()
+        };
+        assert_eq!(options.maximum_process_actions(), 6);
+        assert_eq!(
+            crate::resilience::runtime::RunResilienceOptions::default().maximum_process_actions(),
+            1
+        );
     }
 }

@@ -24,6 +24,7 @@ mod federation;
 mod guard_candidate;
 pub mod integrations;
 mod knowledge;
+mod maintenance;
 mod plan;
 mod predictive;
 mod resilience;
@@ -256,7 +257,29 @@ pub enum Commands {
         command: development::BenchmarkCommand,
     },
     /// Local database and experience health; never runs experiments.
-    Doctor,
+    Doctor {
+        /// Return non-zero when production-readiness checks are degraded or fail.
+        #[arg(long)]
+        strict: bool,
+    },
+    /// Create a verified SQLite and artifact backup without overwriting a destination.
+    Backup { destination: PathBuf },
+    /// Restore a verified backup into its original new or empty data home.
+    Restore {
+        #[arg(long, required = true)]
+        verify: bool,
+        backup: PathBuf,
+    },
+    /// Inspect database migration requirements without changing the data home.
+    Migration {
+        #[command(subcommand)]
+        command: maintenance::MigrationCommand,
+    },
+    /// Inspect and explicitly apply bounded artifact retention.
+    Storage {
+        #[command(subcommand)]
+        command: maintenance::StorageCommand,
+    },
     /// Plan and explicitly run bounded experience curricula.
     Curriculum {
         #[command(subcommand)]
@@ -716,6 +739,9 @@ pub enum Response {
     Integration {
         result: serde_json::Value,
     },
+    Maintenance {
+        result: serde_json::Value,
+    },
     Resilience {
         result: Box<resilience::ResilienceResponse>,
     },
@@ -803,6 +829,14 @@ impl Response {
             Self::Curriculum { result } => result.exit_code(),
             Self::Experimentation { result } => result.exit_code(),
             Self::Resilience { result } => result.exit_code(),
+            Self::Maintenance { result }
+                if result["kind"] == "doctor" && result["strict"] == true =>
+            {
+                result["report"]["exit_code"]
+                    .as_u64()
+                    .and_then(|code| u8::try_from(code).ok())
+                    .unwrap_or(2)
+            }
             Self::RunCompleted {
                 execution,
                 experience,
@@ -874,6 +908,10 @@ impl Response {
             }
             Self::Effects { result } => effects::print(result, &mut stdout)?,
             Self::Federation { result } => federation::print(result, &mut stdout)?,
+            Self::Maintenance { result } => {
+                serde_json::to_writer_pretty(&mut stdout, result)?;
+                writeln!(stdout)?;
+            }
             Self::Curriculum { result } => result.print(&mut stdout)?,
             Self::Development { result } => development::print(result, &mut stdout)?,
             Self::Experimentation { result } => result.print(&mut stdout)?,
@@ -1381,7 +1419,22 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         .ok_or_else(|| {
             Error::Intervention("Set HARDKNOCK_HOME or --home; HOME is unavailable.".into())
         })?;
+    if let Commands::Restore { verify, backup } = &cli.command {
+        return Ok(Response::Maintenance {
+            result: maintenance::restore(backup, &raw_home, *verify)?,
+        });
+    }
     let home = resolve_home(&raw_home)?;
+    if let Commands::Backup { destination } = &cli.command {
+        return Ok(Response::Maintenance {
+            result: maintenance::backup(&home, destination)?,
+        });
+    }
+    if let Commands::Migration { command } = &cli.command {
+        return Ok(Response::Maintenance {
+            result: maintenance::migration(command, &home)?,
+        });
+    }
     if let Commands::Assurance {
         command: assurance::AssuranceCommand::Verify { file },
     } = &cli.command
@@ -1451,6 +1504,17 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         }
     }
     let store = Store::open(&home)?;
+    if let Commands::Storage { command } = &cli.command {
+        return Ok(Response::Maintenance {
+            result: maintenance::storage(command, &store)?,
+        });
+    }
+    if let Commands::Doctor { strict } = &cli.command {
+        let base = development::execute(cli, &store, cancel).await?;
+        return Ok(Response::Maintenance {
+            result: maintenance::doctor(&store, base, *strict).await?,
+        });
+    }
     if let Commands::Review { command } = &cli.command {
         return Ok(Response::Knowledge {
             result: team::review(command, &store)?,
@@ -1650,7 +1714,13 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
         | Commands::Revalidation { .. }
         | Commands::Episode { .. }
         | Commands::Benchmark { .. }
-        | Commands::Doctor => Err(Error::InvalidInput("Development dispatch failed".into())),
+        | Commands::Doctor { .. } => Err(Error::InvalidInput("Development dispatch failed".into())),
+        Commands::Backup { .. }
+        | Commands::Restore { .. }
+        | Commands::Migration { .. }
+        | Commands::Storage { .. } => {
+            Err(Error::InvalidInput("Maintenance dispatch failed".into()))
+        }
         Commands::Curriculum { .. }
         | Commands::TaskFamily { .. }
         | Commands::Skill {
@@ -2327,6 +2397,8 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
             RealityCommand::Diff { id } => {
                 let _lease = store.lock_reality(id)?;
                 let reality = store.reality(id)?;
+                let _artifact_capacity =
+                    store.reserve_artifact_capacity(crate::dojo::MAX_GIT_DIFF_BYTES as u64, 1)?;
                 let patch = if reality.execution_boundary.provider == "container" {
                     container_provider(&store, None)?.diff(&reality)?
                 } else {
@@ -2357,37 +2429,22 @@ pub async fn execute(cli: &Cli, cancel: &Cancellation) -> Result<Response> {
                 })
             }
             RealityCommand::Cleanup => {
-                let mut discarded = Vec::new();
-                let mut skipped_active = Vec::new();
-                for reality in store.realities()? {
-                    if !reality.ephemeral || reality.status == RealityStatus::Discarded {
-                        continue;
-                    }
-                    let _lease = match store.lock_reality(&reality.id) {
-                        Ok(lease) => lease,
-                        Err(Error::Intervention(_)) => {
-                            skipped_active.push(reality.id.clone());
-                            continue;
-                        }
-                        Err(error) => return Err(error),
-                    };
-                    // A run may finish (or retain its state after a capture error)
-                    // between listing and acquisition of the lease.
-                    let mut reality = store.reality(&reality.id)?;
-                    if !reality.ephemeral || reality.status == RealityStatus::Discarded {
-                        continue;
-                    }
-                    crate::effects::EffectManager::new(&store)?.discard_reality(&reality.id)?;
-                    if reality.execution_boundary.provider == "container" {
-                        container_provider(&store, None)?.discard(&mut reality)?;
-                    } else {
-                        provider.discard(&mut reality)?;
-                    }
-                    discarded.push(reality.id);
+                let report = crate::reconciliation::reconcile_ephemeral_realities(&store)?;
+                if !report.failed_realities.is_empty() {
+                    return Err(Error::Intervention(format!(
+                        "Cleanup completed partially; {} orphaned Realities still require inspection: {}",
+                        report.failed_realities.len(),
+                        report
+                            .failed_realities
+                            .iter()
+                            .map(|failure| format!("{} ({})", failure.reality_id, failure.reason))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )));
                 }
                 Ok(Response::CleanupCompleted {
-                    discarded,
-                    skipped_active,
+                    discarded: report.discarded_realities,
+                    skipped_active: report.skipped_active_realities,
                 })
             }
         },

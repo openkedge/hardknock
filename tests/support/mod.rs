@@ -3,6 +3,8 @@
 #![allow(dead_code)]
 
 use std::{
+    collections::BTreeMap,
+    ffi::OsStr,
     fs,
     path::{Path, PathBuf},
     process::{Command, Output},
@@ -42,6 +44,106 @@ pub fn git(repo: &Path, args: &[&str]) -> Output {
         String::from_utf8_lossy(&output.stderr)
     );
     output
+}
+
+pub fn copy_experience_artifacts(
+    db: &rusqlite::Connection,
+    source_schema: &str,
+    home: &Path,
+) -> BTreeMap<(String, String), String> {
+    assert!(matches!(source_schema, "source" | "seed"));
+    let artifacts = {
+        let mut query = db
+            .prepare(&format!(
+                "SELECT experience_id,path,blake3,bytes,kind
+                 FROM {source_schema}.experience_artifacts
+                 ORDER BY experience_id,path"
+            ))
+            .unwrap();
+        query
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    let mut relocated = BTreeMap::new();
+    for (experience_id, source, blake3, bytes, kind) in artifacts {
+        let source_path = PathBuf::from(&source);
+        let artifact_component = source_path
+            .iter()
+            .position(|component| component == OsStr::new("artifacts"))
+            .unwrap_or_else(|| panic!("artifact path has no artifacts component: {source}"));
+        let relative: PathBuf = source_path.iter().skip(artifact_component).collect();
+        let destination = home.join(relative);
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        fs::copy(&source_path, &destination).unwrap();
+        let destination = destination.canonicalize().unwrap();
+        db.execute(
+            "INSERT INTO experience_artifacts(experience_id,path,blake3,bytes,kind)
+             VALUES(?1,?2,?3,?4,?5)",
+            rusqlite::params![
+                experience_id,
+                destination.to_string_lossy().into_owned(),
+                blake3,
+                bytes,
+                kind
+            ],
+        )
+        .unwrap();
+        relocated.insert(
+            (experience_id, source),
+            destination.to_string_lossy().into_owned(),
+        );
+    }
+    relocated
+}
+
+pub fn copy_trial_artifacts(
+    db: &rusqlite::Connection,
+    source_schema: &str,
+    relocated: &BTreeMap<(String, String), String>,
+) {
+    assert!(matches!(source_schema, "source" | "seed"));
+    let artifacts = {
+        let mut query = db
+            .prepare(&format!(
+                "SELECT trial_id,experience_id,path
+                 FROM {source_schema}.trial_artifacts
+                 ORDER BY trial_id,path"
+            ))
+            .unwrap();
+        query
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    for (trial_id, experience_id, source) in artifacts {
+        let destination = relocated
+            .get(&(experience_id.clone(), source.clone()))
+            .unwrap_or_else(|| {
+                panic!("trial artifact has no relocated experience artifact: {source}")
+            });
+        db.execute(
+            "INSERT INTO trial_artifacts(trial_id,experience_id,path) VALUES(?1,?2,?3)",
+            rusqlite::params![trial_id, experience_id, destination],
+        )
+        .unwrap();
+    }
 }
 
 impl Fixture {

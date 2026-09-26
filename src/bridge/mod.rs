@@ -2,6 +2,7 @@
 //! Local vendor-neutral lifecycle boundary. Adapters may only use this API.
 pub mod cache;
 pub mod config;
+pub(crate) mod diagnostics;
 pub mod engine;
 mod experiments;
 pub mod privacy;

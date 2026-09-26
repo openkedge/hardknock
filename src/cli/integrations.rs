@@ -4,6 +4,7 @@ use crate::{
     Error, Result,
     bridge::{
         config::Config,
+        diagnostics::DetachedDiagnostics,
         protocol::*,
         transport::{self, BridgeClient},
     },
@@ -138,38 +139,98 @@ pub async fn start(home: &Path, tcp: Option<u16>) -> Result<()> {
     if client.request(AgentEvent::Status).await.is_ok() {
         return Ok(());
     }
-    // Explicitly detach, never inherit hook stdin/stdout or hold its pipe open.
+    let mut diagnostics = DetachedDiagnostics::open(home, tcp)?;
+    let diagnostic_path = diagnostics.path().to_path_buf();
+    let (stdout, stderr) = diagnostics.stdio().map_err(|error| {
+        invalid(&format!(
+            "Cannot attach Bridge diagnostics at {}: {error}",
+            diagnostic_path.display()
+        ))
+    })?;
+    // Explicitly detach, never inherit hook stdin or hold its pipe open.
     let mut command = tokio::process::Command::new(std::env::current_exe()?);
     command
+        .arg("--json")
         .arg("--home")
         .arg(home)
         .args(["bridge", "start", "--foreground"])
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr)
         .process_group(0);
     if let Some(port) = tcp {
         command.arg("--tcp").arg(port.to_string());
     }
-    let mut child = command.spawn()?;
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            let diagnostic_error = diagnostics
+                .record(
+                    "bridge_detached_spawn_failed",
+                    json!({"error": error.to_string()}),
+                )
+                .err();
+            return Err(invalid(&format!(
+                "Bridge failed to spawn; diagnostics: {}{}",
+                diagnostic_path.display(),
+                diagnostic_error
+                    .map(|error| format!(" (logger error: {error})"))
+                    .unwrap_or_default()
+            )));
+        }
+    };
     for _ in 0..50 {
         if client.request(AgentEvent::Status).await.is_ok() {
+            if let Err(error) =
+                diagnostics.record("bridge_detached_ready", json!({"child_pid": child.id()}))
+            {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                return Err(invalid(&format!(
+                    "Bridge diagnostic logger failed during startup; diagnostics: {} ({error})",
+                    diagnostic_path.display()
+                )));
+            }
             // Reap it if this process remains alive; the detached daemon owns its lifetime.
             tokio::spawn(async move {
                 let _ = child.wait().await;
             });
             return Ok(());
         }
-        if child.try_wait()?.is_some() {
-            return Err(invalid(
-                "Bridge failed to start; run bridge start --foreground for diagnostics",
-            ));
+        if let Some(status) = child.try_wait().map_err(|error| {
+            invalid(&format!(
+                "Cannot inspect Bridge startup; diagnostics: {} ({error})",
+                diagnostic_path.display()
+            ))
+        })? {
+            let diagnostic_error = diagnostics
+                .record(
+                    "bridge_detached_start_failed",
+                    json!({"status": status.to_string()}),
+                )
+                .err();
+            return Err(invalid(&format!(
+                "Bridge failed to start; diagnostics: {}{}",
+                diagnostic_path.display(),
+                diagnostic_error
+                    .map(|error| format!(" (logger error: {error})"))
+                    .unwrap_or_default()
+            )));
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let _ = child.kill().await;
     let _ = child.wait().await;
-    Err(invalid("Bridge startup timeout"))
+    let diagnostic_error = diagnostics
+        .record("bridge_detached_start_timeout", json!({}))
+        .err();
+    Err(invalid(&format!(
+        "Bridge startup timeout; diagnostics: {}{}",
+        diagnostic_path.display(),
+        diagnostic_error
+            .map(|error| format!(" (logger error: {error})"))
+            .unwrap_or_default()
+    )))
 }
 pub async fn execute(cli: &Cli, home: &Path, cancel: &Cancellation) -> Result<Value> {
     let mut client = BridgeClient::new(home);

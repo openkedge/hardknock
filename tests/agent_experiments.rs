@@ -7,7 +7,7 @@ use hardknock::{
     core::{AgentIdentity, CandidateId, ExperimentRequestId},
     dojo::capture_state,
     experimentation::*,
-    store::{LessonQuery, LessonStore, Store},
+    store::{ExperimentStore, LessonQuery, LessonStore, Store},
 };
 use support::Fixture;
 
@@ -474,6 +474,81 @@ fn external_effects_policy_and_request_id_conflicts_are_rejected() {
     r.question = "changed question".into();
     assert!(orchestrator.submit(r).is_err());
     assert!(store.realities().unwrap().is_empty());
+}
+
+#[test]
+fn bridge_owned_queued_experiment_is_failed_truthfully_after_restart() {
+    let f = Fixture::new();
+    let store = Store::open(&f.home).unwrap();
+    let config = Config::default();
+    let mut request = shell_request(&f, &["true"; 2]);
+    request.session_id = "hk-s-interrupted".into();
+    request.origin = ExperimentOrigin::Agent;
+    let accepted = ExperimentOrchestrator {
+        store: &store,
+        config: &config,
+    }
+    .submit(request)
+    .unwrap();
+    assert_eq!(accepted.status, ExperimentStatus::Accepted);
+
+    let report = hardknock::reconciliation::reconcile_interrupted_bridge_work(&store).unwrap();
+    assert_eq!(report.failed_experiments, vec![accepted.id.clone()]);
+    let recovered = store.strategy_experiment(&accepted.id).unwrap();
+    assert_eq!(recovered.status, ExperimentStatus::Failed);
+    assert!(recovered.failure.unwrap().contains("Bridge restarted"));
+}
+
+#[test]
+fn non_bridge_running_experiment_is_failed_truthfully_after_restart() {
+    let f = Fixture::new();
+    let store = Store::open(&f.home).unwrap();
+    let config = Config::default();
+    let mut experiment = ExperimentOrchestrator {
+        store: &store,
+        config: &config,
+    }
+    .submit(shell_request(&f, &["true"; 2]))
+    .unwrap();
+    experiment.status = ExperimentStatus::Running;
+    ExperimentStore::update_status(&store, &experiment).unwrap();
+
+    let report = hardknock::reconciliation::reconcile_interrupted_bridge_work(&store).unwrap();
+    assert_eq!(report.failed_experiments, vec![experiment.id.clone()]);
+    let recovered = store.strategy_experiment(&experiment.id).unwrap();
+    assert_eq!(recovered.status, ExperimentStatus::Failed);
+    assert!(recovered.failure.unwrap().contains("Bridge restarted"));
+}
+
+#[test]
+fn active_running_experiment_is_not_failed_by_reconciliation() {
+    let f = Fixture::new();
+    let store = Store::open(&f.home).unwrap();
+    let config = Config::default();
+    let mut experiment = ExperimentOrchestrator {
+        store: &store,
+        config: &config,
+    }
+    .submit(shell_request(&f, &["true"; 2]))
+    .unwrap();
+    experiment.status = ExperimentStatus::Running;
+    ExperimentStore::update_status(&store, &experiment).unwrap();
+    let lease = store.lock_experiment(&experiment.id).unwrap();
+
+    let report = hardknock::reconciliation::reconcile_interrupted_bridge_work(&store).unwrap();
+    assert!(report.failed_experiments.is_empty());
+    assert_eq!(
+        store.strategy_experiment(&experiment.id).unwrap().status,
+        ExperimentStatus::Running
+    );
+
+    drop(lease);
+    let report = hardknock::reconciliation::reconcile_interrupted_bridge_work(&store).unwrap();
+    assert_eq!(report.failed_experiments, vec![experiment.id.clone()]);
+    assert_eq!(
+        store.strategy_experiment(&experiment.id).unwrap().status,
+        ExperimentStatus::Failed
+    );
 }
 
 #[test]

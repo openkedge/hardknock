@@ -24,7 +24,7 @@ with its own reviewed commit and validation summary.
 | --- | --- | --- | --- |
 | 0. Verdict and implementation plan | Complete | `17a79d2` | Plan reviewed; documentation links added |
 | 1. Build, package, version, schema, and lifecycle truth | Complete locally | `1998244` | Local release gates pass; hosted Linux/macOS workflows await their first remote run |
-| 2. Storage and Bridge operations | In progress | — | Backup/restore, upgrade safety, retention, reconciliation, durable daemon logs and service lifecycle |
+| 2. Storage and Bridge operations | Complete locally | Pending milestone commit | Local implementation and sandbox-compatible gates pass; 24-hour and host-facility runs remain release evidence |
 | 3. Binary installer and transactional setup | Pending | — | Fresh host setup, dry-run JSON, repair, upgrade, and non-destructive uninstall |
 | 4. Portable agent integration | Pending | — | MCP stdio, integration manifest, conformance harness, and live adapter matrix |
 | 5. Production validation | Pending | — | Cross-platform security, parser, load, soak, and recovery evidence |
@@ -79,6 +79,86 @@ Implementation commit: `1998244`.
 The hosted Ubuntu/macOS matrix and tag publication flow cannot be executed
 locally. Milestone 1 is complete in the repository, but those first hosted runs
 remain release evidence rather than assumed results.
+
+## Milestone 2 checklist
+
+- [x] Add verified database and artifact backup plus guarded restore.
+- [x] Add migration inspection and verified pre-upgrade recovery snapshots.
+- [x] Add artifact inventory, quotas, protected-evidence rules, and dry-run
+      pruning.
+- [x] Reconcile abandoned automatic Realities and stale Bridge runtime files.
+- [x] Persist interrupted Bridge and experiment state truthfully after restart.
+- [x] Retain bounded structured Bridge diagnostics and validate clean shutdown.
+- [x] Add validated `systemd --user` and `launchd` service templates.
+- [x] Extend doctor with strict schema, filesystem, disk, runtime, backup,
+      release-integrity, Bridge, and adapter checks.
+- [x] Pass 100 consecutive process-tree cancellation iterations locally.
+- [x] Provide a repeatable 24-hour Bridge soak harness.
+- [ ] Record the first 24-hour Linux and macOS runs as release evidence.
+- [x] Pass formatting, strict Clippy, compiler checks, focused recovery tests,
+      and the complete sandbox-compatible suite before the milestone commit.
+- [ ] Repeat the complete serial suite with host Unix sockets and process
+      inspection enabled.
+
+## Milestone 2 completion evidence
+
+Implementation commit: pending.
+
+- Backup uses SQLite's online backup API, copies and hashes referenced
+  artifacts, verifies integrity and foreign keys, and publishes only a
+  complete new bundle. Restore verifies into a private staging directory and
+  refuses existing, relocated, linked, or insecure targets.
+- Migration dry-run is non-mutating. A real schema upgrade takes the
+  maintenance and artifact gates, waits for active producers, starts the
+  SQLite write transaction, creates a verified recovery bundle, and applies
+  migrations atomically.
+- Storage policy inventories all artifacts while protecting retained evidence.
+  Only bounded regular files under `artifacts/transient/` can be pruned.
+  Private reservation ledgers permit concurrent producers while enforcing
+  aggregate byte and file limits.
+- Backup creation and verification use deterministic iterative traversal,
+  enforce entry and nesting limits, and count empty directories as well as
+  files. Subprocess stdout and stderr are each bounded to 8 MiB, container
+  output uses the manifest limit per stream, and Git diff capture is bounded
+  to 16 MiB. Capacity reservations cover retries, both diffs, direct command
+  paths, and metadata. The cancellation stress regression completed 100
+  process-tree iterations.
+- Startup reconciliation closes abandoned automatic Realities, marks
+  interrupted experiments and Bridge work truthfully, and cleans only runtime
+  paths whose ownership, type, mode, link count, identity, and inactive lease
+  have been verified. Container intent is persisted before runtime creation,
+  and reconciliation reloads state after acquiring its lease so it cannot
+  discard a Reality completed between scanning and cleanup.
+- Detached Bridge diagnostics retain one active 1 MiB JSONL file and four
+  bounded archives. Static `systemd --user` and `launchd` templates use
+  owner-only modes, bounded restart behavior, process-group shutdown, and
+  platform logging.
+- Strict doctor now checks the shared schema version, filesystem safety, disk
+  and artifact capacity, stale resources, release integrity, Bridge and
+  adapter health, active artifact reservations, and a verified backup with a
+  staged restore.
+- Locked offline compiler checks, formatting, and strict all-target/all-feature
+  Clippy passed. Storage integration tests passed 17/17; four container-proxy
+  tests, two reservation tests, both reconciliation race regressions,
+  storage-policy, doctor, diagnostics, and process tests passed. One broader
+  reconciliation fixture still requires creating a Unix socket.
+- An independent follow-up review reran seven focused regressions and confirmed
+  that all four previously reported high-severity findings were resolved:
+  container completion races, pre-marker container crashes, incomplete
+  artifact reservations, and unbounded backup traversal.
+- The soak harness passed 23 deterministic tests and the service templates
+  passed seven. Corrected historical migration fixtures passed individually
+  while preserving immutable evidence JSON and artifact references.
+- A complete serial no-fail-fast run exercised every target. After the three
+  corrected migration fixtures were rerun successfully, the remaining
+  unavailable cases were confined to eight targets whose fixtures require
+  Unix-domain socket creation or `ps`; this managed sandbox denies those host
+  facilities before product code runs. Two attempts to run the suite with host
+  access were stopped because the automatic permission review timed out.
+
+The first 24-hour Linux and macOS soak results, hosted service-manager checks,
+and a complete host-facility serial run remain release evidence. They are not
+claimed by this local milestone.
 
 ## Baseline evidence
 

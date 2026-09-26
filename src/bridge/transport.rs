@@ -2,13 +2,14 @@
 use super::{Bridge, protocol::*};
 use crate::{Error, Result, cancellation::Cancellation, store::Store};
 use fs2::FileExt;
+use nix::unistd::geteuid;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
-    io::Write,
+    io::{Read, Write},
     net::{Ipv4Addr, SocketAddr},
-    os::unix::fs::{FileTypeExt, OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::{Arc, atomic::Ordering},
     time::Duration,
@@ -33,17 +34,47 @@ fn invalid(s: &str) -> Error {
     Error::InvalidInput(s.into())
 }
 fn private_read(path: &Path) -> Result<String> {
-    let meta = fs::symlink_metadata(path)?;
-    if !meta.is_file()
-        || meta.file_type().is_symlink()
-        || meta.permissions().mode() & 0o077 != 0
-        || meta.len() > 8192
+    let before = fs::symlink_metadata(path)?;
+    if !before.is_file()
+        || before.file_type().is_symlink()
+        || before.uid() != geteuid().as_raw()
+        || before.nlink() != 1
+        || before.permissions().mode() & 0o777 != 0o600
+        || before.len() > 8192
     {
         return Err(invalid(
             "Bridge runtime file must be a private regular file (0600)",
         ));
     }
-    Ok(fs::read_to_string(path)?)
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_NOFOLLOW)
+        .open(path)?;
+    let opened = file.metadata()?;
+    if opened.dev() != before.dev()
+        || opened.ino() != before.ino()
+        || opened.uid() != before.uid()
+        || opened.nlink() != 1
+        || opened.permissions().mode() & 0o777 != 0o600
+    {
+        return Err(invalid("Bridge runtime file changed while being opened"));
+    }
+    let mut value = String::new();
+    (&mut file).take(8193).read_to_string(&mut value)?;
+    if value.len() > 8192 {
+        return Err(invalid("Bridge runtime file exceeds 8 KiB"));
+    }
+    let current = fs::symlink_metadata(path)?;
+    if current.file_type().is_symlink()
+        || current.dev() != opened.dev()
+        || current.ino() != opened.ino()
+        || current.len() != opened.len()
+        || current.mtime() != opened.mtime()
+        || current.mtime_nsec() != opened.mtime_nsec()
+    {
+        return Err(invalid("Bridge runtime file changed while being read"));
+    }
+    Ok(value)
 }
 fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
     if fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
@@ -57,7 +88,9 @@ fn private_write(path: &Path, bytes: &[u8]) -> Result<()> {
         .set_permissions(fs::Permissions::from_mode(0o600))?;
     temp.write_all(bytes)?;
     temp.as_file().sync_all()?;
-    temp.persist(path).map_err(|e| Error::Io(e.error))?;
+    temp.persist_noclobber(path)
+        .map_err(|e| Error::Io(e.error))?;
+    fs::File::open(parent)?.sync_all()?;
     Ok(())
 }
 pub struct RuntimeFiles {
@@ -66,9 +99,11 @@ pub struct RuntimeFiles {
 }
 impl Drop for RuntimeFiles {
     fn drop(&mut self) {
+        let run = self.home.join("run");
         for name in ["hardknock.sock", "bridge-token", "bridge-endpoint.json"] {
-            let _ = fs::remove_file(self.home.join("run").join(name));
+            let _ = fs::remove_file(run.join(name));
         }
+        let _ = fs::File::open(run).and_then(|directory| directory.sync_all());
     }
 }
 pub async fn serve(home: &Path, tcp: Option<u16>, cancel: &Cancellation) -> Result<()> {
@@ -87,9 +122,54 @@ pub async fn serve(home: &Path, tcp: Option<u16>, cancel: &Cancellation) -> Resu
         .create(true)
         .truncate(false)
         .mode(0o600)
+        .custom_flags(nix::libc::O_NOFOLLOW)
         .open(lock_path)?;
+    let lock_metadata = lock.metadata()?;
+    let lock_path_metadata = fs::symlink_metadata(run.join("bridge.lock"))?;
+    if !lock_metadata.is_file()
+        || lock_metadata.uid() != geteuid().as_raw()
+        || lock_metadata.nlink() != 1
+        || lock_metadata.permissions().mode() & 0o777 != 0o600
+        || lock_path_metadata.file_type().is_symlink()
+        || lock_path_metadata.dev() != lock_metadata.dev()
+        || lock_path_metadata.ino() != lock_metadata.ino()
+    {
+        return Err(invalid(
+            "Bridge lock must be an owned private regular file (0600)",
+        ));
+    }
     lock.try_lock_exclusive()
         .map_err(|_| invalid("Bridge already running (runtime lock held)"))?;
+    let removed_runtime = crate::reconciliation::reconcile_stale_bridge_runtime(&home)?;
+    let recovery_store = Store::open(&home)?;
+    let reality_recovery = crate::reconciliation::reconcile_ephemeral_realities(&recovery_store)?;
+    if !reality_recovery.failed_realities.is_empty() {
+        return Err(Error::Intervention(format!(
+            "Bridge startup could not reconcile {} orphaned Realities: {}",
+            reality_recovery.failed_realities.len(),
+            reality_recovery
+                .failed_realities
+                .iter()
+                .map(|failure| format!("{} ({})", failure.reality_id, failure.reason))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
+    let work_recovery = crate::reconciliation::reconcile_interrupted_bridge_work(&recovery_store)?;
+    if !removed_runtime.is_empty()
+        || !reality_recovery.discarded_realities.is_empty()
+        || !work_recovery.failed_experiments.is_empty()
+        || !work_recovery.partial_curricula.is_empty()
+    {
+        tracing::warn!(
+            removed_runtime_paths = removed_runtime.len(),
+            discarded_realities = reality_recovery.discarded_realities.len(),
+            interrupted_experiments = work_recovery.failed_experiments.len(),
+            interrupted_curricula = work_recovery.partial_curricula.len(),
+            "Reconciled resources left by an interrupted Bridge"
+        );
+    }
+    drop(recovery_store);
     let socket_path = run.join("hardknock.sock");
     if let Ok(meta) = fs::symlink_metadata(&socket_path) {
         if !meta.file_type().is_socket() {
@@ -226,12 +306,7 @@ async fn refresh_reality_relays(
         })
         .collect();
     for reality in missing {
-        let directory = home
-            .join("run")
-            .join("realities")
-            .join(reality.id.to_string());
-        fs::create_dir_all(&directory)?;
-        fs::set_permissions(&directory, fs::Permissions::from_mode(0o755))?;
+        let directory = crate::reconciliation::ensure_reality_control_directory(home, &reality.id)?;
         let path = directory.join("bridge.sock");
         if let Ok(metadata) = fs::symlink_metadata(&path) {
             if !metadata.file_type().is_socket() {

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  SPDX-License-Identifier: Apache-2.0
+
+  Replace every __USER_HOME__ with the user's absolute home directory before
+  loading this LaunchAgent. launchd does not expand $HOME, ~, or shell syntax
+  in ProgramArguments.
+
+  Bridge stdout and stderr are piped to macOS system logging. The fixed shell
+  wrapper uses positional arguments rather than interpolating the home path,
+  and pipefail preserves the Bridge exit status for KeepAlive restart handling.
+  Inspect startup failures in Console.app or the macOS unified log, filtering
+  for the hardknock-bridge sender tag.
+
+  launchd sends SIGTERM when stopping the job. ExitTimeOut gives the Bridge
+  time to close its Unix socket and persistent state cleanly before escalation.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dev.openkedge.hardknock.bridge</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>set -o pipefail; "$@" 2&gt;&amp;1 | /usr/bin/logger -p user.notice -t hardknock-bridge</string>
+        <string>hardknock-bridge</string>
+        <string>__USER_HOME__/.local/bin/hardknock</string>
+        <string>--home</string>
+        <string>__USER_HOME__/.hardknock</string>
+        <string>bridge</string>
+        <string>start</string>
+        <string>--foreground</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <key>Umask</key>
+    <integer>63</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>AbandonProcessGroup</key>
+    <false/>
+    <key>ExitTimeOut</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/dev/null</string>
+    <key>StandardErrorPath</key>
+    <string>/dev/null</string>
+</dict>
+</plist>

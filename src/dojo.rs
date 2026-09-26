@@ -1,14 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{env, ffi::OsStr, fs, path::Path, process::Command};
+use std::{
+    env,
+    ffi::OsStr,
+    fs,
+    io::{self, Read},
+    path::Path,
+    process::{Command, Stdio},
+};
 
 use chrono::Utc;
 
 use crate::{
     Error, Result,
     core::{Reality, RealityId, RealityStatus, StateRef},
+    storage_policy::LeasedTransientDir,
     store::Store,
 };
+
+pub(crate) const MAX_GIT_DIFF_BYTES: usize = 16 * 1024 * 1024;
+const MAX_GIT_ERROR_BYTES: usize = 64 * 1024;
+const MAX_GIT_SCRATCH_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_GIT_SCRATCH_FILES: u64 = 2;
 
 pub trait RealityProvider {
     fn create(&self, state: &StateRef) -> Result<Reality>;
@@ -50,6 +63,68 @@ fn output(command: &mut Command) -> Result<Vec<u8>> {
         ));
     }
     Ok(result.stdout)
+}
+
+struct BoundedRead {
+    bytes: Vec<u8>,
+    exceeded: bool,
+}
+
+fn read_bounded(mut input: impl Read, limit: usize) -> io::Result<BoundedRead> {
+    let mut bytes = Vec::with_capacity(limit.min(64 * 1024));
+    let mut exceeded = false;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = input.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        let remaining = limit.saturating_sub(bytes.len());
+        let retained = count.min(remaining);
+        bytes.extend_from_slice(&buffer[..retained]);
+        exceeded |= retained < count;
+    }
+    Ok(BoundedRead { bytes, exceeded })
+}
+
+fn output_bounded(command: &mut Command, limit: usize) -> Result<Vec<u8>> {
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| Error::Intervention("Git stdout capture was unavailable".into()))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| Error::Intervention("Git stderr capture was unavailable".into()))?;
+    let stdout_reader = std::thread::spawn(move || read_bounded(stdout, limit));
+    let stderr_reader = std::thread::spawn(move || read_bounded(stderr, MAX_GIT_ERROR_BYTES));
+    let status = child.wait()?;
+    let stdout = stdout_reader
+        .join()
+        .map_err(|_| Error::Intervention("Git stdout reader terminated unexpectedly".into()))??;
+    let stderr = stderr_reader
+        .join()
+        .map_err(|_| Error::Intervention("Git stderr reader terminated unexpectedly".into()))??;
+
+    if stdout.exceeded {
+        return Err(Error::Intervention(format!(
+            "Reality diff exceeds the {} byte capture limit; reduce generated or untracked content before recording",
+            limit
+        )));
+    }
+    if !status.success() {
+        let mut message = String::from_utf8_lossy(&stderr.bytes).trim().to_owned();
+        if stderr.exceeded {
+            message.push_str(" [stderr truncated]");
+        }
+        return Err(Error::Git(message));
+    }
+    Ok(stdout.bytes)
 }
 
 fn text(command: &mut Command) -> Result<String> {
@@ -229,6 +304,9 @@ impl RealityProvider for GitRealityProvider<'_> {
     }
 
     fn diff(&self, reality: &Reality) -> Result<Vec<u8>> {
+        let _artifact_capacity = self
+            .store
+            .reserve_artifact_capacity(MAX_GIT_SCRATCH_BYTES, MAX_GIT_SCRATCH_FILES)?;
         self.validate_path(reality)?;
         if reality.status == RealityStatus::Discarded
             || !reality.root.exists()
@@ -254,7 +332,7 @@ impl RealityProvider for GitRealityProvider<'_> {
             ));
         }
         // A private index includes untracked files without changing the agent's index.
-        let scratch = tempfile::tempdir_in(self.store.home.join("artifacts"))?;
+        let scratch = LeasedTransientDir::create(self.store.home.join("artifacts/transient"))?;
         let index = scratch.path().join("index");
         output(
             git(&reality.root)
@@ -266,15 +344,18 @@ impl RealityProvider for GitRealityProvider<'_> {
                 .env("GIT_INDEX_FILE", &index)
                 .args(["add", "-A", "--", "."]),
         )?;
-        output(git(&reality.root).env("GIT_INDEX_FILE", &index).args([
-            "diff",
-            "--cached",
-            "--binary",
-            "--no-ext-diff",
-            "--no-textconv",
-            &reality.starting_state.git_commit,
-            "--",
-        ]))
+        output_bounded(
+            git(&reality.root).env("GIT_INDEX_FILE", &index).args([
+                "diff",
+                "--cached",
+                "--binary",
+                "--no-ext-diff",
+                "--no-textconv",
+                &reality.starting_state.git_commit,
+                "--",
+            ]),
+            MAX_GIT_DIFF_BYTES,
+        )
     }
 
     fn discard(&self, reality: &mut Reality) -> Result<()> {
@@ -314,4 +395,21 @@ pub fn resolve_home(path: &Path) -> Result<std::path::PathBuf> {
         .filter(|s| *s != OsStr::new(".."))
         .ok_or_else(|| Error::InvalidInput("Invalid data directory".into()))?;
     Ok(resolve_home(parent)?.join(name))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounded_git_capture_retains_only_the_configured_prefix() {
+        let input = vec![b'x'; 1024];
+        let captured = read_bounded(input.as_slice(), 128).unwrap();
+        assert_eq!(captured.bytes, vec![b'x'; 128]);
+        assert!(captured.exceeded);
+
+        let complete = read_bounded(b"ordinary metadata".as_slice(), 128).unwrap();
+        assert_eq!(complete.bytes, b"ordinary metadata");
+        assert!(!complete.exceeded);
+    }
 }

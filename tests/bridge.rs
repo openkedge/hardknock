@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 mod support;
+use fs2::FileExt;
 use hardknock::{
     bridge::{
         Bridge,
         config::Config,
+        engine::RunRecord,
         protocol::*,
         transport::{self, BridgeClient},
     },
@@ -116,6 +118,20 @@ fn config(f: &Fixture, checks: Vec<String>) {
         toml::to_string(&config).unwrap(),
     )
     .unwrap();
+}
+fn hold_bridge_lock(home: &Path) -> fs::File {
+    Store::open(home).unwrap();
+    let path = home.join("run/bridge.lock");
+    fs::write(&path, []).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .unwrap();
+    file.lock_exclusive().unwrap();
+    file
 }
 #[test]
 fn lifecycle_persists_evaluated_experience_idempotently_and_redacts() {
@@ -290,6 +306,223 @@ async fn authenticated_unix_and_tcp_transport_and_cleanup() {
     }
 }
 #[test]
+fn bridge_diagnostics_reject_unsafe_paths() {
+    use std::os::unix::fs::symlink;
+
+    fn assert_unsafe_diagnostic(stderr: &[u8]) {
+        let message = String::from_utf8_lossy(stderr);
+        assert!(
+            message.contains("diagnostic")
+                && (message.contains("regular file")
+                    || message.contains("regular-file validation")),
+            "{message}"
+        );
+    }
+
+    {
+        let f = Fixture::new();
+        Store::open(&f.home).unwrap();
+        let outside = f.temp.path().join("outside.log");
+        fs::write(&outside, "outside data").unwrap();
+        let log = f.home.join("logs/bridge.jsonl");
+        symlink(&outside, &log).unwrap();
+        let output = f
+            .command()
+            .arg("--json")
+            .args(["bridge", "start"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert_unsafe_diagnostic(&output.stderr);
+        assert_eq!(fs::read_to_string(outside).unwrap(), "outside data");
+    }
+
+    {
+        let f = Fixture::new();
+        Store::open(&f.home).unwrap();
+        let log = f.home.join("logs/bridge.jsonl");
+        fs::create_dir(&log).unwrap();
+        let output = f
+            .command()
+            .arg("--json")
+            .args(["bridge", "start"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert_unsafe_diagnostic(&output.stderr);
+        assert!(log.is_dir());
+    }
+
+    {
+        let f = Fixture::new();
+        Store::open(&f.home).unwrap();
+        let log = f.home.join("logs/bridge.jsonl");
+        let archive = f.home.join("logs/bridge.1.jsonl");
+        let outside = f.temp.path().join("archive-target.log");
+        fs::write(&log, "{\"event\":\"retained\"}\n").unwrap();
+        fs::write(&outside, "archive target").unwrap();
+        symlink(&outside, &archive).unwrap();
+        let output = f
+            .command()
+            .arg("--json")
+            .args(["bridge", "start"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert_unsafe_diagnostic(&output.stderr);
+        assert_eq!(
+            fs::read_to_string(log).unwrap(),
+            "{\"event\":\"retained\"}\n"
+        );
+        assert_eq!(fs::read_to_string(outside).unwrap(), "archive target");
+    }
+}
+
+#[test]
+fn bridge_diagnostics_failure_is_private_structured_and_durable() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let f = Fixture::new();
+    Store::open(&f.home).unwrap();
+    let log = f.home.join("logs/bridge.jsonl");
+    let previous = "{\"event\":\"previous_launch\"}\n";
+    fs::write(&log, previous).unwrap();
+    fs::set_permissions(&log, fs::Permissions::from_mode(0o644)).unwrap();
+    let _lock = hold_bridge_lock(&f.home);
+
+    let output = f
+        .command()
+        .arg("--json")
+        .args(["bridge", "start"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains(&log.display().to_string()));
+
+    let archive = f.home.join("logs/bridge.1.jsonl");
+    assert_eq!(fs::read_to_string(&archive).unwrap(), previous);
+    let records: Vec<Value> = fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert!(
+        records
+            .iter()
+            .any(|record| record["event"] == "bridge_detached_start")
+    );
+    assert!(records.iter().any(|record| {
+        record["event"] == "error"
+            && record["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("runtime lock held"))
+    }));
+    assert!(
+        records
+            .iter()
+            .any(|record| record["event"] == "bridge_detached_start_failed")
+    );
+    assert_eq!(
+        fs::metadata(&log).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::metadata(&archive).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::metadata(f.home.join("logs"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+}
+
+#[test]
+fn bridge_diagnostics_foreground_stays_on_stderr() {
+    let f = Fixture::new();
+    let _lock = hold_bridge_lock(&f.home);
+    let output = f
+        .command()
+        .arg("--json")
+        .args(["bridge", "start", "--foreground"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("runtime lock held"));
+    assert!(!f.home.join("logs/bridge.jsonl").exists());
+}
+
+#[test]
+fn bridge_diagnostics_detached_captures_graceful_stdout_and_exits_logger() {
+    let f = Fixture::new();
+    assert_eq!(f.cli(&["bridge", "start"], 0)["status"], "running");
+    let started: Vec<Value> = fs::read_to_string(f.home.join("logs/bridge.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert!(
+        started
+            .iter()
+            .any(|record| record["event"] == "bridge_detached_start")
+    );
+    assert!(
+        started
+            .iter()
+            .any(|record| record["event"] == "bridge_detached_ready")
+    );
+    assert_eq!(f.cli(&["bridge", "stop"], 0)["status"], "stopped");
+
+    let log = f.home.join("logs/bridge.jsonl");
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let records: Vec<Value> = fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect();
+        if records.iter().any(|record| record["status"] == "stopped") {
+            assert!(
+                records
+                    .iter()
+                    .any(|record| record["event"] == "bridge_detached_start")
+            );
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "detached stdout was not retained"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let lock_path = f.home.join("logs/bridge-diagnostics.lock");
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&lock_path)
+            .unwrap();
+        match FileExt::try_lock_exclusive(&lock) {
+            Ok(()) => {
+                FileExt::unlock(&lock).unwrap();
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                assert!(
+                    Instant::now() < deadline,
+                    "Bridge diagnostic logger did not exit"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) => panic!("cannot inspect Bridge diagnostic logger lock: {error}"),
+        }
+    }
+}
+#[test]
 fn persisted_session_survives_bridge_restart() {
     let f = Fixture::new();
     let id;
@@ -310,6 +543,67 @@ fn persisted_session_survives_bridge_restart() {
             .unwrap()["session"]["actions"],
         1
     );
+}
+
+#[test]
+fn queued_run_is_persisted_as_interrupted_after_bridge_restart() {
+    let f = Fixture::new();
+    let session_id;
+    {
+        let runtime = Runtime::new(&f.home);
+        session_id = start(runtime.b(), &f, "claude", "interrupted-run");
+        runtime.b().flush().unwrap();
+    }
+    let store = Store::open(&f.home).unwrap();
+    let mut session = store
+        .bridge_sessions()
+        .unwrap()
+        .into_iter()
+        .find(|session| session.id == session_id)
+        .unwrap();
+    let run = RunRecord {
+        run_id: "queued-before-crash".into(),
+        experience_id: hardknock::core::ExperienceId::new().to_string(),
+        status: "queued".into(),
+        outcome: None,
+        error: None,
+        action_start: 0,
+        action_end: 0,
+        duration_ms: 0,
+        claimed_success: None,
+        termination: RunTermination::Interrupted,
+    };
+    session.runs.insert(run.run_id.clone(), run.clone());
+    session.revision += 1;
+    store.save_bridge_session(&session).unwrap();
+    store.save_bridge_run(&session_id, &run).unwrap();
+    drop(store);
+
+    {
+        let runtime = Runtime::new(&f.home);
+        let status = runtime
+            .b()
+            .handle(AgentEvent::RunStatus {
+                hardknock_session_id: session_id.clone(),
+                run_id: run.run_id.clone(),
+            })
+            .unwrap();
+        assert_eq!(status["status"], "interrupted");
+        assert!(
+            status["error"]
+                .as_str()
+                .unwrap()
+                .contains("Bridge restarted")
+        );
+    }
+    let persisted = Store::open(&f.home)
+        .unwrap()
+        .bridge_runs(&session_id)
+        .unwrap()
+        .into_iter()
+        .find(|saved| saved.run_id == run.run_id)
+        .unwrap();
+    assert_eq!(persisted.status, "interrupted");
 }
 
 #[test]

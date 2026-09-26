@@ -17,7 +17,7 @@ use hardknock::{
 };
 use serde_json::Value;
 use std::{collections::HashSet, fs, os::unix::fs::symlink};
-use support::{Fixture, git};
+use support::{Fixture, copy_experience_artifacts, copy_trial_artifacts, git};
 
 fn run(f: &Fixture, profile: &str) -> ChaosCampaign {
     serde_json::from_value(
@@ -852,21 +852,29 @@ fn v4_migration_preserves_nonempty_relation_and_lesson_evidence_tables() {
         [source.home.join("hardknock.db").to_str().unwrap()],
     )
     .unwrap();
+    for table in ["realities", "executions", "evaluations", "experiences"] {
+        db.execute(
+            &format!("INSERT INTO {table} SELECT * FROM seed.{table}"),
+            [],
+        )
+        .unwrap();
+    }
+    let relocated = copy_experience_artifacts(&db, "seed", &legacy.home);
     for table in [
-        "realities",
-        "executions",
-        "evaluations",
-        "experiences",
-        "experience_artifacts",
         "hypotheses",
         "lessons",
         "lesson_versions",
         "experiments",
         "trials",
-        "trial_artifacts",
-        "lesson_evidence",
-        "experience_relations",
     ] {
+        db.execute(
+            &format!("INSERT INTO {table} SELECT * FROM seed.{table}"),
+            [],
+        )
+        .unwrap();
+    }
+    copy_trial_artifacts(&db, "seed", &relocated);
+    for table in ["lesson_evidence", "experience_relations"] {
         db.execute(
             &format!("INSERT INTO {table} SELECT * FROM seed.{table}"),
             [],

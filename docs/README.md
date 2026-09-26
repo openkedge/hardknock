@@ -11,6 +11,7 @@ Start with the [root README](../README.md) for a runnable example and current st
 - [Roadmap](roadmap.md): milestone goals and longer-term direction.
 - [Production readiness plan](production-readiness-plan.md): current verdict, supported 1.0 boundary, installation design, and release gates.
 - [Production implementation progress](production-progress.md): milestone status, commits, validation, and remaining gates.
+- [Production operations](operations.md): strict health checks, backup and restore, storage retention, Bridge services, and soak procedure.
 - [Support and compatibility policy](support-policy.md): maturity, release, upgrade, and agent compatibility commitments.
 
 ## Learn, retrieve, and improve

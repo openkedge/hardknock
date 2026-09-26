@@ -16,8 +16,8 @@ use hardknock::{
     store::{LATEST_SCHEMA_VERSION, LessonStore, Store},
 };
 use serde_json::{Value, json};
-use std::{fs, time::Instant};
-use support::{Fixture, git};
+use std::{fs, os::unix::fs::PermissionsExt, time::Instant};
+use support::{Fixture, copy_experience_artifacts, git};
 
 fn train(f: &Fixture) -> Value {
     f.cli(
@@ -117,6 +117,111 @@ fn doctor_reports_the_applied_database_schema() {
         f.cli(&["doctor"], 0)["result"]["schema_version"].as_i64(),
         Some(applied_schema_version)
     );
+}
+
+#[test]
+fn strict_doctor_reports_operational_findings_and_uses_stable_exit_codes() {
+    let f = Fixture::new();
+    drop(Store::open(&f.home).unwrap());
+    let config = f.home.join("config.toml");
+    fs::write(&config, "[storage]\nmin_free_bytes = 0\n").unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+
+    let missing_backup = f.cli(&["doctor", "--strict"], 2);
+    assert_eq!(missing_backup["result"]["report"]["status"], "not_ready");
+    assert_eq!(
+        missing_backup["result"]["report"]["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|check| check["id"] == "backup.bundle_verification")
+            .unwrap()["status"],
+        "unavailable"
+    );
+
+    let external_backup = f.temp.path().join("doctor-backup");
+    hardknock::storage::create_backup(&f.home, &external_backup).unwrap();
+    fs::rename(&external_backup, f.home.join("backups/doctor-backup")).unwrap();
+    let degraded = f.cli(&["doctor", "--strict"], 1);
+    assert_eq!(degraded["result"]["kind"], "doctor");
+    assert_eq!(degraded["result"]["strict"], true);
+    assert_eq!(degraded["result"]["report"]["status"], "degraded");
+    assert_eq!(
+        degraded["result"]["report"]["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|check| check["id"] == "storage.schema")
+            .unwrap()["status"],
+        "passed"
+    );
+    assert_eq!(
+        degraded["result"]["report"]["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|check| check["id"] == "bridge.liveness")
+            .unwrap()["status"],
+        "warning"
+    );
+
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o644)).unwrap();
+    let failed = f.cli(&["doctor", "--strict"], 2);
+    assert_eq!(failed["result"]["report"]["status"], "not_ready");
+    assert_eq!(
+        failed["result"]["report"]["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|check| check["id"] == "filesystem.configuration")
+            .unwrap()["status"],
+        "failed"
+    );
+}
+
+#[test]
+fn storage_retention_is_dry_run_by_default_and_preserves_evidence() {
+    let f = Fixture::new();
+    drop(Store::open(&f.home).unwrap());
+    let config = f.home.join("config.toml");
+    fs::write(
+        &config,
+        "[storage]\nmax_bytes = 4\nmax_files = 100\nmin_free_bytes = 0\nmax_scan_entries = 100\nmax_prune_items = 10\n",
+    )
+    .unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
+    let protected = f.home.join("artifacts/evidence.txt");
+    let transient = f.home.join("artifacts/transient/scratch.txt");
+    fs::write(&protected, "keep").unwrap();
+    fs::write(&transient, "drop").unwrap();
+
+    let status = f.cli(&["storage", "status"], 0);
+    assert_eq!(
+        status["result"]["inventory"]["limits"]["within_limits"],
+        false
+    );
+    let planned = f.cli(&["storage", "prune"], 0);
+    assert_eq!(planned["result"]["report"]["mode"], "dry_run");
+    assert_eq!(
+        planned["result"]["report"]["items"][0]["relative_path"],
+        "transient/scratch.txt"
+    );
+    assert!(transient.exists());
+    assert!(protected.exists());
+
+    let applied = f.cli(&["storage", "prune", "--apply"], 0);
+    assert_eq!(applied["result"]["report"]["mode"], "apply");
+    assert_eq!(applied["result"]["report"]["limits_met"], true);
+    assert!(!transient.exists());
+    assert!(protected.exists());
+
+    let exhausted = f
+        .command()
+        .args(["--json", "storage", "check-capacity", "--bytes", "1"])
+        .output()
+        .unwrap();
+    assert_eq!(exhausted.status.code(), Some(5));
+    assert!(String::from_utf8_lossy(&exhausted.stderr).contains("run retention dry-run"));
 }
 
 #[test]
@@ -356,7 +461,6 @@ fn version_eight_migration_backfills_skill_lineage_without_rewriting_evidence() 
         "executions",
         "evaluations",
         "experiences",
-        "experience_artifacts",
         "skills",
     ] {
         db.execute(
@@ -365,6 +469,7 @@ fn version_eight_migration_backfills_skill_lineage_without_rewriting_evidence() 
         )
         .unwrap();
     }
+    copy_experience_artifacts(&db, "source", &legacy);
     let before: String = db
         .query_row("SELECT data FROM experiences", [], |r| r.get(0))
         .unwrap();

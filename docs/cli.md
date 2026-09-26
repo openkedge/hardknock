@@ -392,6 +392,7 @@ On partial experiment runtime failure, inspect `experiment list/show` and `exper
 ~/.hardknock/
 ├── hardknock.db
 ├── artifacts/
+│   ├── transient/                 # bounded disposable scratch artifacts
 │   └── exp-<uuid>/
 │       ├── agent/{stdout.log,stderr.log}
 │       ├── check-0/{stdout.log,stderr.log}
@@ -404,21 +405,43 @@ On partial experiment runtime failure, inspect `experiment list/show` and `exper
 │       └── metadata.json
 ├── realities/
 ├── fixtures/                      # versioned bundled sources for replay
+├── backups/                       # verified automatic migration backups
 ├── locks/
 └── logs/
+    └── bridge{,.1,.2,.3,.4}.jsonl
 ```
 
 Each original run and trial has its own Experience artifact directory. Existing `exec-<uuid>` directories remain readable. Hash references retain the fields `blake3`/`bytes` and add `kind`. The final diff includes check effects; the agent diff does not. The Experience mirror is not self-hashed.
 
-The data directory is owner-only and SQLite is owner read/write; WAL/SHM sidecars may appear. `logs/` is reserved and tracing currently goes to stderr. Bridge/native capture adds bounded redaction and `config.toml`; generic runner logs are not retroactively sanitized. Artifact quotas/garbage collection remain deferred. Tasks, scripts, and logs can contain secrets; review before sharing.
+The data directory is owner-only and SQLite is owner read/write; WAL/SHM sidecars may appear. Detached Bridge diagnostics retain one 1 MiB active JSONL file and four 1 MiB archives; foreground tracing goes to stderr. Bridge/native capture adds bounded redaction and `config.toml`; generic runner logs are not retroactively sanitized. Tasks, scripts, and logs can contain secrets; review before sharing.
+
+Operational commands:
+
+```bash
+hardknock doctor --strict
+hardknock migration dry-run
+hardknock backup /new/path/to/backup
+hardknock --home /original/home restore --verify /path/to/backup
+hardknock storage status
+hardknock storage check-capacity --bytes 1048576 --files 16
+hardknock storage prune
+hardknock storage prune --apply
+```
+
+Backups contain the database and artifacts with verified manifests. Restore
+requires the original recorded home path and a missing or empty target.
+Storage limits count every artifact while pruning only regular files below
+`artifacts/transient/`; retained Experience evidence is protected. See the
+[production operations guide](operations.md) for migration, retention,
+service, diagnostics, and recovery details.
 
 ## Exit codes and cancellation
 
 | Code | Meaning |
 | --- | --- |
 | `0` | Management succeeded, checks passed, or a classified experiment completed; with no checks, agent exited zero |
-| `1` | Task evaluation failed/timed out; with no checks, agent failed/timed out |
-| `2` | Usage or runtime/internal failure |
+| `1` | Task evaluation failed/timed out; with no checks, agent failed/timed out; strict doctor reports degraded readiness |
+| `2` | Usage or runtime/internal failure; strict doctor reports not-ready findings |
 | `3` | Explicit experiment completed inconclusively |
 | `4` | Reserved for future policy/invariant failures |
 | `5` | Intervention required, invalid replay conditions, active lease, SIGINT/SIGTERM interruption |
