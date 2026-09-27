@@ -462,6 +462,27 @@ async fn bridge_accepts_reality_token_only_for_scoped_effect_events_and_rejects_
         &uuid::Uuid::new_v4().simple().to_string()[..12]
     ));
     let (store, reality, manifest) = isolated_reality(&fixture, "coding-effect-test");
+    // A per-Reality relay only starts for a container Reality with recorded
+    // runtime metadata. Without it, startup reconciliation classifies the
+    // container-provider Reality as an interrupted creation and discards it,
+    // so the relay socket never appears.
+    store
+        .put_provider_runtime(
+            &reality.id,
+            "container",
+            &ContainerRuntimeMetadata {
+                runtime: "fixture-runtime".into(),
+                container_id: "fixture-container".into(),
+                container_name: "fixture-container".into(),
+                image: "fixture-image".into(),
+                image_digest: "sha256:test-fixture".into(),
+                network_name: None,
+                attached_fixture_containers: Vec::new(),
+                lifecycle: ContainerRuntimeLifecycle::Ready,
+                created_at: Utc::now(),
+            },
+        )
+        .unwrap();
     let target = "mock-db://inventory/bridge-widget";
     MockExternalSystem::new(&store.home)
         .unwrap()
