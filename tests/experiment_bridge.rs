@@ -256,17 +256,11 @@ async fn session_end_cancels_native_origin_candidate_and_retains_partial_evidenc
         }))
         .await
         .unwrap();
+    // SessionEnded removes the live session, so the durable store — not the
+    // Bridge, whose ExperimentProgress requires an active session — is the
+    // observation point for the asynchronous cancellation it triggers.
     for _ in 0..200 {
-        let e = client
-            .request(AgentEvent::ExperimentProgress {
-                hardknock_session_id: session.clone(),
-                experiment_id: id.clone(),
-                after: 0,
-            })
-            .await
-            .unwrap();
-        if e["status"] == "cancelled" {
-            assert_eq!(e["event"], "experiment_cancelled");
+        if store.strategy_experiment(&id).unwrap().status == ExperimentStatus::Cancelled {
             break;
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
