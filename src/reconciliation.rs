@@ -488,7 +488,24 @@ mod tests {
         fs::create_dir_all(&relay).unwrap();
         fs::set_permissions(run.join("realities"), fs::Permissions::from_mode(0o755)).unwrap();
         fs::set_permissions(&relay, fs::Permissions::from_mode(0o755)).unwrap();
-        let _relay_socket = UnixListener::bind(relay.join("bridge.sock")).unwrap();
+        // The relay endpoint nests deeper than `hardknock.sock`, so on hosts
+        // whose temp dir is long (macOS `$TMPDIR`) this path can exceed the
+        // `AF_UNIX` `SUN_LEN` limit even though the shorter probe above bound.
+        // Treat that, like blocked sockets, as an environment skip rather than
+        // a failure; a short-path host (Linux CI) still exercises removal.
+        let _relay_socket = match UnixListener::bind(relay.join("bridge.sock")) {
+            Ok(listener) => listener,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::InvalidInput
+                ) =>
+            {
+                eprintln!("skipping live Bridge fixture: relay socket path unavailable ({error})");
+                return;
+            }
+            Err(error) => panic!("relay socket capability probe failed: {error}"),
+        };
 
         let removed = reconcile_stale_bridge_runtime(&store.home).unwrap();
         for path in [
