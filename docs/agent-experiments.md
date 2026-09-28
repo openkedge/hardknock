@@ -4,7 +4,15 @@ V0.4 accepts explicit alternatives, runs them in disposable Git Realities, evalu
 
 ## Run the deterministic demo
 
-From the Hardknock checkout:
+From the Hardknock checkout, run the one-command demo:
+
+```bash
+scripts/demo.sh
+```
+
+It builds the CLI if needed, stages the committed `strategy-choice` fixture in a
+throwaway Git repository, and runs the comparison below. To do it by hand
+instead:
 
 ```bash
 cargo build --locked

@@ -11,7 +11,7 @@ export HARDKNOCK_HOME="$HOME/.hardknock"
 ## Binary installation and managed setup
 
 Follow the canonical
-[fail-closed binary-release verification](../README.md#install-a-binary-release)
+[fail-closed binary-release verification](../README.md#install-a-published-release)
 before executing the downloaded `install-hardknock` bootstrap. That procedure
 keeps the signed stable tag that identifies the candidate artifact separate
 from the protected default-branch commit that signed the release attestations.

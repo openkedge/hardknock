@@ -16,7 +16,96 @@ Task → disposable Reality → execution + checks → immutable Experience
                                     scoped Lesson → later decision
 ```
 
-## Install a binary release
+## What it helps you do
+
+- **Catch convincing-but-wrong conclusions.** An agent can fail, explain the failure persuasively, and learn the wrong rule. Hardknock treats the explanation as a hypothesis and tests it against recorded starting conditions.
+- **Compare alternatives fairly.** Run two or more strategies from the same committed state in disposable Git Realities, judge them with explicit checks, and keep both supporting and contradictory evidence.
+- **Keep evidence across runs and agents.** Experiences are immutable; Lessons are scoped and can be revised or retired. The agent still decides what to do — Hardknock preserves the evidence.
+- **Stay safe by default.** Recommendations never touch your source repository, external effects need a separate explicit commit, and agents cannot approve themselves.
+
+## Try it
+
+Hardknock is a pre-release Rust CLI. Build it on Linux or macOS with Rust 1.88
+or newer, Git, and a C compiler, then run the deterministic demo — no model,
+package manager, or network service required:
+
+```bash
+scripts/demo.sh
+```
+
+The demo stages the committed `strategy-choice` fixture in a throwaway repository
+and compares two upgrade strategies from the same starting state. The direct
+upgrade fails its check; the staged upgrade passes. Hardknock reports a
+**CONTROLLED** comparison, recommends `staged`, and stores two immutable
+Experiences — but does **not** apply the winning candidate to your repository.
+
+The script wraps a single command; run it yourself to see the exact form:
+
+```bash
+cargo build --locked
+target/debug/hardknock --home "$(mktemp -d)" --repo /path/to/committed/project try \
+  --agent test-agent \
+  --candidate 'direct=direct-upgrade' \
+  --candidate 'staged=staged-upgrade' \
+  --check './test.sh'
+```
+
+See the [experiment walkthrough](docs/agent-experiments.md) for the result
+format, limitations, and a non-fixture example.
+
+For your own clean, committed repository, start with
+`hardknock --repo /path/to/project run --help` or the [CLI reference](docs/cli.md).
+Provide a `--check` command when you need a task outcome: a process exit code
+alone does not establish task success. `HARDKNOCK_HOME` or `--home` selects a
+dedicated data directory outside the source repository.
+
+## What it covers
+
+Hardknock is one modular Rust crate with SQLite metadata, local artifacts, Git worktree Realities, and an authenticated local Bridge. Its implemented local flows include:
+
+| Area | What it does | Start here |
+| --- | --- | --- |
+| Experience and experiments | Capture evaluated runs, compare alternatives, retrieve scoped Lessons, and test transfer | [Experience model](docs/experience-model.md) · [Experiments](docs/experiments.md) |
+| Resilience and learning | Run controlled chaos and recovery trials; plan bounded curricula and experience budgets | [Chaos](docs/chaos.md) · [Curriculum](docs/curriculum.md) · [Economics](docs/experience-economics.md) |
+| Runtime decisions | Use evidence for advice, abstention, prevention, and inspectable decisions | [Runtime control](docs/runtime-control.md) · [Predictive experience](docs/predictive-experience.md) |
+| Execution and effects | Declare capabilities, run portable tools, stage supported external effects, and require explicit commit | [Execution boundary](docs/execution-boundary.md) · [Effects](docs/effects.md) |
+| Shared knowledge | Integrate agents, federate signed evidence, resolve scoped knowledge, and coordinate bounded teams | [Integrations](docs/integrations.md) · [Federation](docs/federation.md) · [Knowledge resolution](docs/knowledge-resolution.md) · [Team governance](docs/team-governance.md) |
+
+The [documentation index](docs/README.md) groups the full guides, design details, benchmarks, and implementation reports. The [architecture](docs/architecture.md) explains component boundaries; the [roadmap](docs/roadmap.md) describes the longer direction.
+
+## Connect an MCP client
+
+Milestone 4 includes a generic MCP stdio integration for agent hosts that can
+launch a local subprocess. Inspect its machine-readable installation contract,
+then configure the host to run:
+
+```bash
+hardknock integration manifest
+hardknock mcp serve --stdio --workspace /absolute/path/to/project
+```
+
+The server advertises MCP protocol `2026-07-28` as a preview interface and
+routes three bounded tools through the authenticated local Bridge:
+`hardknock_query_context`, `hardknock_record_outcome`, and
+`hardknock_experiment_status`. The first
+context query can create a scoped session and returns a
+`hardknock_session_id`; every later stateful call must supply that explicit
+handle. The tool surface cannot grant approvals, commit external effects, or
+provide command or filesystem execution. Generic experiment creation remains
+disabled until Hardknock can enforce an isolated provider for that surface.
+
+The generic MCP integration has local conformance coverage, but external live
+acceptance across agent hosts is still pending. See [agent
+integrations](docs/integrations.md) and the [compatibility
+matrix](docs/compatibility-matrix.md).
+Release operators use the [production validation
+contract](docs/production-validation.md) and [release-candidate
+runbook](docs/release-candidate-runbook.md).
+
+## Install a published release
+
+Binary releases are not yet published; build from source with [the trial above](#try-it) in the meantime. When a release exists, the standalone `install-hardknock` bootstrap installs Hardknock without Rust. Always verify the bootstrap before executing it.
+
 
 Each release publishes a standalone `install-hardknock` bootstrap that does
 not require Rust. GitHub CLI 2.97.0 or newer is required for the official
@@ -269,77 +358,6 @@ service files while preserving the data home; `--remove-data` is a separate
 explicit action. Offline mirrors report checksum-only provenance, and
 `--no-verify-provenance` is the explicit escape hatch for a custom HTTPS
 source. See [production operations](docs/operations.md).
-
-## Connect an MCP client
-
-Milestone 4 includes a generic MCP stdio integration for agent hosts that can
-launch a local subprocess. Inspect its machine-readable installation contract,
-then configure the host to run:
-
-```bash
-hardknock integration manifest
-hardknock mcp serve --stdio --workspace /absolute/path/to/project
-```
-
-The server advertises MCP protocol `2026-07-28` as a preview interface and
-routes three bounded tools through the authenticated local Bridge:
-`hardknock_query_context`, `hardknock_record_outcome`, and
-`hardknock_experiment_status`. The first
-context query can create a scoped session and returns a
-`hardknock_session_id`; every later stateful call must supply that explicit
-handle. The tool surface cannot grant approvals, commit external effects, or
-provide command or filesystem execution. Generic experiment creation remains
-disabled until Hardknock can enforce an isolated provider for that surface.
-
-The generic MCP integration has local conformance coverage, but external live
-acceptance across agent hosts is still pending. See [agent
-integrations](docs/integrations.md) and the [compatibility
-matrix](docs/compatibility-matrix.md).
-Release operators use the [production validation
-contract](docs/production-validation.md) and [release-candidate
-runbook](docs/release-candidate-runbook.md).
-
-## Try it locally
-
-Hardknock is a pre-release Rust CLI. Build it on Linux or macOS with Rust 1.88
-or newer, Git, and a C compiler. This deterministic example needs no model,
-package manager, or network service after dependencies are available:
-
-```bash
-cargo build --locked
-HARDKNOCK_BIN="$PWD/target/debug/hardknock"
-DEMO_ROOT="$(mktemp -d)"
-cp -R fixtures/strategy-choice "$DEMO_ROOT/project"
-git -C "$DEMO_ROOT/project" init -b main
-git -C "$DEMO_ROOT/project" config user.name 'Hardknock Demo'
-git -C "$DEMO_ROOT/project" config user.email 'demo@example.invalid'
-git -C "$DEMO_ROOT/project" add .
-git -C "$DEMO_ROOT/project" -c core.hooksPath=/dev/null -c commit.gpgsign=false commit -m 'Strategy fixture'
-
-"$HARDKNOCK_BIN" --home "$DEMO_ROOT/data" --repo "$DEMO_ROOT/project" try \
-  --agent test-agent \
-  --candidate 'direct=direct-upgrade' \
-  --candidate 'staged=staged-upgrade' \
-  --check './test.sh'
-```
-
-The two candidates start from the same committed fixture. The direct upgrade fails its check; the staged upgrade passes. Hardknock reports the comparison and stores two Experiences, but does not apply the winning candidate to the source repository. See the [experiment walkthrough](docs/agent-experiments.md) for the result format, limitations, and a nonfixture example.
-
-For your own clean, committed repository, start with `hardknock --repo /path/to/project run --help` or the [CLI reference](docs/cli.md). Provide a `--check` command when you need a task outcome: a process exit code alone does not establish task success. `HARDKNOCK_HOME` or `--home` selects a dedicated data directory outside the source repository.
-
-## What it covers
-
-Hardknock is one modular Rust crate with SQLite metadata, local artifacts, Git worktree Realities, and an authenticated local Bridge. Its implemented local flows include:
-
-| Area | What it does | Start here |
-| --- | --- | --- |
-| Experience and experiments | Capture evaluated runs, compare alternatives, retrieve scoped Lessons, and test transfer | [Experience model](docs/experience-model.md) · [Experiments](docs/experiments.md) |
-| Resilience and learning | Run controlled chaos and recovery trials; plan bounded curricula and experience budgets | [Chaos](docs/chaos.md) · [Curriculum](docs/curriculum.md) · [Economics](docs/experience-economics.md) |
-| Runtime decisions | Use evidence for advice, abstention, prevention, and inspectable decisions | [Runtime control](docs/runtime-control.md) · [Predictive experience](docs/predictive-experience.md) |
-| Execution and effects | Declare capabilities, run portable tools, stage supported external effects, and require explicit commit | [Execution boundary](docs/execution-boundary.md) · [Effects](docs/effects.md) |
-| Shared knowledge | Integrate agents, federate signed evidence, resolve scoped knowledge, and coordinate bounded teams | [Integrations](docs/integrations.md) · [Federation](docs/federation.md) · [Knowledge resolution](docs/knowledge-resolution.md) · [Team governance](docs/team-governance.md) |
-
-The [documentation index](docs/README.md) groups the full guides, design details, benchmarks, and implementation reports. The [architecture](docs/architecture.md) explains component boundaries; the [roadmap](docs/roadmap.md) describes the longer direction.
 
 ## Current status and limits
 

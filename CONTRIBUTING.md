@@ -17,8 +17,20 @@ Clippy components; `Cargo.lock` pins dependencies.
 cargo build --locked
 cargo fmt --all --check
 cargo clippy --locked --all-targets --all-features -- -D warnings
+```
+
+For a quick end-to-end check that the CLI works, run `scripts/demo.sh`.
+
+While iterating, run only the targets you touched — for example
+`cargo test --test experiment_bridge` or `cargo test reconciliation`. Before
+submitting, run the full suite the way CI does, single-threaded:
+
+```bash
 cargo test --locked --all-targets --all-features -- --test-threads=1
 ```
+
+The suite is authoritative single-threaded: tests exercise real processes,
+sockets, and worktrees, so parallel runs can contend for shared resources.
 
 Tests create temporary Git repositories and private data directories. They exercise real processes, SQLite, worktrees, process failure, deadlines, and signal cleanup. Native adapter tests also require Python 3.11+ and Node.js 20+. They do not require an LLM, paid API, external database, npm, pnpm, or an installed external agent. Dependency downloads are needed for the first Cargo build; the tests themselves are offline.
 
